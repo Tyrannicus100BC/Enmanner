@@ -1,0 +1,145 @@
+#!/bin/bash
+set -euo pipefail
+
+usage() {
+  echo "Usage: $0 [--no-build | --runtime] /path/to/project" >&2
+}
+
+skip_build=false
+runtime_validation=false
+while [[ "${1:-}" == --* ]]; do
+  case "$1" in
+    --no-build) skip_build=true ;;
+    --runtime) runtime_validation=true ;;
+    *) usage; exit 64 ;;
+  esac
+  shift
+done
+if [[ $# -ne 1 ]]; then
+  usage
+  exit 64
+fi
+if [[ "$skip_build" == true && "$runtime_validation" == true ]]; then
+  echo "Error: --no-build and --runtime cannot be used together." >&2
+  exit 64
+fi
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source_dir="$(cd "$script_dir/.." && pwd)"
+target_dir="$(cd "$1" && pwd)"
+destination="$target_dir/.enmanner"
+
+if ! command -v git >/dev/null 2>&1 ||
+  ! git -C "$target_dir" rev-parse --show-toplevel >/dev/null 2>&1; then
+  echo "Warning: $target_dir is not inside a Git repository." >&2
+  echo "  Enmanner files at this workspace root will not be version-controlled." >&2
+  echo "  Consider installing in a repository, creating a small launcher" >&2
+  echo "  repository here, or explicitly treating this as an unversioned launcher." >&2
+fi
+if [[ -e "$destination" ]]; then
+  echo "Error: Enmanner is already present at $destination." >&2
+  echo "Remove it only after preserving project-specific changes, or use a documented Enmanner upgrade." >&2
+  exit 1
+fi
+if [[ ! -w "$target_dir" ]]; then
+  echo "Error: The project directory is not writable: $target_dir" >&2
+  exit 1
+fi
+
+mkdir -p "$destination"
+/usr/bin/rsync -a \
+  --exclude ".build" \
+  --exclude ".DS_Store" \
+  "$source_dir/" "$destination/"
+
+project_name="$(basename "$target_dir")"
+slug="$(printf '%s' "$project_name" |
+  tr '[:upper:]' '[:lower:]' |
+  sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//')"
+if [[ -z "$slug" ]]; then
+  slug="app"
+fi
+
+if [[ ! -e "$target_dir/enmanner.json" ]]; then
+  if [[ -f "$target_dir/package.json" ]] &&
+    grep -q '"vite"' "$target_dir/package.json"; then
+    command_json='["npm", "run", "dev", "--", "--host", "127.0.0.1", "--port", "${ENMANNER_PORT}", "--strictPort"]'
+  else
+    command_json='["./start", "--host", "127.0.0.1", "--port", "${ENMANNER_PORT}"]'
+  fi
+
+  manifest_path="$target_dir/enmanner.json"
+  {
+    echo '{'
+    echo '  "$schema": "./.enmanner/enmanner.schema.json",'
+    echo '  "version": 1,'
+    echo '  "name": "Enmanner Application",'
+    echo '  "identifier": "local.enmanner.application",'
+    echo '  "server": {'
+    echo "    \"command\": $command_json,"
+    echo '    "workingDirectory": ".",'
+    echo '    "environment": {"PORT": "${ENMANNER_PORT}"},'
+    echo '    "readiness": {'
+    echo '      "url": "http://127.0.0.1:${ENMANNER_PORT}/",'
+    echo '      "timeoutSeconds": 30'
+    echo '    }'
+    echo '  },'
+    echo '  "window": {'
+    echo '    "mode": "embedded",'
+    echo '    "width": 1200,'
+    echo '    "height": 800,'
+    echo '    "resizable": true'
+    echo '  },'
+    echo '  "development": {"reload": "auto"}'
+    echo '}'
+  } > "$manifest_path"
+  /usr/bin/plutil -replace name -string "$project_name" "$manifest_path"
+  /usr/bin/plutil -replace identifier -string "local.enmanner.$slug" "$manifest_path"
+  echo "✓ Created enmanner.json"
+else
+  echo "✓ Preserved existing enmanner.json"
+fi
+
+gitignore="$target_dir/.gitignore"
+if ! grep -q "# Enmanner generated files" "$gitignore" 2>/dev/null; then
+  {
+    echo
+    echo "# Enmanner generated files"
+    echo "*.app/"
+    echo ".enmanner/launcher/.build/"
+    echo ".enmanner/.build/"
+    echo ".env"
+    echo ".env.*"
+    echo "!.env.example"
+    echo "data/"
+  } >> "$gitignore"
+fi
+
+agents_file="$target_dir/AGENTS.md"
+if ! grep -q "<!-- enmanner:begin -->" "$agents_file" 2>/dev/null; then
+  {
+    echo
+    echo "<!-- enmanner:begin -->"
+    echo "## Enmanner"
+    echo
+    echo "Enmanner is installed in this project. Read \`.enmanner/AGENTS.md\` before"
+    echo "changing startup, networking, persistence, secrets, reload behavior,"
+    echo "native presentation (including the app icon), or collaboration."
+    echo "Preserve the repository as the source of truth."
+    echo "<!-- enmanner:end -->"
+  } >> "$agents_file"
+fi
+
+echo "✓ Installed project-local Enmanner files without a nested Git repository"
+
+if [[ "$skip_build" == true ]]; then
+  echo "Skipped runtime validation and app build as requested."
+else
+  if [[ "$runtime_validation" == true ]]; then
+    "$destination/scripts/validate" --runtime
+  else
+    echo "Skipped runtime validation because it starts and stops project services."
+    echo "  Run ./.enmanner/scripts/validate --runtime after reviewing state ownership."
+  fi
+  "$destination/scripts/build-app"
+fi

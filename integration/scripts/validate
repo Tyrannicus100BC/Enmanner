@@ -1,0 +1,30 @@
+#!/bin/bash
+set -euo pipefail
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+integration_dir="$(cd "$script_dir/.." && pwd)"
+project_dir="$(cd "$integration_dir/.." && pwd)"
+launcher_dir="$integration_dir/launcher"
+runtime_flag=""
+
+if [[ "${1:-}" == "--runtime" ]]; then
+  runtime_flag="--runtime"
+  echo "Warning: runtime validation starts and stops the configured application." >&2
+  echo "  It may mutate databases, containers, volumes, caches, or other local state." >&2
+  echo "  Review state ownership and persistence before using it." >&2
+elif [[ -n "${1:-}" ]]; then
+  echo "Usage: $0 [--runtime]" >&2
+  exit 64
+fi
+
+if ! command -v swift >/dev/null 2>&1; then
+  echo "Error: Apple Command Line Tools are required. Ask your coding agent to install or select them." >&2
+  exit 1
+fi
+
+echo "Validating Enmanner configuration…"
+swift build --package-path "$launcher_dir" -c debug --product EnmannerLauncher
+swift build --package-path "$launcher_dir" -c debug --product enmanner-validator
+bin_dir="$(swift build --package-path "$launcher_dir" -c debug --show-bin-path)"
+"$bin_dir/enmanner-validator" --project "$project_dir" ${runtime_flag:+"$runtime_flag"}
+echo "✓ launcher compiles with the active Apple toolchain"

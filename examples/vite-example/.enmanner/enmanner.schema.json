@@ -1,0 +1,111 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://enmanner.local/schema/v1/enmanner.schema.json",
+  "title": "Enmanner project manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "name", "identifier", "server", "window", "development"],
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "version": {
+      "const": 1
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 120,
+      "not": {
+        "pattern": "(^\\.{1,2}$)|[/:\\u0000-\\u001F]"
+      }
+    },
+    "identifier": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9-]*(\\.[A-Za-z0-9][A-Za-z0-9-]*)+$"
+    },
+    "icon": {
+      "type": "string",
+      "pattern": "\\.(icns|icon)$"
+    },
+    "server": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["command", "workingDirectory", "environment", "readiness"],
+      "properties": {
+        "command": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "workingDirectory": {
+          "type": "string",
+          "minLength": 1
+        },
+        "environment": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "preferredPort": {
+          "type": "integer",
+          "minimum": 1024,
+          "maximum": 65535
+        },
+        "readiness": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["url", "timeoutSeconds"],
+          "properties": {
+            "url": {
+              "type": "string",
+              "pattern": "^https?://(127\\.0\\.0\\.1|localhost|\\[::1\\])"
+            },
+            "timeoutSeconds": {
+              "type": "number",
+              "minimum": 1,
+              "maximum": 300
+            }
+          }
+        }
+      }
+    },
+    "window": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "width", "height", "resizable"],
+      "properties": {
+        "mode": {
+          "enum": ["embedded", "external"]
+        },
+        "width": {
+          "type": "number",
+          "minimum": 320,
+          "maximum": 4096
+        },
+        "height": {
+          "type": "number",
+          "minimum": 240,
+          "maximum": 2160
+        },
+        "resizable": {
+          "type": "boolean"
+        }
+      }
+    },
+    "development": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reload"],
+      "properties": {
+        "reload": {
+          "enum": ["auto", "manual"]
+        }
+      }
+    }
+  }
+}

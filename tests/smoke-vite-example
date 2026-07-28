@@ -1,0 +1,27 @@
+#!/bin/bash
+set -euo pipefail
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+repository_dir="$(cd "$script_dir/.." && pwd)"
+example_dir="$repository_dir/examples/vite-example"
+
+if [[ ! -d "$example_dir/node_modules" ]]; then
+  echo "Installing example dependencies…"
+  npm ci --prefix "$example_dir"
+fi
+
+"$example_dir/.enmanner/scripts/validate" --runtime
+"$example_dir/.enmanner/scripts/build-app"
+
+app_path="$example_dir/Enmanner Vite Example.app"
+if [[ ! -x "$app_path/Contents/MacOS/EnmannerLauncher" ]]; then
+  echo "Error: generated launcher is missing or not executable." >&2
+  exit 1
+fi
+if find "$app_path" \( -name node_modules -o -name .git -o -name src -o -name enmanner.json \) |
+  grep -q .; then
+  echo "Error: generated app contains project source or dependencies." >&2
+  exit 1
+fi
+
+echo "✓ Vite smoke test passed and the app bundle contains only launcher assets"

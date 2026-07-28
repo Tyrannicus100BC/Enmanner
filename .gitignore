@@ -1,0 +1,11 @@
+.DS_Store
+*.app/
+.build/
+**/.build/
+node_modules/
+**/node_modules/
+.env
+.env.*
+!.env.example
+data/
+*.log

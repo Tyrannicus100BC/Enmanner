@@ -1,0 +1,37 @@
+{
+  "$schema": "./.enmanner/enmanner.schema.json",
+  "version": 1,
+  "name": "Enmanner Vite Example",
+  "identifier": "local.enmanner.vite-example",
+  "server": {
+    "command": [
+      "npm",
+      "run",
+      "dev",
+      "--",
+      "--host",
+      "127.0.0.1",
+      "--port",
+      "${ENMANNER_PORT}",
+      "--strictPort"
+    ],
+    "workingDirectory": ".",
+    "environment": {
+      "PORT": "${ENMANNER_PORT}"
+    },
+    "preferredPort": 43120,
+    "readiness": {
+      "url": "http://127.0.0.1:${ENMANNER_PORT}/",
+      "timeoutSeconds": 30
+    }
+  },
+  "window": {
+    "mode": "embedded",
+    "width": 1200,
+    "height": 800,
+    "resizable": true
+  },
+  "development": {
+    "reload": "auto"
+  }
+}

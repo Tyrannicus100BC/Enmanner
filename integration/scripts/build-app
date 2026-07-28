@@ -1,0 +1,121 @@
+#!/bin/bash
+set -euo pipefail
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+integration_dir="$(cd "$script_dir/.." && pwd)"
+project_dir="$(cd "$integration_dir/.." && pwd)"
+launcher_dir="$integration_dir/launcher"
+
+"$script_dir/validate"
+
+validator_dir="$(swift build --package-path "$launcher_dir" -c debug --show-bin-path)"
+validator="$validator_dir/enmanner-validator"
+app_name="$("$validator" --project "$project_dir" --print name)"
+bundle_identifier="$("$validator" --project "$project_dir" --print identifier)"
+icon_path="$("$validator" --project "$project_dir" --print icon)"
+app_path="$project_dir/$app_name.app"
+launcher_path="$app_path/Contents/MacOS/EnmannerLauncher"
+
+while read -r running_pid running_command; do
+  if [[ "$running_command" == "$launcher_path" ]]; then
+    echo "Warning: $app_name is currently running (PID $running_pid)." >&2
+    echo "  This build updates the app on disk; quit and reopen it to use the" >&2
+    echo "  new launcher, native configuration, and resources." >&2
+  fi
+done < <(/bin/ps -axo pid=,comm=)
+
+echo "Building the native Enmanner launcher…"
+swift build --package-path "$launcher_dir" -c release --product EnmannerLauncher
+bin_dir="$(swift build --package-path "$launcher_dir" -c release --show-bin-path)"
+
+stage_dir="$(mktemp -d "${TMPDIR:-/tmp}/enmanner-app.XXXXXX")"
+cleanup() {
+  rm -rf "$stage_dir"
+}
+trap cleanup EXIT
+
+staged_app="$stage_dir/$app_name.app"
+contents="$staged_app/Contents"
+mkdir -p "$contents/MacOS" "$contents/Resources"
+cp "$bin_dir/EnmannerLauncher" "$contents/MacOS/EnmannerLauncher"
+chmod 755 "$contents/MacOS/EnmannerLauncher"
+
+plist="$contents/Info.plist"
+/usr/bin/plutil -create xml1 "$plist"
+/usr/bin/plutil -insert CFBundleDevelopmentRegion -string "en" "$plist"
+/usr/bin/plutil -insert CFBundleDisplayName -string "$app_name" "$plist"
+/usr/bin/plutil -insert CFBundleExecutable -string "EnmannerLauncher" "$plist"
+/usr/bin/plutil -insert CFBundleIdentifier -string "$bundle_identifier" "$plist"
+/usr/bin/plutil -insert CFBundleInfoDictionaryVersion -string "6.0" "$plist"
+/usr/bin/plutil -insert CFBundleName -string "$app_name" "$plist"
+/usr/bin/plutil -insert CFBundlePackageType -string "APPL" "$plist"
+/usr/bin/plutil -insert CFBundleShortVersionString -string "0.1.0" "$plist"
+/usr/bin/plutil -insert CFBundleVersion -string "1" "$plist"
+/usr/bin/plutil -insert LSMinimumSystemVersion -string "13.0" "$plist"
+/usr/bin/plutil -insert LSMultipleInstancesProhibited -bool true "$plist"
+/usr/bin/plutil -insert NSHighResolutionCapable -bool true "$plist"
+/usr/bin/plutil -insert NSAppTransportSecurity -json \
+  '{"NSAllowsLocalNetworking":true}' "$plist"
+
+if [[ -n "$icon_path" ]]; then
+  icon_source="$project_dir/$icon_path"
+  icon_extension="${icon_path##*.}"
+
+  if [[ "$icon_extension" == "icon" ]]; then
+    if ! command -v xcrun >/dev/null 2>&1 ||
+      ! xcrun --find actool >/dev/null 2>&1; then
+      echo "Error: building an Icon Composer package requires Xcode with actool." >&2
+      echo "  Install current Xcode, or configure a legacy .icns fallback." >&2
+      exit 1
+    fi
+
+    icon_name="$(basename "$icon_path" .icon)"
+    icon_output="$stage_dir/icon-output"
+    icon_plist="$stage_dir/icon-info.plist"
+    mkdir -p "$icon_output"
+    xcrun actool "$icon_source" \
+      --compile "$icon_output" \
+      --platform macosx \
+      --minimum-deployment-target 13.0 \
+      --app-icon "$icon_name" \
+      --standalone-icon-behavior all \
+      --output-partial-info-plist "$icon_plist" \
+      --warnings \
+      --errors \
+      --notices \
+      --output-format human-readable-text
+
+    cp "$icon_output/Assets.car" "$contents/Resources/Assets.car"
+    if [[ -f "$icon_output/$icon_name.icns" ]]; then
+      cp "$icon_output/$icon_name.icns" "$contents/Resources/$icon_name.icns"
+    fi
+    /usr/bin/plutil -insert CFBundleIconFile -string "$icon_name" "$plist"
+    /usr/bin/plutil -insert CFBundleIconName -string "$icon_name" "$plist"
+  else
+    cp "$icon_source" "$contents/Resources/AppIcon.icns"
+    /usr/bin/plutil -insert CFBundleIconFile -string "AppIcon" "$plist"
+  fi
+else
+  echo "Warning: no app icon is configured in enmanner.json." >&2
+  echo "  Inspect project assets or use image generation to create one; see .enmanner/instructions/icon.md." >&2
+fi
+
+if command -v codesign >/dev/null 2>&1; then
+  /usr/bin/codesign --force --sign - --timestamp=none "$staged_app"
+fi
+
+previous_app=""
+if [[ -e "$app_path" ]]; then
+  previous_app="$stage_dir/previous.app"
+  mv "$app_path" "$previous_app"
+fi
+if ! mv "$staged_app" "$app_path"; then
+  if [[ -n "$previous_app" && -e "$previous_app" ]]; then
+    mv "$previous_app" "$app_path"
+  fi
+  exit 1
+fi
+
+app_size="$(du -sh "$app_path" | awk '{print $1}')"
+echo "✓ Created $app_name.app beside the project source ($app_size)"
+echo "  Ordinary web changes appear without rebuilding this launcher."
