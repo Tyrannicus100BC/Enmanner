@@ -597,6 +597,7 @@ final class SettingsWindowController: NSWindowController {
                 configuration: userConfiguration
             ).save(values)
             projectStatusLabel.stringValue = ""
+            window?.orderOut(nil)
             onSaveAndRestart?()
         } catch {
             presentSaveError(error)
