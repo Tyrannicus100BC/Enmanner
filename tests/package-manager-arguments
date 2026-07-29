@@ -1,0 +1,45 @@
+#!/bin/bash
+set -euo pipefail
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+fixture_dir="$script_dir/fixtures/package-manager-arguments"
+expected='["--host","127.0.0.1","--port","4567","--strictPort"]'
+tested=0
+
+check_arguments() {
+  local package_manager="$1"
+  shift
+  if ! command -v "$package_manager" >/dev/null 2>&1; then
+    echo "- $package_manager is unavailable; skipped its real argument-forwarding check"
+    return
+  fi
+  local probe_dir output
+  probe_dir="$(mktemp -d "${TMPDIR:-/tmp}/Enmanner $package_manager Args.XXXXXX")"
+  /usr/bin/ditto "$fixture_dir/package.json" "$probe_dir/package.json"
+  /usr/bin/ditto "$fixture_dir/probe.mjs" "$probe_dir/probe.mjs"
+  if [[ "$package_manager" == "yarn" ]]; then
+    (cd "$probe_dir" && yarn install >/dev/null 2>&1)
+  fi
+  output="$(cd "$probe_dir" && "$@" 2>/dev/null | tail -n 1)"
+  rm -rf "$probe_dir"
+  if [[ "$output" != "$expected" ]]; then
+    echo "Error: $package_manager forwarded unexpected arguments: $output" >&2
+    exit 1
+  fi
+  tested=$((tested + 1))
+}
+
+check_arguments npm \
+  npm run dev -- --host 127.0.0.1 --port 4567 --strictPort
+check_arguments pnpm \
+  pnpm run dev --host 127.0.0.1 --port 4567 --strictPort
+check_arguments yarn \
+  yarn run dev --host 127.0.0.1 --port 4567 --strictPort
+check_arguments bun \
+  bun run dev --host 127.0.0.1 --port 4567 --strictPort
+
+[[ $tested -gt 0 ]] || {
+  echo "Error: no supported package manager was available for testing." >&2
+  exit 1
+}
+echo "✓ verified argument forwarding for $tested available package managers"

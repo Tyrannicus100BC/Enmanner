@@ -21,9 +21,10 @@
 - No code sandbox, encrypted secret store, data migration framework, backup service,
   project upgrade manager, auto-updater, notarization, or public distribution.
 - Browser mode keeps a native status window but is intentionally basic.
-- Installer inference intentionally completes configuration only for tested,
-  high-confidence adapters. Other stacks receive an inactive draft, candidates,
-  structured unresolved checks, and a `configurationRequired` result.
+- Installer inference completes configuration for tested root Vite and Next.js
+  projects using npm, pnpm, Yarn, or Bun. Custom scripts, monorepos, and other
+  stacks receive an inactive draft, candidates, structured unresolved checks,
+  and a `configurationRequired` result.
 - Automated appearance previews depend on the current Xcode-bundled Icon
   Composer renderer. The actual Finder and Dock result still needs visual
   inspection on the target macOS release.

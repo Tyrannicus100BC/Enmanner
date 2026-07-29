@@ -86,9 +86,10 @@ an empty owner-only file. Enmanner never infers fields from the template.
 Each field has an environment-variable `key`, human-readable `label`, optional
 `description`, optional `required` flag, and one of these types. Labels should
 use consistent human-facing Title Case independent of dotenv spelling, while
-preserving canonical brands and acronyms. Descriptions should add information,
-use one sentence of at most 80 characters, and are displayed within a strict
-two-line limit.
+preserving canonical brands and acronyms. Descriptions are compact subtitles,
+not documentation: they should add information beyond the label, preferably in
+45 characters or fewer and never more than 60. Omit a description that would
+only restate the label. Descriptions wrap within a two-line limit.
 
 - `string` — ordinary text, and the default when `type` is omitted
 - `secret` — masked text that is still stored in the configured dotenv file

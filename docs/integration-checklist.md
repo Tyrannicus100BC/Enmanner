@@ -25,8 +25,10 @@ produced.
    Expose only values they should edit or verify, choose the correct control
    type, and mark only genuinely startup-blocking values as required. Use
    consistent human-facing Title Case regardless of dotenv key casing, preserve
-   canonical brands and acronyms, and keep optional descriptions to one useful
-   sentence of at most 80 characters.
+   canonical brands and acronyms, and treat optional descriptions as compact
+   subtitles: add information the label does not, prefer 45 characters or
+   fewer, never exceed 60, and omit the subtitle when it would merely restate
+   the label.
 8. Run static validation. After reviewing state ownership, opt into runtime
    validation and confirm readiness, shutdown, process-group cleanup, endpoint
    disappearance, port release, and workspace mutations.

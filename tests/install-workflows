@@ -21,9 +21,10 @@ vite_target="$test_root/Vite Project"
 generic_target="$test_root/Generic Project"
 workspace_target="$test_root/Workspace Project"
 root_manifest_target="$test_root/Root Manifest Project"
+adapter_root="$test_root/Adapter Projects"
 mkdir -p "$vite_target" "$generic_target" \
   "$workspace_target/Backend/.git" "$workspace_target/Frontend/.git" \
-  "$root_manifest_target"
+  "$root_manifest_target" "$adapter_root"
 cp "$repository_dir/examples/vite-example/package.json" \
   "$repository_dir/examples/vite-example/package-lock.json" \
   "$vite_target/"
@@ -31,6 +32,108 @@ cp "$repository_dir/tests/fixtures/generic-package.json" \
   "$generic_target/package.json"
 printf '%s\n' '# Generic project instructions' > "$generic_target/CLAUDE.md"
 printf '%s\n' '{}' > "$root_manifest_target/enmanner.json"
+
+write_adapter_project() {
+  local package_manager="$1"
+  local framework="$2"
+  local target="$adapter_root/$package_manager-$framework"
+  local script dependency version lockfile expected_command
+  mkdir -p "$target"
+  case "$framework" in
+    vite)
+      script="vite"
+      dependency="vite"
+      version="^7.0.0"
+      ;;
+    next)
+      script="next dev"
+      dependency="next"
+      version="^16.0.0"
+      ;;
+  esac
+  case "$package_manager" in
+    npm)
+      lockfile="package-lock.json"
+      if [[ "$framework" == "vite" ]]; then
+        expected_command='["npm","run","dev","--","--host","127.0.0.1","--port","${ENMANNER_PORT}","--strictPort"]'
+      else
+        expected_command='["npm","run","dev","--","--hostname","127.0.0.1","--port","${ENMANNER_PORT}"]'
+      fi
+      ;;
+    pnpm)
+      lockfile="pnpm-lock.yaml"
+      if [[ "$framework" == "vite" ]]; then
+        expected_command='["pnpm","run","dev","--host","127.0.0.1","--port","${ENMANNER_PORT}","--strictPort"]'
+      else
+        expected_command='["pnpm","run","dev","--hostname","127.0.0.1","--port","${ENMANNER_PORT}"]'
+      fi
+      ;;
+    yarn)
+      lockfile="yarn.lock"
+      if [[ "$framework" == "vite" ]]; then
+        expected_command='["yarn","run","dev","--host","127.0.0.1","--port","${ENMANNER_PORT}","--strictPort"]'
+      else
+        expected_command='["yarn","run","dev","--hostname","127.0.0.1","--port","${ENMANNER_PORT}"]'
+      fi
+      ;;
+    bun)
+      lockfile="bun.lock"
+      if [[ "$framework" == "vite" ]]; then
+        expected_command='["bun","run","dev","--host","127.0.0.1","--port","${ENMANNER_PORT}","--strictPort"]'
+      else
+        expected_command='["bun","run","dev","--hostname","127.0.0.1","--port","${ENMANNER_PORT}"]'
+      fi
+      ;;
+  esac
+  printf '%s\n' \
+    "{\"private\":true,\"packageManager\":\"$package_manager@1.0.0\",\"scripts\":{\"dev\":\"$script\"},\"devDependencies\":{\"$dependency\":\"$version\"}}" \
+    > "$target/package.json"
+  : > "$target/$lockfile"
+  "$repository_dir/integration/scripts/install" --plan --json "$target" |
+    jq -e \
+      --arg package_manager "$package_manager" \
+      --arg framework "$framework" \
+      --argjson expected_command "$expected_command" '
+        (.manifestStatus == "inferred") and
+        (.inference.packageManager == $package_manager) and
+        (.inference.packageManagerSignal == "packageManager") and
+        (.inference.framework == $framework) and
+        (.inference.command == $expected_command) and
+        (.unresolvedChecks | length == 0)
+      ' >/dev/null
+}
+
+for adapter_package_manager in npm pnpm yarn bun; do
+  for adapter_framework in vite next; do
+    write_adapter_project "$adapter_package_manager" "$adapter_framework"
+  done
+done
+
+conflict_target="$adapter_root/Conflicting Package Managers"
+mkdir -p "$conflict_target"
+printf '%s\n' \
+  '{"private":true,"packageManager":"pnpm@10.0.0","scripts":{"dev":"vite"},"devDependencies":{"vite":"^7.0.0"}}' \
+  > "$conflict_target/package.json"
+: > "$conflict_target/yarn.lock"
+"$repository_dir/integration/scripts/install" --plan --json "$conflict_target" |
+  jq -e '
+    (.manifestStatus == "configurationRequired") and
+    (.inference.command == null) and
+    (.inference.reason | contains("conflicting package-manager signals"))
+  ' >/dev/null
+
+indirect_target="$adapter_root/Indirect Vite Script"
+mkdir -p "$indirect_target"
+printf '%s\n' \
+  '{"private":true,"scripts":{"dev":"concurrently \"vite\" \"node api.js\""},"devDependencies":{"vite":"^7.0.0"}}' \
+  > "$indirect_target/package.json"
+: > "$indirect_target/package-lock.json"
+"$repository_dir/integration/scripts/install" --plan --json "$indirect_target" |
+  jq -e '
+    (.manifestStatus == "configurationRequired") and
+    (.inference.framework == "vite") and
+    (.inference.reason | contains("not a tested direct framework command"))
+  ' >/dev/null
 
 if "$repository_dir/integration/scripts/install" --plan "$root_manifest_target" \
   >"$test_root/root-manifest.out" 2>&1; then

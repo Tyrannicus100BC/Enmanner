@@ -130,12 +130,18 @@ The plan performs local filesystem and Git inspection only. Its `ahead` and
 `behind` values come from existing local remote-tracking refs; it does not fetch
 or otherwise contact a Git remote.
 
-For a root npm/Vite project, the installer can infer a safe loopback startup
-command, create `enmanner/enmanner.json`, append narrowly-owned managed sections
-to `.gitignore` and `AGENTS.md`, and perform static validation. It deliberately
-does not build an app until a distinctive icon is configured. This keeps
-lifecycle work ahead of visual finishing without ever producing a placeholder
-launcher.
+For a root Vite or Next.js project using npm, pnpm, Yarn, or Bun, the installer
+can infer a safe loopback startup command, create `enmanner/enmanner.json`,
+append narrowly-owned managed sections to `.gitignore` and `AGENTS.md`, and
+perform static validation. It reads an explicit `packageManager` field and
+matching root lockfile evidence, refuses conflicting package-manager signals,
+and only accepts tested direct `vite` or `next dev` scripts. See
+[docs/supported-toolchains.md](docs/supported-toolchains.md) for the exact
+matrix and command contract.
+
+The installer deliberately does not build an app until a distinctive icon is
+configured. This keeps lifecycle work ahead of visual finishing without ever
+producing a placeholder launcher.
 
 For other stacks it reports candidate package scripts, installs the framework,
 and stops with `configurationRequired`. It writes
@@ -254,7 +260,10 @@ Run:
 
 ```bash
 swift test --package-path integration/framework
+./tests/install-workflows
+./tests/package-manager-arguments
 ./tests/smoke-vite-example
+./tests/smoke-toolchain-adapters
 ```
 
 Keep the launcher dependency-free, preserve argument-array process launching,

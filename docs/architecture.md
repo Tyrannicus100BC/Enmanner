@@ -141,8 +141,9 @@ recent server output. An optional manifest declaration adds project settings for
 explicitly selected dotenv keys. Browser-mode projects present that form
 directly instead of reserving a tab for embedded-browser preferences. The UI
 supports text, revealable masked secrets, booleans, files, and directories.
-Field descriptions occupy at most two lines. Secret reveal controls sit inside
-their fields, disappear while a value is visible, and remask when editing ends.
+Field descriptions wrap within at most two lines instead of truncating.
+Secret reveal controls sit above the text inside their fields, disappear while
+a value is visible, and remask when editing ends.
 Launcher diagnostics and Save & Restart share a fixed footer. Saving updates
 the project-owned dotenv file atomically and restarts the supervised process; no
 values enter the generated app bundle or native preferences.

@@ -241,7 +241,7 @@ final class SettingsWindowController: NSWindowController {
         scrollView.autohidesScrollers = true
         scrollView.drawsBackground = false
 
-        let documentView = NSView()
+        let documentView = FlippedView()
         documentView.translatesAutoresizingMaskIntoConstraints = false
         scrollView.documentView = documentView
 
@@ -342,7 +342,7 @@ final class SettingsWindowController: NSWindowController {
             ),
             stack.trailingAnchor.constraint(
                 equalTo: documentView.trailingAnchor,
-                constant: -16
+                constant: 0
             ),
             stack.topAnchor.constraint(
                 equalTo: documentView.topAnchor,
@@ -448,7 +448,7 @@ final class SettingsWindowController: NSWindowController {
             descriptionLabel.textColor = .secondaryLabelColor
             descriptionLabel.font = .systemFont(ofSize: 11)
             descriptionLabel.maximumNumberOfLines = 2
-            descriptionLabel.lineBreakMode = .byTruncatingTail
+            descriptionLabel.lineBreakMode = .byWordWrapping
             descriptionLabel.toolTip = description
             informationViews.append(descriptionLabel)
         }
@@ -602,6 +602,10 @@ final class SettingsWindowController: NSWindowController {
     }
 }
 
+private final class FlippedView: NSView {
+    override var isFlipped: Bool { true }
+}
+
 @MainActor
 private final class RevealableSecureField: NSView, NSTextFieldDelegate {
     private let secureField = NSSecureTextField()
@@ -663,7 +667,11 @@ private final class RevealableSecureField: NSView, NSTextFieldDelegate {
         revealButton.translatesAutoresizingMaskIntoConstraints = false
         addSubview(secureField)
         addSubview(revealedField)
-        addSubview(revealButton)
+        addSubview(
+            revealButton,
+            positioned: .above,
+            relativeTo: revealedField
+        )
 
         NSLayoutConstraint.activate([
             secureField.leadingAnchor.constraint(

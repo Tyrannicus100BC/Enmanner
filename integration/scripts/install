@@ -152,9 +152,11 @@ identifier_checksum="$(printf '%s' "$bundle_identifier" | /usr/bin/cksum | /usr/
 preferred_port=$((42000 + identifier_checksum % 6000))
 
 package_manager=""
+package_manager_signal=""
 candidate_command=""
 candidate_working_directory="."
 candidate_inspect_path=""
+detected_framework=""
 manifest_status="configurationRequired"
 inference_reason="No supported high-confidence startup command was found."
 detected_stacks=()
@@ -175,14 +177,56 @@ add_detected_stack() {
 if [[ -f "$target_dir/package.json" ]]; then
   add_detected_stack "Node.js"
   candidate_inspect_path="package.json"
-  if [[ -f "$target_dir/bun.lock" || -f "$target_dir/bun.lockb" ]]; then
-    package_manager="bun"
-  elif [[ -f "$target_dir/pnpm-lock.yaml" ]]; then
-    package_manager="pnpm"
-  elif [[ -f "$target_dir/yarn.lock" ]]; then
-    package_manager="yarn"
-  else
-    package_manager="npm"
+
+  declared_package_manager="$(
+    /usr/bin/plutil -extract packageManager raw \
+      "$target_dir/package.json" 2>/dev/null || true
+  )"
+  declared_package_manager_name=""
+  if [[ -n "$declared_package_manager" ]]; then
+    if [[ "$declared_package_manager" =~ ^(npm|pnpm|yarn|bun)@.+$ ]]; then
+      declared_package_manager_name="${BASH_REMATCH[1]}"
+    else
+      inference_reason="The root packageManager field is unsupported or malformed: $declared_package_manager"
+    fi
+  fi
+
+  lockfile_managers=()
+  [[ -f "$target_dir/package-lock.json" ||
+    -f "$target_dir/npm-shrinkwrap.json" ]] &&
+    lockfile_managers+=("npm")
+  [[ -f "$target_dir/pnpm-lock.yaml" ]] &&
+    lockfile_managers+=("pnpm")
+  [[ -f "$target_dir/yarn.lock" ]] &&
+    lockfile_managers+=("yarn")
+  [[ -f "$target_dir/bun.lock" || -f "$target_dir/bun.lockb" ]] &&
+    lockfile_managers+=("bun")
+
+  package_manager_conflict=false
+  if [[ ${#lockfile_managers[@]} -gt 1 ]]; then
+    package_manager_conflict=true
+    inference_reason="Conflicting root lockfiles were found for: ${lockfile_managers[*]}. Remove stale lockfiles or declare one verified package manager."
+  elif [[ -n "$declared_package_manager" &&
+    -z "$declared_package_manager_name" ]]; then
+    package_manager_conflict=true
+  elif [[ -n "$declared_package_manager_name" &&
+    ${#lockfile_managers[@]} -eq 1 &&
+    "${lockfile_managers[0]}" != "$declared_package_manager_name" ]]; then
+    package_manager_conflict=true
+    inference_reason="The packageManager field selects $declared_package_manager_name, but the root lockfile selects ${lockfile_managers[0]}. Resolve the conflicting package-manager signals."
+  fi
+
+  if [[ "$package_manager_conflict" != true ]]; then
+    if [[ -n "$declared_package_manager_name" ]]; then
+      package_manager="$declared_package_manager_name"
+      package_manager_signal="packageManager"
+    elif [[ ${#lockfile_managers[@]} -eq 1 ]]; then
+      package_manager="${lockfile_managers[0]}"
+      package_manager_signal="lockfile"
+    else
+      package_manager="npm"
+      package_manager_signal="default"
+    fi
   fi
 
   selected_script=""
@@ -197,7 +241,9 @@ if [[ -f "$target_dir/package.json" ]]; then
       break
     fi
   done
-  if [[ -n "$selected_script" ]]; then
+  if [[ -n "$selected_script" &&
+    "$package_manager_conflict" != true &&
+    -n "$package_manager" ]]; then
     if [[ "$package_manager" == "npm" ]]; then
       candidate_command="[\"npm\", \"run\", \"$selected_script\"]"
     else
@@ -214,11 +260,80 @@ if [[ -f "$target_dir/package.json" ]]; then
     fi
   fi
 
-  if [[ "$package_manager" == "npm" && "$selected_script" == "dev" ]] &&
-    grep -Eq '"vite"[[:space:]]*:' "$target_dir/package.json"; then
-    candidate_command='["npm", "run", "dev", "--", "--host", "127.0.0.1", "--port", "${ENMANNER_PORT}", "--strictPort"]'
-    manifest_status="inferred"
-    inference_reason="Verified a root npm Vite development script with explicit loopback and strict dynamic-port arguments."
+  has_vite_dependency=false
+  has_next_dependency=false
+  for dependency_section in dependencies devDependencies; do
+    if /usr/bin/plutil -extract "$dependency_section.vite" raw \
+      "$target_dir/package.json" >/dev/null 2>&1; then
+      has_vite_dependency=true
+    fi
+    if /usr/bin/plutil -extract "$dependency_section.next" raw \
+      "$target_dir/package.json" >/dev/null 2>&1; then
+      has_next_dependency=true
+    fi
+  done
+
+  framework_conflict=false
+  if [[ "$has_vite_dependency" == true && "$has_next_dependency" == true ]]; then
+    framework_conflict=true
+    inference_reason="Both Vite and Next.js are direct root dependencies; choose and verify the launcher command explicitly."
+  elif [[ "$has_vite_dependency" == true ]]; then
+    detected_framework="vite"
+    add_detected_stack "Vite"
+  elif [[ "$has_next_dependency" == true ]]; then
+    detected_framework="next"
+    add_detected_stack "Next.js"
+  fi
+
+  script_matches_adapter=false
+  if [[ "$detected_framework" == "vite" &&
+    "$selected_script" == "dev" &&
+    "$selected_script_value" =~ ^vite([[:space:]]+(dev|serve))?[[:space:]]*$ ]]; then
+    script_matches_adapter=true
+  elif [[ "$detected_framework" == "next" &&
+    "$selected_script" == "dev" &&
+    "$selected_script_value" =~ ^next[[:space:]]+dev([[:space:]]+(--turbopack|--turbo|--webpack))?[[:space:]]*$ ]]; then
+    script_matches_adapter=true
+  fi
+
+  if [[ "$package_manager_conflict" != true &&
+    "$framework_conflict" != true &&
+    "$script_matches_adapter" == true ]]; then
+    case "$package_manager:$detected_framework" in
+      npm:vite)
+        candidate_command='["npm", "run", "dev", "--", "--host", "127.0.0.1", "--port", "${ENMANNER_PORT}", "--strictPort"]'
+        ;;
+      pnpm:vite)
+        candidate_command='["pnpm", "run", "dev", "--host", "127.0.0.1", "--port", "${ENMANNER_PORT}", "--strictPort"]'
+        ;;
+      yarn:vite)
+        candidate_command='["yarn", "run", "dev", "--host", "127.0.0.1", "--port", "${ENMANNER_PORT}", "--strictPort"]'
+        ;;
+      bun:vite)
+        candidate_command='["bun", "run", "dev", "--host", "127.0.0.1", "--port", "${ENMANNER_PORT}", "--strictPort"]'
+        ;;
+      npm:next)
+        candidate_command='["npm", "run", "dev", "--", "--hostname", "127.0.0.1", "--port", "${ENMANNER_PORT}"]'
+        ;;
+      pnpm:next)
+        candidate_command='["pnpm", "run", "dev", "--hostname", "127.0.0.1", "--port", "${ENMANNER_PORT}"]'
+        ;;
+      yarn:next)
+        candidate_command='["yarn", "run", "dev", "--hostname", "127.0.0.1", "--port", "${ENMANNER_PORT}"]'
+        ;;
+      bun:next)
+        candidate_command='["bun", "run", "dev", "--hostname", "127.0.0.1", "--port", "${ENMANNER_PORT}"]'
+        ;;
+    esac
+    if [[ -n "$candidate_command" ]]; then
+      manifest_status="inferred"
+      inference_reason="Verified a root $package_manager $detected_framework development script with explicit loopback and dynamic-port arguments."
+    fi
+  elif [[ "$package_manager_conflict" != true &&
+    "$framework_conflict" != true &&
+    -n "$detected_framework" &&
+    "$selected_script" == "dev" ]]; then
+    inference_reason="Detected $detected_framework with package manager $package_manager, but the root dev script is not a tested direct framework command."
   fi
 else
   nested_package=""
@@ -390,8 +505,10 @@ emit_result() {
       done
     fi
     printf '],'
-    printf '"inference":{"packageManager":"%s","workingDirectory":"%s","command":%s,"preferredPort":%d,"reason":"%s","signalsExamined":["root package.json scripts dev/start/serve","root npm Vite dependency","nested package.json files","Docker Compose files","Makefile","go.mod","Cargo.toml","pyproject.toml or requirements.txt"],"inspect":[' \
+    printf '"inference":{"packageManager":"%s","packageManagerSignal":"%s","framework":"%s","workingDirectory":"%s","command":%s,"preferredPort":%d,"reason":"%s","signalsExamined":["root package.json packageManager field","root npm, pnpm, Yarn, and Bun lockfiles","root package.json scripts dev/start/serve","root Vite or Next.js dependency","nested package.json files","Docker Compose files","Makefile","go.mod","Cargo.toml","pyproject.toml or requirements.txt"],"inspect":[' \
       "$(json_escape "$package_manager")" \
+      "$(json_escape "$package_manager_signal")" \
+      "$(json_escape "$detected_framework")" \
       "$(json_escape "$candidate_working_directory")" \
       "${candidate_command:-null}" "$preferred_port" \
       "$(json_escape "$inference_reason")"

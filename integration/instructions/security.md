@@ -27,9 +27,11 @@ It is not a security sandbox and agents must not describe it as one.
   its dotenv spelling. Preserve canonical brand and acronym casing:
   `OPENAI_API_KEY` becomes `OpenAI API Key`, `SMTP_USERNAME` becomes
   `SMTP Username`, and `HUGGING_FACE_TOKEN` becomes `Hugging Face Token`.
-- Use `description` only when it adds information beyond the label. Write one
-  concise sentence of at most 80 characters so it fits within the native
-  two-line limit.
+- Treat `description` as a compact subtitle, not documentation. Use a short
+  phrase that adds information beyond the label, prefer 45 characters or fewer,
+  and never exceed 60. Omit it when the label is already sufficient. Do not pad
+  it into a full sentence or repeat phrases such as “Used to” and “Enables”
+  when a direct phrase is clearer.
 - Mark values `required` only when the server should wait for them before its
   first launch. Required blank values open Project Settings instead of starting
   a command known to be misconfigured.
