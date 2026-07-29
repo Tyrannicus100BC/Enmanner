@@ -4,8 +4,10 @@ Enmanner intentionally owns one foreground command. A project with a frontend,
 backend, and local infrastructure should expose one project-owned supervisor
 script rather than asking the launcher to infer ownership of several services.
 
-Copy `.enmanner/templates/project-supervisor` to a visible project path such as
-`./start`, make it executable, and adapt its executable-plus-argument arrays.
+Copy `.enmanner/templates/project-supervisor` to `enmanner/start`, make it
+executable, and adapt its executable-plus-argument arrays. Configure
+`server.command` with `["./enmanner/start"]` when `server.workingDirectory` is
+the project root.
 The template:
 
 - starts each required long-running service without `eval` or shell command

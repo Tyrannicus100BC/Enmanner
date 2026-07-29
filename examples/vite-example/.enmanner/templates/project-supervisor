@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-# Copy this file into the project (for example as ./start), then replace these
+# Copy this file to enmanner/start, then replace these
 # example argument arrays with project commands. Do not convert them to strings
 # or invoke them through eval.
 backend_command=(make run-local)

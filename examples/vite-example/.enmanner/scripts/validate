@@ -57,7 +57,7 @@ fi
 bin_dir="$(swift build --package-path "$framework_dir" -c release --show-bin-path)"
 
 icon_path="$(
-  /usr/bin/plutil -extract icon raw "$project_dir/enmanner.json" \
+  /usr/bin/plutil -extract icon raw "$project_dir/enmanner/enmanner.json" \
     2>/dev/null || true
 )"
 if [[ "$icon_path" == *.icns ]]; then

@@ -1,5 +1,5 @@
 {
-  "$schema": "./.enmanner/enmanner.schema.json",
+  "$schema": "../.enmanner/enmanner.schema.json",
   "version": 2,
   "name": "Escaping Runtime Fixture",
   "identifier": "local.enmanner.escaping-runtime-fixture",

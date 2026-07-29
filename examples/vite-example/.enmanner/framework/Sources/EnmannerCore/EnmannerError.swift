@@ -13,14 +13,14 @@ public enum EnmannerError: LocalizedError, Equatable {
     public var errorDescription: String? {
         switch self {
         case .manifestMissing(let url):
-            return "Enmanner could not find enmanner.json at \(url.path)."
+            return "Enmanner could not find enmanner/enmanner.json at \(url.path)."
         case .malformedManifest(let path, let detail):
             if let path {
-                return "Enmanner could not read enmanner.json at \(path). \(detail)"
+                return "Enmanner could not read enmanner/enmanner.json at \(path). \(detail)"
             }
-            return "Enmanner could not read enmanner.json. \(detail)"
+            return "Enmanner could not read enmanner/enmanner.json. \(detail)"
         case .invalidManifest(let issues):
-            return "enmanner.json needs attention:\n• " + issues.joined(separator: "\n• ")
+            return "enmanner/enmanner.json needs attention:\n• " + issues.joined(separator: "\n• ")
         case .invalidInterpolation(let token):
             return "The manifest uses an unsupported variable: \(token)."
         case .executableNotFound(let executable):

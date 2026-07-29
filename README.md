@@ -51,8 +51,10 @@ project through `./.enmanner/scripts/...`.
 Your Project/
 ├── source and dependencies       editable source of truth
 ├── project-owned local data      explicit and Git-ignored
-├── enmanner.json                 project-owned configuration
-├── start                         optional project-owned supervisor
+├── enmanner/                     project-owned integration
+│   ├── enmanner.json             versioned configuration
+│   ├── start                     optional foreground supervisor
+│   └── icon/                     icon package and source artwork
 ├── .enmanner/                    tracked framework-owned distribution
 │   ├── scripts/                  stable public commands
 │   ├── framework/                native Package.swift and Sources
@@ -65,6 +67,10 @@ The `.app` does not contain the source repository, `node_modules`, databases,
 uploads, or arbitrary project files. Dependencies stay with the project. Enmanner
 does not create a registry or a large hidden workspace in Application Support.
 Deleting the project folder deletes the project and its launcher.
+
+Both Enmanner directories are deliberately documented and generated in
+lowercase. Keeping that single spelling makes the same repository portable to
+case-sensitive environments without adding repository-style detection.
 
 ## Requirements
 
@@ -125,17 +131,18 @@ The plan performs local filesystem and Git inspection only. Its `ahead` and
 or otherwise contact a Git remote.
 
 For a root npm/Vite project, the installer can infer a safe loopback startup
-command, create `enmanner.json`, append narrowly-owned managed sections to
-`.gitignore` and `AGENTS.md`, and perform static validation. It deliberately
+command, create `enmanner/enmanner.json`, append narrowly-owned managed sections
+to `.gitignore` and `AGENTS.md`, and perform static validation. It deliberately
 does not build an app until a distinctive icon is configured. This keeps
 lifecycle work ahead of visual finishing without ever producing a placeholder
 launcher.
 
 For other stacks it reports candidate package scripts, installs the framework,
-and stops with `configurationRequired`. It writes `enmanner.json.example` with
-the requested name and identifier, candidate command, deterministic preferred
-port, and unresolved compatibility checks; it never treats that draft as the
-live manifest or builds a knowingly provisional app.
+and stops with `configurationRequired`. It writes
+`enmanner/enmanner.json.example` with the requested name and identifier,
+candidate command, deterministic preferred port, and unresolved compatibility
+checks; it never treats that draft as the live manifest or builds a knowingly
+provisional app.
 Use `--name` and `--identifier` to override inferred presentation values.
 Pass `--runtime` to opt into a real start/stop cycle after reviewing state
 ownership.
@@ -158,9 +165,11 @@ The upgrade refuses all changes if a framework-owned file was locally modified.
 The provenance also records exact file checksums, the upstream commit and dirty
 state, the upstream repository URL when available, whether the manifest was
 inferred, and which fields came from that
-inference. Every file inside `.enmanner/` is framework-owned. Project
-configuration, supervisors, icons, data, and scripts stay in visible paths
-outside it. `install --repair` uses the same conflict-aware mechanism.
+inference. Every file inside `.enmanner/` is framework-owned. The manifest,
+optional supervisor, icon package, and icon artwork stay in the visible
+project-owned `enmanner/` sibling. Other application data and scripts remain in
+their ordinary project paths. `install --repair` uses the same conflict-aware
+mechanism.
 
 Use `./.enmanner/scripts/doctor --json` for resolved executable, arguments,
 working directory, effective GUI `PATH`, installation provenance, draft

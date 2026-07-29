@@ -134,9 +134,8 @@ struct EnmannerValidatorCommand {
         let printField = value(after: "--print", in: arguments)
         let projectURL = URL(fileURLWithPath: projectPath, isDirectory: true)
             .standardizedFileURL
-        let manifest = try ManifestLoader.load(
-            from: projectURL.appendingPathComponent("enmanner.json")
-        )
+        let manifestURL = ProjectPaths.manifestURL(forProjectURL: projectURL)
+        let manifest = try ManifestLoader.load(from: manifestURL)
         let issues = ManifestValidator.validate(manifest, projectURL: projectURL)
         guard issues.isEmpty else {
             throw EnmannerError.invalidManifest(issues)
@@ -175,7 +174,7 @@ struct EnmannerValidatorCommand {
             : []
         if doctorReport?.staleDraftManifest == true {
             warnings.append(
-                "enmanner.json.example remains beside the live manifest; remove the stale draft when it is no longer needed"
+                "enmanner/enmanner.json.example remains beside the live manifest; remove the stale draft when it is no longer needed"
             )
         }
         if let otherAgentInstructions = doctorReport?.otherAgentInstructions,
@@ -210,7 +209,7 @@ struct EnmannerValidatorCommand {
             encoder.outputFormatting = [.sortedKeys]
             print(String(data: try encoder.encode(report), encoding: .utf8)!)
         } else {
-            print("✓ enmanner.json is valid")
+            print("✓ enmanner/enmanner.json is valid")
             print("✓ configured paths stay inside the project")
             print("✓ readiness is limited to loopback")
             print("✓ no obvious secrets or global-install flags were found")
@@ -257,7 +256,7 @@ struct EnmannerValidatorCommand {
         let installationRecordPresent = installation != nil
         let staleDraftManifest = fileManager.fileExists(
             atPath: projectURL.appendingPathComponent(
-                "enmanner.json.example"
+                "enmanner/enmanner.json.example"
             ).path
         )
         let iconSourceExists = iconURL.map {
@@ -361,7 +360,7 @@ struct EnmannerValidatorCommand {
             print("! generated app is not built")
         }
         if report.staleDraftManifest {
-            print("! enmanner.json.example remains beside the live manifest")
+            print("! enmanner/enmanner.json.example remains beside the live manifest")
         }
         if !report.otherAgentInstructions.isEmpty {
             print(

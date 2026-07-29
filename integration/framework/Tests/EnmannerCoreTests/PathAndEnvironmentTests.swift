@@ -10,7 +10,7 @@ final class PathAndEnvironmentTests: XCTestCase {
         )
         XCTAssertEqual(
             ProjectPaths.manifestURL(forAppBundleURL: app).path,
-            "/Users/Test/My Project/enmanner.json"
+            "/Users/Test/My Project/enmanner/enmanner.json"
         )
     }
 
@@ -77,11 +77,13 @@ final class PathAndEnvironmentTests: XCTestCase {
         let directory = try temporaryDirectory()
         let workingDirectory = directory
             .appendingPathComponent("Project Files", isDirectory: true)
+        let integrationDirectory = workingDirectory
+            .appendingPathComponent("enmanner", isDirectory: true)
         try FileManager.default.createDirectory(
-            at: workingDirectory,
+            at: integrationDirectory,
             withIntermediateDirectories: true
         )
-        let executable = workingDirectory.appendingPathComponent("start")
+        let executable = integrationDirectory.appendingPathComponent("start")
         XCTAssertTrue(
             FileManager.default.createFile(
                 atPath: executable.path,
@@ -97,7 +99,7 @@ final class PathAndEnvironmentTests: XCTestCase {
             name: "Example",
             identifier: "local.enmanner.example",
             server: .init(
-                command: ["./start"],
+                command: ["./enmanner/start"],
                 workingDirectory: "Project Files",
                 readiness: .init(url: "http://127.0.0.1:${ENMANNER_PORT}/")
             )

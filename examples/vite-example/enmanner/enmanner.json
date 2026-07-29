@@ -1,9 +1,9 @@
 {
-  "$schema": "./.enmanner/enmanner.schema.json",
+  "$schema": "../.enmanner/enmanner.schema.json",
   "version": 2,
   "name": "Enmanner Vite Example",
   "identifier": "local.enmanner.vite-example",
-  "icon": "assets/EnmannerViteExample.icon",
+  "icon": "enmanner/icon/EnmannerViteExample.icon",
   "userConfiguration": {
     "file": ".env",
     "template": ".env.example",
@@ -15,9 +15,9 @@
       },
       {
         "key": "VITE_TEAM_API_KEY",
-        "label": "Team API key",
+        "label": "Team API Key",
         "type": "secret",
-        "description": "Optional demonstration secret. The example reports only whether it is configured."
+        "description": "Shows whether an example team credential is configured."
       }
     ]
   },

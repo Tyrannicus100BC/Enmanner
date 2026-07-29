@@ -1,7 +1,8 @@
 # Enmanner Vite example
 
 This is a normal Vite project with Enmanner's curated, framework-owned source
-distribution tracked under `.enmanner/`.
+distribution tracked under `.enmanner/`. Its project-owned manifest and layered
+icon artwork are grouped under the visible `enmanner/` sibling.
 
 From a clean clone:
 

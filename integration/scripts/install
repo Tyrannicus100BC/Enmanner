@@ -73,12 +73,22 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source_dir="$(cd "$script_dir/.." && pwd)"
 target_dir="$(cd "$1" && pwd)"
 destination="$target_dir/.enmanner"
-manifest_path="$target_dir/enmanner.json"
+configuration_dir="$target_dir/enmanner"
+manifest_path="$configuration_dir/enmanner.json"
+manifest_relative_path="enmanner/enmanner.json"
+draft_manifest_path="$configuration_dir/enmanner.json.example"
 
 [[ -w "$target_dir" || "$plan" == true ]] || {
   echo "Error: The project directory is not writable: $target_dir" >&2
   exit 1
 }
+
+while IFS= read -r -d '' root_manifest; do
+  echo "Error: the manifest must live at enmanner/enmanner.json." >&2
+  echo "  Remove the root-level $(basename "$root_manifest") before installing." >&2
+  exit 1
+done < <(find "$target_dir" -mindepth 1 -maxdepth 1 -type f \
+  -iname 'enmanner.json' -print0)
 
 git_classification="unversioned"
 git_root=""
@@ -272,7 +282,7 @@ fi
 
 if [[ -f "$manifest_path" ]]; then
   manifest_status="existing"
-  inference_reason="An existing project-owned enmanner.json will be preserved."
+  inference_reason="An existing project-owned $manifest_relative_path will be preserved."
 elif [[ "$manifest_status" == "configurationRequired" &&
   "$inference_reason" == "No supported high-confidence startup command was found." &&
   $detected_stack_count -gt 0 ]]; then
@@ -313,7 +323,7 @@ if [[ -d "$target_dir/.cursor/rules" ]]; then
   other_agent_file_count=$((other_agent_file_count + 1))
 fi
 stale_draft=false
-[[ -f "$manifest_path" && -f "$target_dir/enmanner.json.example" ]] &&
+[[ -f "$manifest_path" && -f "$draft_manifest_path" ]] &&
   stale_draft=true
 manifest_will_write=false
 [[ ! -e "$manifest_path" && "$manifest_status" == "inferred" ]] &&
@@ -321,7 +331,7 @@ manifest_will_write=false
 draft_will_write=false
 [[ ! -e "$manifest_path" &&
   "$manifest_status" == "configurationRequired" &&
-  ! -e "$target_dir/enmanner.json.example" ]] &&
+  ! -e "$draft_manifest_path" ]] &&
   draft_will_write=true
 
 will_build=true
@@ -400,31 +410,33 @@ emit_result() {
     printf '],'
     printf '"fileOperations":['
     printf '{"action":"createDirectory","path":".enmanner/","willWrite":true},'
+    printf '{"action":"createDirectory","path":"enmanner/","willWrite":true},'
     printf '{"action":"ensureManagedSection","path":"AGENTS.md","willWrite":%s},' \
       "$agents_needs_update"
     printf '{"action":"ensureManagedSection","path":".gitignore","willWrite":%s},' \
       "$gitignore_needs_update"
     if [[ "$manifest_status" == "inferred" ]]; then
-      printf '{"action":"create","path":"enmanner.json","willWrite":%s}' \
+      printf '{"action":"create","path":"enmanner/enmanner.json","willWrite":%s}' \
         "$manifest_will_write"
     elif [[ "$manifest_status" == "configurationRequired" ]]; then
-      printf '{"action":"create","path":"enmanner.json.example","willWrite":%s}' \
+      printf '{"action":"create","path":"enmanner/enmanner.json.example","willWrite":%s}' \
         "$draft_will_write"
     else
-      printf '{"action":"preserve","path":"enmanner.json","willWrite":false}'
+      printf '{"action":"preserve","path":"%s","willWrite":false}' \
+        "$manifest_relative_path"
     fi
     printf '],'
     printf '"performedWrites":['
     if [[ "$installed" == true ]]; then
-      printf '".enmanner/"'
+      printf '".enmanner/","enmanner/"'
       [[ "$agents_needs_update" == true ]] &&
         printf ',"AGENTS.md managed section"'
       [[ "$gitignore_needs_update" == true ]] &&
         printf ',".gitignore managed section"'
       if [[ "$manifest_will_write" == true ]]; then
-        printf ',"enmanner.json"'
+        printf ',"enmanner/enmanner.json"'
       elif [[ "$draft_will_write" == true ]]; then
-        printf ',"enmanner.json.example"'
+        printf ',"enmanner/enmanner.json.example"'
       fi
     fi
     printf '],'
@@ -459,7 +471,8 @@ emit_result() {
     printf '"warnings":['
     warning_separator=""
     if [[ "$stale_draft" == true ]]; then
-      printf '"enmanner.json.example remains beside the live enmanner.json; remove the stale draft after confirming it is no longer needed"'
+      printf '"%s.example remains beside the live manifest; remove the stale draft after confirming it is no longer needed"' \
+        "$(json_escape "$manifest_relative_path")"
       warning_separator=","
     fi
     if [[ $other_agent_file_count -gt 0 ]]; then
@@ -476,9 +489,9 @@ emit_result() {
     fi
     [[ -n "$candidate_command" ]] && echo "  Candidate command: $candidate_command"
     echo "  $inference_reason"
-    echo "  Files: .enmanner/, managed AGENTS.md and .gitignore sections"
+    echo "  Files: .enmanner/, enmanner/, managed AGENTS.md and .gitignore sections"
     if [[ "$manifest_status" == "configurationRequired" ]]; then
-      echo "  Draft: enmanner.json.example"
+      echo "  Draft: enmanner/enmanner.json.example"
     fi
     echo "  Build: $([[ "$will_build" == true ]] && echo planned || echo not-planned)"
     if [[ "$icon_configured" != true &&
@@ -486,7 +499,7 @@ emit_result() {
       echo "  Completion: icon required before the app can be built"
     fi
     [[ "$stale_draft" == true ]] &&
-      echo "  Warning: remove stale enmanner.json.example after confirming it is no longer needed"
+      echo "  Warning: remove stale $manifest_relative_path.example after confirming it is no longer needed"
     if [[ $other_agent_file_count -gt 0 ]]; then
       echo "  Agent instructions: also review ${other_agent_files[*]}"
       echo "  Mirror the managed AGENTS.md guidance when one of those files is authoritative."
@@ -521,9 +534,10 @@ fi
 if [[ "$json" != true ]]; then
   echo "Installing Enmanner into: $target_dir"
   echo "  Will copy framework-owned files into .enmanner/."
+  echo "  Will keep project-owned integration files in enmanner/."
   echo "  Will update only managed sections in AGENTS.md and .gitignore."
   if [[ "$manifest_status" == "configurationRequired" ]]; then
-    echo "  Will write an inactive enmanner.json.example; no app will be built."
+    echo "  Will write an inactive enmanner/enmanner.json.example; no app will be built."
   elif [[ "$icon_configured" != true ]]; then
     echo "  Will validate configuration; no app will be built until an icon is configured."
   else
@@ -537,7 +551,7 @@ if [[ -e "$destination" ]]; then
   exit 1
 fi
 
-mkdir -p "$destination"
+mkdir -p "$destination" "$configuration_dir"
 /usr/bin/rsync -a \
   --exclude ".build" \
   --exclude ".DS_Store" \
@@ -549,7 +563,7 @@ mkdir -p "$destination"
 if [[ ! -e "$manifest_path" && "$manifest_status" == "inferred" ]]; then
   {
     echo '{'
-    echo '  "$schema": "./.enmanner/enmanner.schema.json",'
+    echo '  "$schema": "../.enmanner/enmanner.schema.json",'
     echo '  "version": 2,'
     printf '  "name": "%s",\n' "$(json_escape "$project_name")"
     printf '  "identifier": "%s",\n' "$(json_escape "$bundle_identifier")"
@@ -573,14 +587,13 @@ if [[ ! -e "$manifest_path" && "$manifest_status" == "inferred" ]]; then
   } > "$manifest_path"
 fi
 
-draft_manifest_path="$target_dir/enmanner.json.example"
 if [[ ! -e "$manifest_path" &&
   "$manifest_status" == "configurationRequired" &&
   ! -e "$draft_manifest_path" ]]; then
   draft_command="${candidate_command:-[\"REPLACE_WITH_PROJECT_COMMAND\"]}"
   {
     echo '{'
-    echo '  "$schema": "./.enmanner/enmanner.schema.json",'
+    echo '  "$schema": "../.enmanner/enmanner.schema.json",'
     echo '  "version": 2,'
     printf '  "name": "%s",\n' "$(json_escape "$project_name")"
     printf '  "identifier": "%s",\n' "$(json_escape "$bundle_identifier")"
@@ -645,7 +658,7 @@ built=false
 if [[ "$manifest_status" == "configurationRequired" ]]; then
   [[ "$json" == true ]] || {
     echo "✓ Installed framework files."
-    echo "✓ Wrote enmanner.json.example with preserved presentation choices."
+    echo "✓ Wrote enmanner/enmanner.json.example with preserved presentation choices."
     echo "! Configuration is required; review the draft and resolve the reported checks."
     echo "  No app was generated."
   }

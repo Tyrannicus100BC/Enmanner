@@ -3,11 +3,12 @@
 ## The project folder is the application
 
 Enmanner installs a curated, framework-owned source distribution into
-`.enmanner/` and keeps project-owned configuration in `enmanner.json`. The
-native bundle is assembled beside those files and locates the
-manifest by taking the parent directory of its own bundle URL. It stores no
-absolute project registration. Moving the whole folder therefore preserves the
-relationship; rebuilding handles any macOS signature or metadata changes.
+`.enmanner/` and keeps project-owned integration files in `enmanner/`. The
+native bundle is assembled beside those directories and locates
+`enmanner/enmanner.json` beneath the parent directory of its own bundle URL. It
+stores no absolute project registration. Moving the whole folder therefore
+preserves the relationship; rebuilding handles any macOS signature or metadata
+changes.
 
 The bundle contains only:
 
@@ -49,8 +50,9 @@ and current WKWebView behavior while retaining several years of Mac coverage.
 ## Startup sequence
 
 1. Resolve the project as the app bundle's parent.
-2. Decode `enmanner.json` and reject invalid version, paths, identifiers, public
-   readiness hosts, obvious embedded secrets, or global-install flags.
+2. Decode `enmanner/enmanner.json` and reject invalid version, paths,
+   identifiers, public readiness hosts, obvious embedded secrets, or
+   global-install flags.
 3. Try the optional preferred loopback port, otherwise bind a loopback socket
    to port zero, and retain the selected port number.
 4. Expand only `${ENMANNER_PORT}` and `${ENMANNER_PROJECT_DIR}`.
@@ -139,9 +141,11 @@ recent server output. An optional manifest declaration adds project settings for
 explicitly selected dotenv keys. Browser-mode projects present that form
 directly instead of reserving a tab for embedded-browser preferences. The UI
 supports text, revealable masked secrets, booleans, files, and directories.
-Save & Restart updates the project-owned dotenv file atomically and restarts the
-supervised process; no values enter the generated app bundle or native
-preferences.
+Field descriptions occupy at most two lines. Secret reveal controls sit inside
+their fields, disappear while a value is visible, and remask when editing ends.
+Launcher diagnostics and Save & Restart share a fixed footer. Saving updates
+the project-owned dotenv file atomically and restarts the supervised process; no
+values enter the generated app bundle or native preferences.
 
 Before the first server launch, an explicitly configured missing dotenv file is
 materialized from its template, or as an empty owner-only file when no template
@@ -192,6 +196,12 @@ is useful for stable local bundle identity and needs no account. Gatekeeper
 behavior across OS releases and moved bundles still needs testing on a broader
 Mac matrix.
 
+The generated `Info.plist` includes purpose strings for Desktop, Documents,
+Downloads, network-volume, and removable-volume access. These strings grant no
+permission; they explain that project files live alongside the app if macOS
+prompts after the project is opened from a protected location. Including every
+supported location keeps the bundle portable when the whole project moves.
+
 Ordinary web edits do not alter the bundle. Display name, identifier, icon,
 window configuration, launcher source, or native metadata changes do require a
 rebuild.
@@ -200,7 +210,7 @@ rebuild.
 
 The installer first builds a non-mutating, schema-versioned plan. Only
 high-confidence adapters may generate a complete manifest; ambiguous projects
-receive framework files, an inactive `enmanner.json.example`, and a structured
+receive framework files, an inactive `enmanner/enmanner.json.example`, and a structured
 `configurationRequired` result without an app build. Inferred manifests use a
 deterministic preferred port derived from the bundle identifier, with the
 normal allocated-port fallback.
@@ -212,8 +222,10 @@ before doing visual work while ensuring the first generated app is finished.
 `.enmanner/INSTALLATION.json` records the installed version, upstream commit,
 and checksums of framework-owned files. Repair and upgrade operations refuse to
 write when those files have local modifications. Every installed file is
-framework-owned; there is no hidden project override area. Project supervisors,
-icons, data, configuration, and scripts remain in visible project-owned paths.
+framework-owned; there is no hidden project override area. The visible
+project-owned `enmanner/` sibling contains configuration, optional supervisors,
+icon packages, and icon source artwork. Application data and unrelated scripts
+remain in their ordinary project paths.
 
 ## Why there is no reverse proxy
 

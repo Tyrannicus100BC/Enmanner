@@ -28,9 +28,10 @@ assets.
 The root installer preserves existing agent instructions and appends a clearly
 delimited reference to Enmanner. Framework-owned files live under `.enmanner/`
 and are replaced only through the checksum-verified repair or upgrade workflow;
-there is no framework override area. Project supervisors, icons, data, scripts,
-`enmanner.json`, and the application source remain outside `.enmanner/` and
-project-owned. Installed distributions include native `Sources` but omit the
+there is no framework override area. The `enmanner/` sibling holds the
+project-owned manifest, supervisor, icon package, and icon source artwork.
+Application source and data remain project-owned outside `.enmanner/`.
+Installed distributions include native `Sources` but omit the
 framework's tests and installer. The installer reports existing `CLAUDE.md`,
 `GEMINI.md`, `.github/copilot-instructions.md`, and `.cursor/rules/` surfaces
 without editing them automatically. When one is authoritative, the integrating
@@ -38,10 +39,10 @@ agent mirrors the narrowly managed `AGENTS.md` guidance instead of making
 Enmanner proliferate tool-specific policy files. The installer
 offers a non-mutating JSON plan and stops with `configurationRequired` rather
 than manufacturing an unverified startup command. It still installs the
-framework and writes a deliberately inactive `enmanner.json.example` preserving
-presentation choices and candidate evidence. Inferred single-app integrations
-receive a deterministic preferred port so browser-origin state remains stable
-when that port is available.
+framework and writes a deliberately inactive
+`enmanner/enmanner.json.example`, preserving presentation choices and candidate
+evidence. Inferred single-app integrations receive a deterministic preferred
+port so browser-origin state remains stable when that port is available.
 
 Enmanner does not build a placeholder app. Agents validate server lifecycle
 before spending time on artwork, then create and preview a distinctive icon

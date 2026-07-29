@@ -15,7 +15,10 @@ trap cleanup EXIT
 
 project_dir="$test_root/Escaping Project"
 mkdir -p "$project_dir/.enmanner"
-cp "$repository_dir/tests/fixtures/escaping-runtime/"* "$project_dir/"
+cp "$repository_dir/tests/fixtures/escaping-runtime/"*.mjs "$project_dir/"
+mkdir -p "$project_dir/enmanner"
+cp "$repository_dir/tests/fixtures/escaping-runtime/enmanner/enmanner.json" \
+  "$project_dir/enmanner/enmanner.json"
 /usr/bin/rsync -a --exclude '.build' \
   --exclude 'framework/Tests/' \
   --exclude 'scripts/install' \

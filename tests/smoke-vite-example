@@ -37,6 +37,23 @@ if [[ "$ownership_identifier" != "local.enmanner.vite-example" ]]; then
   echo "Error: generated launcher has no matching Enmanner ownership marker." >&2
   exit 1
 fi
+folder_usage_description="The app’s project files are stored alongside it and are needed to start its local server."
+folder_usage_keys=(
+  NSDesktopFolderUsageDescription
+  NSDocumentsFolderUsageDescription
+  NSDownloadsFolderUsageDescription
+  NSNetworkVolumesUsageDescription
+  NSRemovableVolumesUsageDescription
+)
+for usage_key in "${folder_usage_keys[@]}"; do
+  actual_description="$(
+    /usr/bin/plutil -extract "$usage_key" raw "$app_path/Contents/Info.plist"
+  )"
+  if [[ "$actual_description" != "$folder_usage_description" ]]; then
+    echo "Error: generated launcher has an invalid $usage_key." >&2
+    exit 1
+  fi
+done
 /usr/bin/codesign --verify --deep --strict "$app_path"
 if find "$app_path" \( -name node_modules -o -name .git -o -name src -o -name enmanner.json \) |
   grep -q .; then

@@ -98,7 +98,7 @@ app_name="$("$validator" --project "$project_dir" --print name)"
 bundle_identifier="$("$validator" --project "$project_dir" --print identifier)"
 icon_path="$("$validator" --project "$project_dir" --print icon)"
 if [[ -z "$icon_path" ]]; then
-  echo "Error: no app icon is configured in enmanner.json." >&2
+  echo "Error: no app icon is configured in enmanner/enmanner.json." >&2
   echo "  Enmanner does not build placeholder launchers. Create and inspect a" >&2
   echo "  distinctive icon using .enmanner/instructions/icon.md, then rebuild." >&2
   exit 1
@@ -227,6 +227,18 @@ framework_version="$(tr -d '[:space:]' < "$integration_dir/VERSION")"
 /usr/bin/plutil -insert NSHighResolutionCapable -bool true "$plist"
 /usr/bin/plutil -insert NSAppTransportSecurity -json \
   '{"NSAllowsLocalNetworking":true}' "$plist"
+folder_usage_description="The app’s project files are stored alongside it and are needed to start its local server."
+folder_usage_keys=(
+  NSDesktopFolderUsageDescription
+  NSDocumentsFolderUsageDescription
+  NSDownloadsFolderUsageDescription
+  NSNetworkVolumesUsageDescription
+  NSRemovableVolumesUsageDescription
+)
+for usage_key in "${folder_usage_keys[@]}"; do
+  /usr/bin/plutil -insert "$usage_key" \
+    -string "$folder_usage_description" "$plist"
+done
 
 ownership_plist="$contents/Resources/EnmannerOwnership.plist"
 /usr/bin/plutil -create xml1 "$ownership_plist"

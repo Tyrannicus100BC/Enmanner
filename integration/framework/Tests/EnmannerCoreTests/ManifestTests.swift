@@ -307,18 +307,25 @@ final class ManifestTests: XCTestCase {
 
     func testValidationAcceptsModernAndLegacyIconFormats() throws {
         let directory = try temporaryDirectory()
-        let modernIcon = directory.appendingPathComponent(
+        let iconDirectory = directory.appendingPathComponent(
+            "enmanner/icon",
+            isDirectory: true
+        )
+        let modernIcon = iconDirectory.appendingPathComponent(
             "Modern.icon",
             isDirectory: true
         )
-        let legacyIcon = directory.appendingPathComponent("Legacy.icns")
+        let legacyIcon = iconDirectory.appendingPathComponent("Legacy.icns")
         try FileManager.default.createDirectory(
             at: modernIcon,
             withIntermediateDirectories: true
         )
         try Data().write(to: legacyIcon)
 
-        for icon in ["Modern.icon", "Legacy.icns"] {
+        for icon in [
+            "enmanner/icon/Modern.icon",
+            "enmanner/icon/Legacy.icns"
+        ] {
             let manifest = EnmannerManifest(
                 version: 2,
                 name: "Icon App",
@@ -339,6 +346,32 @@ final class ManifestTests: XCTestCase {
 
             XCTAssertFalse(issues.contains { $0.contains("icon must be") })
         }
+    }
+
+    func testValidationRejectsIconOutsideIntegrationDirectory() throws {
+        let directory = try temporaryDirectory()
+        try Data().write(
+            to: directory.appendingPathComponent("RootIcon.icns")
+        )
+        let manifest = EnmannerManifest(
+            version: 2,
+            name: "Untidy Icon",
+            identifier: "local.enmanner.untidy-icon",
+            server: .init(
+                command: ["/usr/bin/true"],
+                readiness: .init(url: "http://127.0.0.1:43120/")
+            ),
+            icon: "RootIcon.icns"
+        )
+
+        let issues = ManifestValidator.validate(
+            manifest,
+            projectURL: directory
+        )
+
+        XCTAssertTrue(
+            issues.contains { $0.contains("project-owned enmanner/ directory") }
+        )
     }
 
     func testValidationRejectsUnsafeUserConfiguration() throws {

@@ -376,13 +376,23 @@ public enum ManifestValidator {
         for (key, value) in manifest.server.environment {
             if key.range(of: secretKeyPattern, options: .regularExpression) != nil &&
                 !value.contains("${") {
-                issues.append("server.environment appears to contain a secret in \(key); keep secrets out of enmanner.json.")
+                issues.append("server.environment appears to contain a secret in \(key); keep secrets out of enmanner/enmanner.json.")
             }
         }
 
         if let icon = manifest.icon {
             do {
                 let iconURL = try ProjectPaths.resolve(icon, inside: projectURL)
+                let integrationURL = try ProjectPaths.resolve(
+                    ProjectPaths.integrationDirectoryName,
+                    inside: projectURL
+                )
+                let integrationPath = integrationURL.path.hasSuffix("/")
+                    ? integrationURL.path
+                    : integrationURL.path + "/"
+                if !iconURL.path.hasPrefix(integrationPath) {
+                    issues.append("icon must stay inside the project-owned enmanner/ directory.")
+                }
                 let supportedExtensions = ["icns", "icon"]
                 if !supportedExtensions.contains(iconURL.pathExtension.lowercased()) {
                     issues.append("icon must be an .icon package or .icns file.")
@@ -455,7 +465,8 @@ public enum ManifestValidator {
             let relativeComponents = URL(
                 fileURLWithPath: configuration.file
             ).standardized.pathComponents
-            if configuration.file == "enmanner.json" ||
+            if configuration.file == "enmanner/enmanner.json" ||
+                configuration.file == "enmanner.json" ||
                 relativeComponents.contains(".enmanner") {
                 issues.append(
                     "userConfiguration.file must be a project-owned file outside .enmanner."

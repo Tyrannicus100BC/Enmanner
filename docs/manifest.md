@@ -1,11 +1,13 @@
 # Manifest
 
-`enmanner.json` is project-owned, versioned configuration. `.enmanner/enmanner.schema.json`
-provides editor and agent validation.
+`enmanner/enmanner.json` is project-owned, versioned configuration.
+`.enmanner/enmanner.schema.json` provides editor and agent validation.
+The containing directory is always spelled exactly `enmanner/`; repository
+styling conventions do not change this machine-facing path.
 
 ```json
 {
-  "$schema": "./.enmanner/enmanner.schema.json",
+  "$schema": "../.enmanner/enmanner.schema.json",
   "version": 2,
   "name": "Household Finances",
   "identifier": "local.enmanner.household-finances",
@@ -15,13 +17,13 @@ provides editor and agent validation.
     "fields": [
       {
         "key": "IMPORT_DIRECTORY",
-        "label": "Import directory",
+        "label": "Import Directory",
         "type": "directory",
         "required": true
       },
       {
         "key": "TEAM_API_KEY",
-        "label": "Team API key",
+        "label": "Team API Key",
         "type": "secret"
       }
     ]
@@ -62,10 +64,11 @@ contain slash or colon. `identifier` is a reverse-DNS bundle identifier.
 
 `server.command` is an argument array. Enmanner executes the first item directly;
 it does not invoke a shell. A first item containing a relative path, such as
-`./start`, is resolved from `server.workingDirectory` and must stay inside the
-project. Bare executable names use Enmanner's GUI-safe `PATH`; absolute executables
-are also supported. `workingDirectory` and optional `icon` are project-relative
-and may not escape through `..` or symlinks.
+`./enmanner/start`, is resolved from `server.workingDirectory` and must stay
+inside the project. Bare executable names use Enmanner's GUI-safe `PATH`;
+absolute executables are also supported. `workingDirectory` and optional `icon`
+remain relative to the project root—not the manifest directory—and may not
+escape through `..` or symlinks.
 
 `server.environment` may be omitted when no additional variables are needed; it
 decodes as an empty object. Validation errors include the exact field path, and
@@ -81,7 +84,11 @@ Without a template, an explicitly configured missing destination is created as
 an empty owner-only file. Enmanner never infers fields from the template.
 
 Each field has an environment-variable `key`, human-readable `label`, optional
-`description`, optional `required` flag, and one of these types:
+`description`, optional `required` flag, and one of these types. Labels should
+use consistent human-facing Title Case independent of dotenv spelling, while
+preserving canonical brands and acronyms. Descriptions should add information,
+use one sentence of at most 80 characters, and are displayed within a strict
+two-line limit.
 
 - `string` — ordinary text, and the default when `type` is omitted
 - `secret` — masked text that is still stored in the configured dotenv file
@@ -98,11 +105,12 @@ use owner-only permissions. A configured dotenv
 file may not be tracked by Git. Duplicate declared keys, malformed quoting,
 multiline values, and tracked destinations fail instead of risking a destructive
 rewrite. `secret` controls only native presentation: values are never placed in
-`enmanner.json`, logs, diagnostics, or the `.app`, but remain ordinary dotenv
+`enmanner/enmanner.json`, logs, diagnostics, or the `.app`, but remain ordinary dotenv
 values for project commands and tests.
 
-For current macOS icon behavior, `icon` must point to an Icon Composer `.icon`
-package whenever Xcode's `actool` is available. Enmanner compiles it, adds
+The `icon` path must stay inside the project-owned `enmanner/` directory. For
+current macOS icon behavior, it must point to an Icon Composer `.icon` package
+whenever Xcode's `actool` is available. Enmanner compiles it, adds
 `Assets.car` and `CFBundleIconName`, verifies that the catalog contains an
 `IconImageStack`, and retains the compiled `.icns` as an older-system fallback.
 A directly configured `.icns` is accepted automatically only when `actool` is

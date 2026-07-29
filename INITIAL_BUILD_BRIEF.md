@@ -91,7 +91,10 @@ ExampleProject/
 ├── package.json
 ├── node_modules/
 ├── .enmanner/
-├── enmanner.json
+├── enmanner/
+│   ├── enmanner.json
+│   ├── start
+│   └── icon/
 └── Example Project.app
 
 The .app lives beside the project source.
@@ -341,7 +344,10 @@ UserProject/
 ├── package.json
 ├── package-lock.json
 ├── node_modules/
-├── enmanner.json
+├── enmanner/
+│   ├── enmanner.json
+│   ├── start
+│   └── icon/
 ├── .enmanner/
 │   ├── VERSION
 │   ├── AGENTS.md
@@ -363,7 +369,7 @@ Prefer a structure where project-specific configuration is outside framework-own
 
 For example:
 
-enmanner.json
+enmanner/enmanner.json
 
 is project-owned, while:
 
@@ -379,14 +385,14 @@ Manifest design
 
 Create a small, explicit manifest named:
 
-enmanner.json
+enmanner/enmanner.json
 
 Keep it understandable to both humans and coding agents.
 
 A starting design might be:
 
 {
-  "$schema": "./.enmanner/enmanner.schema.json",
+  "$schema": "../.enmanner/enmanner.schema.json",
   "version": 2,
   "name": "Household Finances",
   "identifier": "local.enmanner.household-finances",
@@ -426,7 +432,7 @@ Manifest principles:
 * loopback-only defaults
 * clear validation errors
 
-The generated app should be able to locate enmanner.json relative to the .app.
+The generated app should be able to locate enmanner/enmanner.json relative to the .app.
 
 Avoid storing an absolute path to the project unless needed as a fallback.
 
@@ -446,7 +452,7 @@ When launched:
 
 1. Resolve the .app bundle’s location.
 2. Resolve the sibling project directory.
-3. Load and validate enmanner.json.
+3. Load and validate enmanner/enmanner.json.
 4. Select or allocate a local port if needed.
 5. construct the child process environment.
 6. start the configured server command.
@@ -579,7 +585,7 @@ Provide a command similar to:
 
 The script should:
 
-1. validate enmanner.json
+1. validate enmanner/enmanner.json
 2. compile the launcher in release mode
 3. assemble the .app
 4. set the display name
@@ -626,11 +632,11 @@ The install flow should:
 1. detect the project root
 2. refuse to overwrite existing Enmanner files without a clear upgrade path
 3. copy the integration files into .enmanner/
-4. create an initial enmanner.json
+4. create an initial enmanner/enmanner.json
 5. inspect common project files where practical
 6. propose or infer a startup command
 7. create or update .gitignore
-8. avoid excluding enmanner.json or framework source that should be tracked
+8. avoid excluding enmanner/enmanner.json or framework source that should be tracked
 9. exclude generated .app bundles
 10. exclude Swift build output
 11. build the launcher
@@ -797,7 +803,7 @@ Create:
 
 It should check as much as is practical:
 
-* enmanner.json exists
+* enmanner/enmanner.json exists
 * manifest is valid
 * required paths are inside the project
 * startup command is present
@@ -827,7 +833,7 @@ Example application
 Create a minimal Vite example that demonstrates:
 
 * installation of Enmanner inside a project
-* a working enmanner.json
+* a working enmanner/enmanner.json
 * generated .app
 * embedded WKWebView
 * frontend hot reload
@@ -1032,7 +1038,7 @@ Phase 1: architecture and skeleton
 Phase 2: process launch
 
 * Resolve project path relative to .app.
-* Read enmanner.json.
+* Read enmanner/enmanner.json.
 * launch the configured process.
 * capture output.
 * terminate it on quit.
@@ -1159,7 +1165,7 @@ Deliverables
 Produce:
 
 * a working Swift launcher
-* a versioned enmanner.json manifest
+* a versioned enmanner/enmanner.json manifest
 * a JSON schema
 * an app bundle build script
 * a project installation script or agent-driven install procedure

@@ -50,9 +50,9 @@ manual Icon Composer setup:
 
 ```bash
 ./.enmanner/scripts/create-icon \
-  --background assets/icon-background.png \
-  --foreground assets/icon-foreground.png \
-  --output assets/AppIcon.icon
+  --background enmanner/icon/icon-background.png \
+  --foreground enmanner/icon/icon-foreground.png \
+  --output enmanner/icon/AppIcon.icon
 ```
 
 The generator requires square PNG layers of at least 1024×1024, an opaque
@@ -63,10 +63,10 @@ The `.icon` package contains its own copies of the configured layers so it is
 self-contained. Keep the original high-resolution layers as canonical source
 artwork; the package copies are expected, not accidental duplication.
 
-Before previewing, add the package's project-relative path to `enmanner.json`:
+Before previewing, add the package's project-relative path to `enmanner/enmanner.json`:
 
 ```json
-"icon": "assets/AppIcon.icon",
+"icon": "enmanner/icon/AppIcon.icon",
 ```
 
 Render every supported appearance without opening Icon Composer:
@@ -82,10 +82,10 @@ rejected.
 
 ## Package the modern icon
 
-Set the project-relative `.icon` path in `enmanner.json`, for example:
+Set the project-relative `.icon` path in `enmanner/enmanner.json`, for example:
 
 ```json
-"icon": "assets/AppIcon.icon",
+"icon": "enmanner/icon/AppIcon.icon",
 ```
 
 When full Xcode and `actool` are available, agents MUST produce and configure an
@@ -112,7 +112,7 @@ fallback.
 
 The icon task is not complete until all of these pass:
 
-- `enmanner.json` references the `.icon` package.
+- `enmanner/enmanner.json` references the `.icon` package.
 - Background artwork fills every corner of its square source canvas.
 - Foreground artwork has real alpha transparency.
 - No source layer contains a baked squircle, border, shadow, or backing plate.

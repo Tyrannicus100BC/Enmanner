@@ -20,6 +20,16 @@ It is not a security sandbox and agents must not describe it as one.
   native UI masks them. Add an explicit project-owned template when the local
   file should be materialized on first app launch; installation itself does not
   create machine-local dotenv state.
+- Curate the settings surface instead of mirroring every dotenv entry. Exclude
+  derived values, ports owned by Enmanner, internal implementation switches,
+  and settings a person should not safely change.
+- Write every field `label` in consistent human-facing Title Case regardless of
+  its dotenv spelling. Preserve canonical brand and acronym casing:
+  `OPENAI_API_KEY` becomes `OpenAI API Key`, `SMTP_USERNAME` becomes
+  `SMTP Username`, and `HUGGING_FACE_TOKEN` becomes `Hugging Face Token`.
+- Use `description` only when it adds information beyond the label. Write one
+  concise sentence of at most 80 characters so it fits within the native
+  two-line limit.
 - Mark values `required` only when the server should wait for them before its
   first launch. Required blank values open Project Settings instead of starting
   a command known to be misconfigured.

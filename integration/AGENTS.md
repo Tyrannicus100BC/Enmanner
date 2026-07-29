@@ -8,8 +8,10 @@ routes to the focused rules below only when they apply.
 
 Every file inside `.enmanner/` is vendored, framework-owned code. Do not add
 project overrides there or edit native internals during an integration. Keep
-project configuration in `enmanner.json` and copy templates into visible
-project-owned paths before customizing them.
+the manifest, supervisor, icon package, and icon source artwork in the visible,
+project-owned `enmanner/` sibling.
+Spell both `enmanner/` and `.enmanner/` exactly in lowercase. Do not adapt their
+casing to the repository's naming style.
 
 Before changing application startup, networking, persistence, secrets, reload
 behavior, native presentation, or collaboration, read the focused rules in
@@ -40,6 +42,7 @@ report the app complete until the icon passes its acceptance gate. Use
 Treat **MUST** as required, **SHOULD** as the safe default, and **MAY** as
 optional. Run `./.enmanner/scripts/validate --runtime` after changing server
 behavior; use `--json` for structured diagnostics. For a multi-component
-project, adapt `.enmanner/templates/project-supervisor` into a project-owned
-foreground script. Rebuild the `.app` only when native configuration or
-launcher files change; ordinary web source edits do not require it.
+project, copy `.enmanner/templates/project-supervisor` to `enmanner/start` and
+adapt it into the project-owned foreground command. Rebuild the `.app` only
+when native configuration or launcher files change; ordinary web source edits
+do not require it.

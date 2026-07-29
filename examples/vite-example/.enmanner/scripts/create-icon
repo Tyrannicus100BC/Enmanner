@@ -203,4 +203,4 @@ printf '%s\n' \
 
 mv "$staged_icon" "$output"
 echo "✓ Created $output_path from separate full-canvas layers"
-echo "  Configure it in enmanner.json, then run ./.enmanner/scripts/preview-icon."
+echo "  Configure it in enmanner/enmanner.json, then run ./.enmanner/scripts/preview-icon."

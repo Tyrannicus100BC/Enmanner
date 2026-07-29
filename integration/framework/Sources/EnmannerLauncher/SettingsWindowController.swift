@@ -88,8 +88,7 @@ final class SettingsWindowController: NSWindowController {
         if let userConfiguration {
             if mode == .browser {
                 let projectView = makeProjectView(
-                    configuration: userConfiguration,
-                    includesDiagnostics: true
+                    configuration: userConfiguration
                 )
                 projectView.translatesAutoresizingMaskIntoConstraints = false
                 contentView.addSubview(projectView)
@@ -117,14 +116,13 @@ final class SettingsWindowController: NSWindowController {
             let projectItem = NSTabViewItem(identifier: "project")
             projectItem.label = "Project"
             projectItem.view = makeProjectView(
-                configuration: userConfiguration,
-                includesDiagnostics: false
+                configuration: userConfiguration
             )
             tabView.addTabViewItem(projectItem)
 
             let appItem = NSTabViewItem(identifier: "app")
             appItem.label = "App"
-            appItem.view = makeGeneralView()
+            appItem.view = makeGeneralView(includesDiagnostics: false)
             tabView.addTabViewItem(appItem)
 
             NSLayoutConstraint.activate([
@@ -148,7 +146,7 @@ final class SettingsWindowController: NSWindowController {
             return
         }
 
-        let generalView = makeGeneralView()
+        let generalView = makeGeneralView(includesDiagnostics: true)
         generalView.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(generalView)
         NSLayoutConstraint.activate([
@@ -167,7 +165,7 @@ final class SettingsWindowController: NSWindowController {
         ])
     }
 
-    private func makeGeneralView() -> NSView {
+    private func makeGeneralView(includesDiagnostics: Bool) -> NSView {
         let view = NSView()
         let titleLabel = NSTextField(labelWithString: "App Settings")
         titleLabel.font = .systemFont(ofSize: 20, weight: .semibold)
@@ -204,7 +202,9 @@ final class SettingsWindowController: NSWindowController {
             arrangedViews.append(zoomRow)
             arrangedViews.append(browserNote)
         }
-        arrangedViews.append(recentOutputCheckbox)
+        if includesDiagnostics {
+            arrangedViews.append(recentOutputCheckbox)
+        }
 
         let stack = NSStackView(views: arrangedViews)
         stack.translatesAutoresizingMaskIntoConstraints = false
@@ -232,8 +232,7 @@ final class SettingsWindowController: NSWindowController {
     }
 
     private func makeProjectView(
-        configuration: EnmannerManifest.UserConfiguration,
-        includesDiagnostics: Bool
+        configuration: EnmannerManifest.UserConfiguration
     ) -> NSView {
         let view = NSView()
         let scrollView = NSScrollView()
@@ -246,43 +245,23 @@ final class SettingsWindowController: NSWindowController {
         documentView.translatesAutoresizingMaskIntoConstraints = false
         scrollView.documentView = documentView
 
-        let titleLabel = NSTextField(
-            labelWithString: "Project Settings"
-        )
-        titleLabel.font = .systemFont(ofSize: 20, weight: .semibold)
-
-        let fileLabel = NSTextField(
-            wrappingLabelWithString:
-                "Stored locally in \(configuration.file)."
-        )
-        fileLabel.textColor = .secondaryLabelColor
-        fileLabel.font = .systemFont(ofSize: 12)
-
-        var arrangedViews: [NSView] = [titleLabel, fileLabel]
+        var arrangedViews: [NSView] = []
         for field in configuration.fields {
             arrangedViews.append(makeFieldView(field))
         }
 
-        if includesDiagnostics {
-            recentOutputCheckbox.target = self
-            recentOutputCheckbox.action = #selector(settingChanged)
-            let separator = NSBox()
-            separator.boxType = .separator
-            arrangedViews.append(separator)
-            arrangedViews.append(recentOutputCheckbox)
-        }
-
         projectStatusLabel.textColor = .secondaryLabelColor
         projectStatusLabel.font = .systemFont(ofSize: 11)
-        arrangedViews.append(projectStatusLabel)
 
         let stack = NSStackView(views: arrangedViews)
         stack.translatesAutoresizingMaskIntoConstraints = false
         stack.orientation = .vertical
         stack.alignment = .width
-        stack.spacing = 18
+        stack.spacing = 12
         documentView.addSubview(stack)
 
+        recentOutputCheckbox.target = self
+        recentOutputCheckbox.action = #selector(settingChanged)
         let saveButton = NSButton(
             title: "Save & Restart",
             target: self,
@@ -292,8 +271,27 @@ final class SettingsWindowController: NSWindowController {
         saveButton.keyEquivalent = "\r"
         saveAndRestartButton = saveButton
 
+        let footerSpacer = NSView()
+        footerSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        projectStatusLabel.setContentCompressionResistancePriority(
+            .defaultLow,
+            for: .horizontal
+        )
+        let footer = NSStackView(
+            views: [
+                recentOutputCheckbox,
+                projectStatusLabel,
+                footerSpacer,
+                saveButton
+            ]
+        )
+        footer.translatesAutoresizingMaskIntoConstraints = false
+        footer.orientation = .horizontal
+        footer.alignment = .centerY
+        footer.spacing = 12
+
         view.addSubview(scrollView)
-        view.addSubview(saveButton)
+        view.addSubview(footer)
 
         NSLayoutConstraint.activate([
             scrollView.leadingAnchor.constraint(
@@ -309,14 +307,18 @@ final class SettingsWindowController: NSWindowController {
                 constant: 24
             ),
             scrollView.bottomAnchor.constraint(
-                equalTo: saveButton.topAnchor,
+                equalTo: footer.topAnchor,
                 constant: -12
             ),
-            saveButton.trailingAnchor.constraint(
+            footer.leadingAnchor.constraint(
+                equalTo: view.leadingAnchor,
+                constant: 28
+            ),
+            footer.trailingAnchor.constraint(
                 equalTo: view.trailingAnchor,
                 constant: -28
             ),
-            saveButton.bottomAnchor.constraint(
+            footer.bottomAnchor.constraint(
                 equalTo: view.bottomAnchor,
                 constant: -20
             ),
@@ -350,11 +352,8 @@ final class SettingsWindowController: NSWindowController {
                 equalTo: documentView.bottomAnchor,
                 constant: -12
             ),
-            fileLabel.widthAnchor.constraint(
-                lessThanOrEqualTo: stack.widthAnchor
-            ),
             projectStatusLabel.widthAnchor.constraint(
-                lessThanOrEqualTo: stack.widthAnchor
+                lessThanOrEqualToConstant: 300
             )
         ])
         return view
@@ -365,17 +364,31 @@ final class SettingsWindowController: NSWindowController {
     ) -> NSView {
         if field.type == .boolean {
             let checkbox = NSButton(
-                checkboxWithTitle:
-                    field.label + (field.required ? " *" : ""),
+                checkboxWithTitle: "",
                 target: nil,
                 action: nil
             )
+            checkbox.setAccessibilityLabel(field.label)
             fieldControls[field.key] = checkbox
+
+            let checkboxContainer = NSView()
+            checkbox.translatesAutoresizingMaskIntoConstraints = false
+            checkboxContainer.addSubview(checkbox)
+            NSLayoutConstraint.activate([
+                checkbox.leadingAnchor.constraint(
+                    equalTo: checkboxContainer.leadingAnchor
+                ),
+                checkbox.topAnchor.constraint(
+                    equalTo: checkboxContainer.topAnchor
+                ),
+                checkboxContainer.heightAnchor.constraint(
+                    greaterThanOrEqualTo: checkbox.heightAnchor
+                )
+            ])
             return fieldRow(
                 label: field.label + (field.required ? " *" : ""),
                 description: field.description,
-                control: checkbox,
-                hidesControlLabel: true
+                control: checkboxContainer
             )
         }
 
@@ -422,8 +435,7 @@ final class SettingsWindowController: NSWindowController {
     private func fieldRow(
         label: String,
         description: String?,
-        control: NSView,
-        hidesControlLabel: Bool = false
+        control: NSView
     ) -> NSView {
         let labelView = NSTextField(labelWithString: label)
         labelView.font = .systemFont(ofSize: 13, weight: .medium)
@@ -435,6 +447,9 @@ final class SettingsWindowController: NSWindowController {
             )
             descriptionLabel.textColor = .secondaryLabelColor
             descriptionLabel.font = .systemFont(ofSize: 11)
+            descriptionLabel.maximumNumberOfLines = 2
+            descriptionLabel.lineBreakMode = .byTruncatingTail
+            descriptionLabel.toolTip = description
             informationViews.append(descriptionLabel)
         }
 
@@ -444,11 +459,6 @@ final class SettingsWindowController: NSWindowController {
         informationStack.spacing = 4
         informationStack.translatesAutoresizingMaskIntoConstraints = false
 
-        if hidesControlLabel, let checkbox = control as? NSButton {
-            checkbox.title = ""
-            checkbox.toolTip = label
-        }
-
         control.setContentHuggingPriority(.defaultLow, for: .horizontal)
         let row = NSStackView(views: [informationStack, control])
         row.orientation = .horizontal
@@ -457,7 +467,7 @@ final class SettingsWindowController: NSWindowController {
         row.distribution = .fill
 
         NSLayoutConstraint.activate([
-            informationStack.widthAnchor.constraint(equalToConstant: 210),
+            informationStack.widthAnchor.constraint(equalToConstant: 240),
             control.widthAnchor.constraint(greaterThanOrEqualToConstant: 280)
         ])
         return row
@@ -492,8 +502,7 @@ final class SettingsWindowController: NSWindowController {
                 )
             }
             projectStatusLabel.textColor = .secondaryLabelColor
-            projectStatusLabel.stringValue =
-                "Changes are written only when you choose Save & Restart."
+            projectStatusLabel.stringValue = ""
             saveAndRestartButton?.isEnabled = true
         } catch {
             projectStatusLabel.textColor = .systemRed
@@ -585,9 +594,7 @@ final class SettingsWindowController: NSWindowController {
                 projectURL: projectURL,
                 configuration: userConfiguration
             ).save(values)
-            projectStatusLabel.textColor = .systemGreen
-            projectStatusLabel.stringValue =
-                "Saved \(userConfiguration.file). Restarting the server…"
+            projectStatusLabel.stringValue = ""
             onSaveAndRestart?()
         } catch {
             presentSaveError(error)
@@ -596,11 +603,12 @@ final class SettingsWindowController: NSWindowController {
 }
 
 @MainActor
-private final class RevealableSecureField: NSView {
+private final class RevealableSecureField: NSView, NSTextFieldDelegate {
     private let secureField = NSSecureTextField()
     private let revealedField = NSTextField()
     private let revealButton = NSButton()
     private var isRevealed = false
+    private var focusEventMonitor: Any?
 
     var stringValue: String {
         get {
@@ -627,6 +635,7 @@ private final class RevealableSecureField: NSView {
 
         secureField.setContentHuggingPriority(.defaultLow, for: .horizontal)
         revealedField.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        revealedField.delegate = self
         revealedField.isHidden = true
 
         revealButton.image = NSImage(
@@ -634,60 +643,61 @@ private final class RevealableSecureField: NSView {
             accessibilityDescription: "Show value"
         )
         revealButton.imagePosition = .imageOnly
-        revealButton.isBordered = false
+        revealButton.isBordered = true
+        revealButton.bezelStyle = .roundRect
+        revealButton.controlSize = .small
         revealButton.contentTintColor = .secondaryLabelColor
         revealButton.toolTip = "Show value"
         revealButton.target = self
         revealButton.action = #selector(toggleVisibility)
         revealButton.setAccessibilityLabel("Show value")
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(windowDidResignKey(_:)),
+            name: NSWindow.didResignKeyNotification,
+            object: nil
+        )
 
-        let fieldContainer = NSView()
-        fieldContainer.translatesAutoresizingMaskIntoConstraints = false
         secureField.translatesAutoresizingMaskIntoConstraints = false
         revealedField.translatesAutoresizingMaskIntoConstraints = false
-        fieldContainer.addSubview(secureField)
-        fieldContainer.addSubview(revealedField)
-
-        let stack = NSStackView(views: [fieldContainer, revealButton])
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        stack.orientation = .horizontal
-        stack.alignment = .centerY
-        stack.spacing = 4
-        addSubview(stack)
+        revealButton.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(secureField)
+        addSubview(revealedField)
+        addSubview(revealButton)
 
         NSLayoutConstraint.activate([
             secureField.leadingAnchor.constraint(
-                equalTo: fieldContainer.leadingAnchor
+                equalTo: leadingAnchor
             ),
             secureField.trailingAnchor.constraint(
-                equalTo: fieldContainer.trailingAnchor
+                equalTo: trailingAnchor
             ),
             secureField.topAnchor.constraint(
-                equalTo: fieldContainer.topAnchor
+                equalTo: topAnchor
             ),
             secureField.bottomAnchor.constraint(
-                equalTo: fieldContainer.bottomAnchor
+                equalTo: bottomAnchor
             ),
             revealedField.leadingAnchor.constraint(
-                equalTo: fieldContainer.leadingAnchor
+                equalTo: leadingAnchor
             ),
             revealedField.trailingAnchor.constraint(
-                equalTo: fieldContainer.trailingAnchor
+                equalTo: trailingAnchor
             ),
             revealedField.topAnchor.constraint(
-                equalTo: fieldContainer.topAnchor
+                equalTo: topAnchor
             ),
             revealedField.bottomAnchor.constraint(
-                equalTo: fieldContainer.bottomAnchor
+                equalTo: bottomAnchor
             ),
-            fieldContainer.widthAnchor.constraint(
-                greaterThanOrEqualToConstant: 240
+            widthAnchor.constraint(greaterThanOrEqualToConstant: 240),
+            revealButton.trailingAnchor.constraint(
+                equalTo: trailingAnchor,
+                constant: -3
             ),
+            revealButton.centerYAnchor.constraint(equalTo: centerYAnchor),
             revealButton.widthAnchor.constraint(equalToConstant: 24),
-            stack.leadingAnchor.constraint(equalTo: leadingAnchor),
-            stack.trailingAnchor.constraint(equalTo: trailingAnchor),
-            stack.topAnchor.constraint(equalTo: topAnchor),
-            stack.bottomAnchor.constraint(equalTo: bottomAnchor)
+            revealButton.heightAnchor.constraint(equalToConstant: 20)
         ])
     }
 
@@ -695,26 +705,76 @@ private final class RevealableSecureField: NSView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    @objc private func toggleVisibility() {
-        if isRevealed {
-            secureField.stringValue = revealedField.stringValue
-        } else {
-            revealedField.stringValue = secureField.stringValue
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+        if let focusEventMonitor {
+            NSEvent.removeMonitor(focusEventMonitor)
         }
-        isRevealed.toggle()
-        secureField.isHidden = isRevealed
-        revealedField.isHidden = !isRevealed
+    }
 
-        let action = isRevealed ? "Hide value" : "Show value"
-        let symbol = isRevealed ? "eye.slash" : "eye"
-        revealButton.image = NSImage(
-            systemSymbolName: symbol,
-            accessibilityDescription: action
-        )
-        revealButton.toolTip = action
-        revealButton.setAccessibilityLabel(action)
-        window?.makeFirstResponder(
-            isRevealed ? revealedField : secureField
-        )
+    @objc private func toggleVisibility() {
+        guard !isRevealed else { return }
+        revealedField.stringValue = secureField.stringValue
+        isRevealed = true
+        secureField.isHidden = true
+        revealedField.isHidden = false
+        revealButton.isHidden = true
+        window?.makeFirstResponder(revealedField)
+        installFocusMonitor()
+    }
+
+    func controlTextDidEndEditing(_ notification: Notification) {
+        guard notification.object as? NSTextField === revealedField else {
+            return
+        }
+        remask()
+    }
+
+    @objc private func windowDidResignKey(_ notification: Notification) {
+        guard notification.object as? NSWindow === window else { return }
+        remask()
+    }
+
+    private func installFocusMonitor() {
+        guard focusEventMonitor == nil else { return }
+        focusEventMonitor = NSEvent.addLocalMonitorForEvents(
+            matching: [.leftMouseDown, .rightMouseDown, .keyDown]
+        ) { [weak self] event in
+            guard let self, self.isRevealed else { return event }
+            switch event.type {
+            case .leftMouseDown, .rightMouseDown:
+                if event.window === self.window {
+                    let localPoint = self.convert(
+                        event.locationInWindow,
+                        from: nil
+                    )
+                    if !self.bounds.contains(localPoint) {
+                        self.remask()
+                    }
+                } else {
+                    self.remask()
+                }
+            case .keyDown where [36, 48, 53].contains(event.keyCode):
+                DispatchQueue.main.async { [weak self] in
+                    self?.remask()
+                }
+            default:
+                break
+            }
+            return event
+        }
+    }
+
+    private func remask() {
+        guard isRevealed else { return }
+        secureField.stringValue = revealedField.stringValue
+        isRevealed = false
+        secureField.isHidden = false
+        revealedField.isHidden = true
+        revealButton.isHidden = false
+        if let focusEventMonitor {
+            NSEvent.removeMonitor(focusEventMonitor)
+            self.focusEventMonitor = nil
+        }
     }
 }

@@ -1,15 +1,23 @@
 import Foundation
 
 public enum ProjectPaths {
+    public static let integrationDirectoryName = "enmanner"
+    public static let manifestFileName = "enmanner.json"
+
     public static func projectURL(forAppBundleURL appBundleURL: URL) -> URL {
         appBundleURL
             .standardizedFileURL
             .deletingLastPathComponent()
     }
 
+    public static func manifestURL(forProjectURL projectURL: URL) -> URL {
+        projectURL
+            .appendingPathComponent(integrationDirectoryName, isDirectory: true)
+            .appendingPathComponent(manifestFileName, isDirectory: false)
+    }
+
     public static func manifestURL(forAppBundleURL appBundleURL: URL) -> URL {
-        projectURL(forAppBundleURL: appBundleURL)
-            .appendingPathComponent("enmanner.json", isDirectory: false)
+        manifestURL(forProjectURL: projectURL(forAppBundleURL: appBundleURL))
     }
 
     public static func resolve(_ relativePath: String, inside projectURL: URL) throws -> URL {

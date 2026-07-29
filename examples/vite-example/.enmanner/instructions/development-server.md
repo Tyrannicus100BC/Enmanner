@@ -6,9 +6,9 @@
   array entries. Do not rely on shell parsing.
 - Treat requested startup commands as intent. Verify every executable, argument,
   working directory, and build target against the current project source before
-  writing `enmanner.json`.
+  writing `enmanner/enmanner.json`.
 - Keep `server.workingDirectory` project-relative.
-- Resolve relative executable paths such as `./start` from
+- Resolve relative executable paths such as `./enmanner/start` from
   `server.workingDirectory`; keep them inside the project.
 - Accept the port supplied in `ENMANNER_PORT`.
 - Listen on `127.0.0.1` or another loopback address, never all interfaces by
@@ -42,6 +42,7 @@ Enmanner allocates a free port, expands only its documented variables, starts th
 command directly, captures both output streams, waits for readiness, and owns
 the process group until the native app quits.
 
-Use `.enmanner/templates/project-supervisor` as the starting point for a
-multi-component project. Runtime validation checks the process group, readiness
-URL, selected port, tracked descendants, and Git-status delta after shutdown.
+Copy `.enmanner/templates/project-supervisor` to `enmanner/start` as the
+starting point for a multi-component project. Runtime validation checks the
+process group, readiness URL, selected port, tracked descendants, and Git-status
+delta after shutdown.

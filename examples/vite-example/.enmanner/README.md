@@ -6,7 +6,7 @@ repair or upgrade workflow.
 
 The supported project-facing surface is:
 
-- `../enmanner.json` — project-owned configuration;
+- `../enmanner/enmanner.json` — project-owned configuration;
 - `scripts/build-app` — validate and build the native application, with
   optional structured `--json` evidence;
 - `scripts/validate` — static or opted-in runtime validation;
@@ -19,5 +19,5 @@ The supported project-facing surface is:
 - `templates/` — files to copy into the visible project before customization.
 
 `framework/` is the native implementation. Do not place project supervisors,
-icons, data, scripts, or overrides inside `.enmanner/`; keep them in visible
-project-owned paths.
+icons, data, scripts, or overrides inside `.enmanner/`; keep Enmanner-specific
+project files in the visible `../enmanner/` sibling.

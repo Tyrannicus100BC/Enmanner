@@ -20,14 +20,25 @@ grep -Fq "First run integration/scripts/install" \
 vite_target="$test_root/Vite Project"
 generic_target="$test_root/Generic Project"
 workspace_target="$test_root/Workspace Project"
+root_manifest_target="$test_root/Root Manifest Project"
 mkdir -p "$vite_target" "$generic_target" \
-  "$workspace_target/Backend/.git" "$workspace_target/Frontend/.git"
+  "$workspace_target/Backend/.git" "$workspace_target/Frontend/.git" \
+  "$root_manifest_target"
 cp "$repository_dir/examples/vite-example/package.json" \
   "$repository_dir/examples/vite-example/package-lock.json" \
   "$vite_target/"
 cp "$repository_dir/tests/fixtures/generic-package.json" \
   "$generic_target/package.json"
 printf '%s\n' '# Generic project instructions' > "$generic_target/CLAUDE.md"
+printf '%s\n' '{}' > "$root_manifest_target/enmanner.json"
+
+if "$repository_dir/integration/scripts/install" --plan "$root_manifest_target" \
+  >"$test_root/root-manifest.out" 2>&1; then
+  echo "Error: installer accepted a root-level manifest." >&2
+  exit 1
+fi
+grep -Fq "manifest must live at enmanner/enmanner.json" \
+  "$test_root/root-manifest.out"
 
 plan="$(
   "$repository_dir/integration/scripts/install" \
@@ -47,9 +58,11 @@ printf '%s\n' "$plan" | jq -e '
   (.inference.signalsExamined | length > 0) and
   ([.nextActionCommands[].id] | index("buildApp")) and
   (.fileOperations | type == "array") and
-  ([.fileOperations[].path] | index("enmanner.json"))
+  ([.fileOperations[].path] | index("enmanner/")) and
+  ([.fileOperations[].path] | index("enmanner/enmanner.json"))
 ' >/dev/null
 test ! -e "$vite_target/.enmanner"
+test ! -e "$vite_target/enmanner"
 
 workspace_plan="$(
   "$repository_dir/integration/scripts/install" \
@@ -74,7 +87,8 @@ jq -e '
   (.window.mode == "browser") and
   (.server.preferredPort >= 42000) and
   (.server.preferredPort < 48000)
-' "$vite_target/enmanner.json" >/dev/null
+' "$vite_target/enmanner/enmanner.json" >/dev/null
+test ! -e "$vite_target/enmanner.json"
 
 if "$vite_target/.enmanner/scripts/build-app" \
   >"$test_root/missing-icon.out" 2>&1; then
@@ -110,21 +124,23 @@ printf '%s\n' "$generic_result" | jq -e '
   ([.unresolvedChecks[].inspect[]] | index("package.json")) and
   ([.otherAgentInstructions[]] | index("CLAUDE.md")) and
   (.warnings | length == 1) and
-  ([.fileOperations[].path] | index("enmanner.json.example")) and
-  ([.performedWrites[]] | index("enmanner.json.example"))
+  ([.fileOperations[].path] | index("enmanner/enmanner.json.example")) and
+  ([.performedWrites[]] | index("enmanner/enmanner.json.example"))
 ' >/dev/null
-test ! -e "$generic_target/enmanner.json"
+test ! -e "$generic_target/enmanner/enmanner.json"
 jq -e '
   (.name == "Generic Nice") and
   (.identifier == "com.example.generic-nice") and
   (.server.command == ["npm", "run", "start"]) and
   (.server.preferredPort >= 42000) and
   (.server.preferredPort < 48000)
-' "$generic_target/enmanner.json.example" >/dev/null
+' "$generic_target/enmanner/enmanner.json.example" >/dev/null
 grep -Fqx '# Generic project instructions' "$generic_target/CLAUDE.md"
 
-cp "$generic_target/enmanner.json.example" "$generic_target/enmanner.json"
-/usr/bin/plutil -remove server.readiness "$generic_target/enmanner.json"
+cp "$generic_target/enmanner/enmanner.json.example" \
+  "$generic_target/enmanner/enmanner.json"
+/usr/bin/plutil -remove server.readiness \
+  "$generic_target/enmanner/enmanner.json"
 if "$generic_target/.enmanner/scripts/validate" --json \
   >"$test_root/manifest-error.json"; then
   echo "Error: validator accepted a manifest missing server.readiness." >&2
@@ -136,14 +152,14 @@ jq -e '
   (.error.path == "server.readiness")
 ' "$test_root/manifest-error.json" >/dev/null
 
-mkdir -p "$vite_target/assets"
-cp "$repository_dir/examples/vite-example/assets/icon-background.png" \
-  "$vite_target/assets/icon-background.png"
-cp "$repository_dir/examples/vite-example/assets/icon-foreground.png" \
-  "$vite_target/assets/icon-foreground.png"
+mkdir -p "$vite_target/enmanner/icon"
+cp "$repository_dir/examples/vite-example/enmanner/icon/icon-background.png" \
+  "$vite_target/enmanner/icon/icon-background.png"
+cp "$repository_dir/examples/vite-example/enmanner/icon/icon-foreground.png" \
+  "$vite_target/enmanner/icon/icon-foreground.png"
 /usr/bin/xcrun swift - \
-  "$vite_target/assets/icon-background.png" \
-  "$vite_target/assets/rgba-background.png" <<'SWIFT'
+  "$vite_target/enmanner/icon/icon-background.png" \
+  "$vite_target/enmanner/icon/rgba-background.png" <<'SWIFT'
 import CoreGraphics
 import Foundation
 import ImageIO
@@ -183,11 +199,11 @@ guard CGImageDestinationFinalize(destination) else {
 }
 SWIFT
 "$vite_target/.enmanner/scripts/create-icon" \
-  --background assets/rgba-background.png \
-  --foreground assets/icon-foreground.png \
-  --output assets/Test.icon >"$test_root/create-icon.out"
-/usr/bin/plutil -insert icon -string "assets/Test.icon" \
-  "$vite_target/enmanner.json"
+  --background enmanner/icon/rgba-background.png \
+  --foreground enmanner/icon/icon-foreground.png \
+  --output enmanner/icon/Test.icon >"$test_root/create-icon.out"
+/usr/bin/plutil -insert icon -string "enmanner/icon/Test.icon" \
+  "$vite_target/enmanner/enmanner.json"
 if "$vite_target/.enmanner/scripts/preview-icon" \
   --output .enmanner/icon-previews >"$test_root/preview-owned.out" 2>&1; then
   echo "Error: preview-icon wrote outside .enmanner/.build." >&2
@@ -241,14 +257,15 @@ test "$(
   grep -Fxc "/Vite Project.app/" "$vite_target/.gitignore"
 )" -eq 1
 
-cp "$vite_target/enmanner.json" "$vite_target/enmanner.json.example"
+cp "$vite_target/enmanner/enmanner.json" \
+  "$vite_target/enmanner/enmanner.json.example"
 "$vite_target/.enmanner/scripts/doctor" --json \
   >"$test_root/doctor.json"
 jq -e '
   .valid and
   (.doctor.complete == false) and
   .doctor.installationRecordPresent and
-  (.doctor.installationVersion == "0.5.1") and
+  (.doctor.installationVersion == "0.5.2") and
   .doctor.staleDraftManifest and
   .doctor.iconConfigured and
   .doctor.iconSourceExists and
@@ -258,13 +275,13 @@ jq -e '
   .doctor.gitignoreManagedSectionPresent and
   ([.warnings[]] | any(contains("stale draft")))
 ' "$test_root/doctor.json" >/dev/null
-rm "$vite_target/enmanner.json.example"
+rm "$vite_target/enmanner/enmanner.json.example"
 "$vite_target/.enmanner/scripts/doctor" --json |
   jq -e '.valid and .doctor.complete' >/dev/null
 
 test -f "$vite_target/.enmanner/INSTALLATION.json"
 jq -e '
-  (.version == "0.5.1") and
+  (.version == "0.5.2") and
   (.upstreamURL | type == "string") and
   (.manifestStatus == "inferred") and
   (.inferredManifestFields | index("server.command")) and
@@ -294,8 +311,8 @@ fi
   jq -e '
     .applicable and
     .applied and
-    (.fromVersion == "0.5.1") and
-    (.toVersion == "0.5.1")
+    (.fromVersion == "0.5.2") and
+    (.toVersion == "0.5.2")
   ' >/dev/null
 test ! -e "$vite_target/.enmanner/framework/Tests"
 test ! -e "$vite_target/.enmanner/scripts/install"

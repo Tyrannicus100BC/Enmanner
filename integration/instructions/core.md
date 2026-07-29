@@ -2,14 +2,14 @@
 
 ## MUST
 
-- Keep one deterministic, noninteractive startup command in `enmanner.json`.
+- Keep one deterministic, noninteractive startup command in `enmanner/enmanner.json`.
 - Keep the server process in the foreground so Enmanner can supervise it.
 - Bind the server to loopback by default and respect `ENMANNER_PORT`.
 - Keep a cheap readiness URL available.
 - Monitor relevant source changes and preserve framework-native hot reload.
 - Make browser clients recover after a server restart.
 - Keep runtime data outside generated build output.
-- Keep secrets out of source, Git, logs, and `enmanner.json`.
+- Keep secrets out of source, Git, logs, and `enmanner/enmanner.json`.
 - Keep project dependencies inside this repository; do not install them
   system-wide.
 - Treat the repository, never the generated `.app`, as editable source.
