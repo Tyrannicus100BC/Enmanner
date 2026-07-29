@@ -4,7 +4,7 @@ set -euo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 integration_dir="$(cd "$script_dir/.." && pwd)"
 project_dir="$(cd "$integration_dir/.." && pwd)"
-launcher_dir="$integration_dir/launcher"
+framework_dir="$integration_dir/framework"
 runtime_flag=""
 allow_legacy_icon=false
 json=false
@@ -39,13 +39,13 @@ fi
 
 [[ "$json" == true ]] || echo "Validating Enmanner configuration…"
 if [[ "$json" == true ]]; then
-  swift build --package-path "$launcher_dir" -c release \
+  swift build --package-path "$framework_dir" -c release \
     --product enmanner-validator >/dev/null
 else
-  swift build --package-path "$launcher_dir" -c release \
+  swift build --package-path "$framework_dir" -c release \
     --product enmanner-validator
 fi
-bin_dir="$(swift build --package-path "$launcher_dir" -c release --show-bin-path)"
+bin_dir="$(swift build --package-path "$framework_dir" -c release --show-bin-path)"
 
 icon_path="$("$bin_dir/enmanner-validator" --project "$project_dir" --print icon)"
 if [[ "$icon_path" == *.icns ]]; then

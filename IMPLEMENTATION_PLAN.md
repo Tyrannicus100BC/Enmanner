@@ -7,7 +7,7 @@ Enmanner integration that builds a small native launcher beside its source.
    validation, project-relative path resolution, port allocation, process
    supervision, environment interpolation, readiness checks, and bounded logs.
 2. Build an AppKit + WKWebView launcher with useful starting, running,
-   reconnecting, and failed states; embedded and external-browser modes; log
+   reconnecting, and failed states; default-browser and opt-in embedded modes; log
    viewing; retry; reveal-project; and graceful process-tree shutdown.
 3. Provide strict project-local scripts to install Enmanner, validate a project,
    compile the launcher, assemble an `.app`, and ad-hoc sign it when available.

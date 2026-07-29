@@ -125,7 +125,7 @@ final class MainWindowController: NSWindowController, WKNavigationDelegate {
         webView.load(URLRequest(url: url))
     }
 
-    func showExternalRunning(at url: URL) {
+    func showBrowserRunning(at url: URL) {
         applicationURL = url
         webView?.isHidden = true
         statePanel.isHidden = false

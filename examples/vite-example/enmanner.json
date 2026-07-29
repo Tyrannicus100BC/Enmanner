@@ -1,6 +1,6 @@
 {
   "$schema": "./.enmanner/enmanner.schema.json",
-  "version": 1,
+  "version": 2,
   "name": "Enmanner Vite Example",
   "identifier": "local.enmanner.vite-example",
   "server": {
@@ -26,7 +26,7 @@
     }
   },
   "window": {
-    "mode": "embedded",
+    "mode": "browser",
     "width": 1200,
     "height": 800,
     "resizable": true

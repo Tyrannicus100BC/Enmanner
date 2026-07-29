@@ -18,13 +18,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var isRecovering = false
     private var recoveryAttempts = 0
     private var shuttingDown = false
-    private var externalReopenNeedsForegroundOnly = true
+    private var browserReopenNeedsForegroundOnly = true
     private var activationSequence = 0
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApplication.shared.setActivationPolicy(.regular)
         // Activation lets macOS resolve access to projects in protected folders
-        // such as Desktop before Enmanner reads the manifest. External mode still
+        // such as Desktop before Enmanner reads the manifest. Browser mode still
         // remains windowless because no window controller is created here.
         NSApplication.shared.activate(ignoringOtherApps: true)
         DispatchQueue.main.async { [weak self] in
@@ -33,7 +33,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     func applicationWillBecomeActive(_ notification: Notification) {
-        externalReopenNeedsForegroundOnly = true
+        browserReopenNeedsForegroundOnly = true
         activationSequence += 1
         let sequence = activationSequence
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
@@ -42,12 +42,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                   NSApplication.shared.isActive else {
                 return
             }
-            self.externalReopenNeedsForegroundOnly = false
+            self.browserReopenNeedsForegroundOnly = false
         }
     }
 
     func applicationDidResignActive(_ notification: Notification) {
-        externalReopenNeedsForegroundOnly = true
+        browserReopenNeedsForegroundOnly = true
     }
 
     private func beginLaunch() {
@@ -81,7 +81,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         // active reopens the browser. AppKit does not include the prior
         // activation state in the reopen event, so retain the adjacent
         // activation transition briefly to distinguish the two cases.
-        guard !externalReopenNeedsForegroundOnly else { return false }
+        guard !browserReopenNeedsForegroundOnly else { return false }
         if reachedReadyState, let applicationURL {
             NSWorkspace.shared.open(applicationURL)
         } else {
@@ -191,8 +191,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 switch manifest?.window.mode {
                 case .embedded:
                     windowController?.showEmbeddedApplication(at: url)
-                case .external:
-                    windowController?.showExternalRunning(at: url)
+                case .browser:
+                    windowController?.showBrowserRunning(at: url)
                     windowController?.hideWindow()
                     NSWorkspace.shared.open(url)
                 case nil:
@@ -268,7 +268,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private func presentPreparationFailure(_ error: Error) {
         NSApplication.shared.activate(ignoringOtherApps: true)
         let fallbackManifest = EnmannerManifest(
-            version: 1,
+            version: 2,
             name: "Enmanner",
             identifier: "local.enmanner.launcher",
             server: .init(
@@ -299,11 +299,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private func showLauncherWindow() {
         NSApplication.shared.activate(ignoringOtherApps: true)
         guard let controller = ensureWindowController() else { return }
-        if manifest?.window.mode == .external {
+        if manifest?.window.mode == .browser {
             if isRecovering {
                 controller.showReconnecting()
             } else if reachedReadyState, let applicationURL {
-                controller.showExternalRunning(at: applicationURL)
+                controller.showBrowserRunning(at: applicationURL)
             } else {
                 controller.showStarting()
             }

@@ -3,6 +3,11 @@
 Enmanner is installed in this repository. The repository is the editable source of
 truth; the generated `.app` is only a reproducible native front door.
 
+Every file inside `.enmanner/` is vendored, framework-owned code. Do not add
+project overrides there or edit native internals during an integration. Keep
+project configuration in `enmanner.json` and copy templates into visible
+project-owned paths before customizing them.
+
 Before changing application startup, networking, persistence, secrets, reload
 behavior, native presentation, or collaboration, read the focused rules in
 `instructions/`:

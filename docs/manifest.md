@@ -6,7 +6,7 @@ provides editor and agent validation.
 ```json
 {
   "$schema": "./.enmanner/enmanner.schema.json",
-  "version": 1,
+  "version": 2,
   "name": "Household Finances",
   "identifier": "local.enmanner.household-finances",
   "server": {
@@ -32,7 +32,7 @@ provides editor and agent validation.
     }
   },
   "window": {
-    "mode": "embedded",
+    "mode": "browser",
     "width": 1200,
     "height": 800,
     "resizable": true
@@ -40,7 +40,7 @@ provides editor and agent validation.
 }
 ```
 
-`version` is currently `1`. `name` becomes the `.app` display name and may not
+`version` is currently `2`. `name` becomes the `.app` display name and may not
 contain slash or colon. `identifier` is a reverse-DNS bundle identifier.
 
 `server.command` is an argument array. Enmanner executes the first item directly;
@@ -82,17 +82,13 @@ Runtime validation starts and stops the configured command. For applications
 with databases, containers, or other stateful services, review ownership,
 mounts, backups, and controlled stop/start persistence before running it.
 
-`window.mode` is `embedded` or `external`. Embedded mode owns a native web
-window. Closing it leaves the app and server running; clicking the Dock icon
-reopens it. External mode launches windowlessly, remains in the Dock, and opens
+`window.mode` is `browser` or `embedded`. Browser mode is the conservative
+default: it launches windowlessly, remains in the Dock, and opens
 the readiness URL in the user's default browser once the server is ready. A
 Dock click from another app foregrounds the launcher, while another click when
 it is already active reopens the browser. Quit or Command-Q stops the server in
-either mode. Startup failures still open the status window automatically.
+either mode. Embedded mode owns a native WKWebView window and should be selected
+only after the application passes the compatibility checklist. Startup failures
+still open the status window automatically.
 Dimensions and resizability apply to native windows and require an app rebuild
 after changes.
-
-Legacy v1 manifests may contain `development.reload`. It never controlled
-launcher behavior and is now deprecated and ignored. Framework HMR remains
-project-managed while Enmanner always performs bounded recovery after a
-previously-ready server exits.

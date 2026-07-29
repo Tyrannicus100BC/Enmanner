@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://enmanner.local/schema/v1/enmanner.schema.json",
+  "$id": "https://enmanner.local/schema/v2/enmanner.schema.json",
   "title": "Enmanner project manifest",
   "type": "object",
   "additionalProperties": false,
@@ -10,7 +10,7 @@
       "type": "string"
     },
     "version": {
-      "const": 1
+      "const": 2
     },
     "name": {
       "type": "string",
@@ -98,7 +98,7 @@
       "required": ["mode", "width", "height", "resizable"],
       "properties": {
         "mode": {
-          "enum": ["embedded", "external"]
+          "enum": ["browser", "embedded"]
         },
         "width": {
           "type": "number",
@@ -112,18 +112,6 @@
         },
         "resizable": {
           "type": "boolean"
-        }
-      }
-    },
-    "development": {
-      "deprecated": true,
-      "description": "Accepted for manifest v1 compatibility but ignored by the launcher.",
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["reload"],
-      "properties": {
-        "reload": {
-          "enum": ["auto", "manual"]
         }
       }
     }

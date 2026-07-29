@@ -38,7 +38,7 @@ temporary="$temporary_dir/INSTALLATION.plist"
 trap 'rm -rf "$temporary_dir"' EXIT
 
 /usr/bin/plutil -create xml1 "$temporary"
-/usr/bin/plutil -insert formatVersion -integer 1 "$temporary"
+/usr/bin/plutil -insert formatVersion -integer 2 "$temporary"
 version="$(tr -d '[:space:]' < "$source_root/VERSION")"
 /usr/bin/plutil -insert version -string "$version" "$temporary"
 upstream_commit=""
@@ -63,13 +63,13 @@ else
   /usr/bin/plutil -insert inferredManifestFields -json '[]' "$temporary"
 fi
 /usr/bin/plutil -insert files -json '[]' "$temporary"
-/usr/bin/plutil -insert projectOverrides -json '["project/"]' "$temporary"
-
 index=0
 while IFS= read -r -d '' source_file; do
   relative="${source_file#"$source_root"/}"
   [[ "$relative" == "INSTALLATION.json" ]] && continue
-  checksum="$(/usr/bin/shasum -a 256 "$source_file" | awk '{print $1}')"
+  [[ "$relative" == framework/Tests/* ]] && continue
+  [[ "$relative" == "scripts/install" ]] && continue
+  checksum="$(/usr/bin/shasum -a 256 "$source_file" | /usr/bin/awk '{print $1}')"
   /usr/bin/plutil -insert "files.$index" -json '{}' "$temporary"
   /usr/bin/plutil -insert "files.$index.path" -string "$relative" "$temporary"
   /usr/bin/plutil -insert "files.$index.sha256" -string "$checksum" "$temporary"

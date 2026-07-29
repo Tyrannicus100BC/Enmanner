@@ -13,7 +13,7 @@ before accepting an integration, especially when it uses:
 - application keyboard shortcuts that overlap macOS menu commands.
 
 Confirm primary navigation, authentication, persistence, failure recovery, and
-server restart behavior. Use `external` mode when browser-specific behavior is
+server restart behavior. Keep `browser` mode when browser-specific behavior is
 central to the application or the embedded result is materially degraded.
 Enmanner opens user-activated external-host links in the default browser and
 retains a persistent default WKWebView data store for embedded applications.

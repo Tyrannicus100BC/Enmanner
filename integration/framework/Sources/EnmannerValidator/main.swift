@@ -61,7 +61,6 @@ private struct ValidationReport: Codable {
     let envFileLoading: String
     let swiftVersion: String
     let modernIconToolingAvailable: Bool
-    let deprecatedFields: [String]
     let warnings: [String]
     let runtime: RuntimeReport?
 }
@@ -143,8 +142,6 @@ struct EnmannerValidatorCommand {
                 executable: "/usr/bin/xcrun",
                 arguments: ["--find", "actool"]
             ).isEmpty,
-            deprecatedFields: manifest.development == nil
-                ? [] : ["development.reload"],
             warnings: manifest.identifier.hasPrefix("local.enmanner.")
                 ? ["identifier uses Enmanner's inferred local namespace"]
                 : [],
@@ -163,9 +160,6 @@ struct EnmannerValidatorCommand {
             print("✓ executable resolves to \(configuration.executableURL.path)")
             print("  Effective GUI PATH: \(report.effectivePath)")
             print("  .env loading: project-managed (Enmanner does not load it)")
-            if manifest.development != nil {
-                print("! development.reload is deprecated and ignored; remove it")
-            }
             report.warnings.forEach { print("! \($0)") }
             if let runtimeReport {
                 printRuntimeReport(runtimeReport)

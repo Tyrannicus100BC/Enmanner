@@ -2,8 +2,9 @@
 
 ## The project folder is the application
 
-Enmanner installs source into `.enmanner/` and keeps project-owned configuration in
-`enmanner.json`. The native bundle is assembled beside those files and locates the
+Enmanner installs a curated, framework-owned source distribution into
+`.enmanner/` and keeps project-owned configuration in `enmanner.json`. The
+native bundle is assembled beside those files and locates the
 manifest by taking the parent directory of its own bundle URL. It stores no
 absolute project registration. Moving the whole folder therefore preserves the
 relationship; rebuilding handles any macOS signature or metadata changes.
@@ -38,9 +39,10 @@ embedded.
   (or explicitly falls back to a legacy `.icns`), verifies the modern icon
   metadata and image stack, and ad-hoc signs locally.
 
-SwiftPM has no non-Apple dependencies. The package targets macOS 13, a practical
-baseline for structured concurrency and current WKWebView behavior while
-retaining several years of Mac coverage.
+The installed distribution includes `Package.swift` and `Sources`, but excludes
+the framework's own tests and installer. SwiftPM has no non-Apple dependencies.
+The package targets macOS 13, a practical baseline for structured concurrency
+and current WKWebView behavior while retaining several years of Mac coverage.
 
 ## Startup sequence
 
@@ -56,8 +58,8 @@ retaining several years of Mac coverage.
    runtime locations.
 6. Start `Process` in the validated project-relative working directory.
 7. Put the immediate child in its own process group and capture both pipes.
-8. In embedded mode, display the native starting state. External mode remains
-   windowless while keeping its normal Dock presence.
+8. In browser mode, the default, remain windowless while keeping the normal Dock
+   presence. Embedded mode displays the native starting state.
 9. Poll HTTP readiness, then load the URL in WKWebView or ask the default browser
    to open it.
 
@@ -80,7 +82,7 @@ escape the process group.
 An exit before first readiness produces a failure screen. An exit after the app
 has been ready enters a reconnecting state and performs up to five restarts with
 bounded exponential backoff. Embedded mode displays that state immediately;
-external mode exposes it if the user reopens the Dock app. Each restart uses the
+browser mode exposes it if the user reopens the Dock app. Each restart uses the
 same selected port, polls readiness, and reloads the embedded page. Framework
 HMR remains untouched while the server stays up.
 
@@ -112,7 +114,7 @@ The main interface remains hidden until readiness. User-activated links to
 other hosts and links requesting a new window open in the default browser.
 Server restarts hide the broken page and reload only after readiness returns.
 
-External mode keeps the launcher in the Dock but does not show a native window
+Browser mode keeps the launcher in the Dock but does not show a native window
 during a healthy launch. Once readiness succeeds, it opens the same URL through
 `NSWorkspace` in the default browser and continues to own the server. A Dock
 click from another app foregrounds Enmanner so its menus, including Quit, are
@@ -135,8 +137,8 @@ runtime data in the generated app bundle.
 
 ## Failure UI and logs
 
-The native state panel distinguishes starting, reconnecting, running externally,
-and failed. Embedded mode presents it during startup. External mode presents it
+The native state panel distinguishes starting, reconnecting, running in the browser,
+and failed. Embedded mode presents it during startup. Browser mode presents it
 only after an explicit Dock reopen or when a failure needs attention. Failure
 includes the configured argument array, exit status when known, and recent
 output. Users can show the bounded log view, copy it, retry, or reveal the
@@ -183,8 +185,9 @@ may generate a complete manifest; ambiguous projects receive framework files
 and a structured `configurationRequired` result without an app build.
 `.enmanner/INSTALLATION.json` records the installed version, upstream commit,
 and checksums of framework-owned files. Repair and upgrade operations refuse to
-write when those files have local modifications. Project-owned supervisor code
-stays outside the framework tree or in its explicitly reserved override area.
+write when those files have local modifications. Every installed file is
+framework-owned; there is no hidden project override area. Project supervisors,
+icons, data, configuration, and scripts remain in visible project-owned paths.
 
 ## Why there is no reverse proxy
 

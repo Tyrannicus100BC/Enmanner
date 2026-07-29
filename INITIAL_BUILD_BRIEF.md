@@ -203,18 +203,19 @@ Enmanner should allow a project to produce a small native macOS .app that:
 
 1. Starts the project’s local web server.
 2. Waits for the server to become ready.
-3. Opens the application in an embedded native web view.
+3. Opens the application in the user’s default browser.
 4. Keeps the server process attached to the launcher.
 5. Stops the server when the native app quits.
 6. Shows useful native UI while starting.
 7. Shows useful native UI when startup fails.
 8. surfaces relevant process output without requiring Terminal.
 9. recovers gracefully when the server process restarts.
-10. refreshes the embedded browser when required.
+10. restores or refreshes the browser endpoint when required.
 11. allows ordinary source changes to appear without rebuilding the .app.
 12. can be generated from source using a simple build script.
 
-Enmanner should also be capable of launching the app in the user’s default external browser, although embedded mode is the primary MVP target.
+Enmanner should also support an opt-in embedded native web view for applications
+that pass its compatibility checklist.
 
 ⸻
 
@@ -227,12 +228,11 @@ The first version should target:
 * macOS only
 * Swift
 * Swift Package Manager
-* WKWebView
+* default-browser presentation
 * one local web application at a time
 * one child server process
 * JSON configuration
-* embedded browser mode
-* optional external browser mode
+* optional embedded WKWebView mode
 * simple HTTP readiness checking
 * standard output and standard error capture
 * graceful shutdown
@@ -347,7 +347,8 @@ UserProject/
 │   ├── AGENTS.md
 │   ├── enmanner.schema.json
 │   ├── instructions/
-│   ├── launcher/
+│   ├── framework/
+│   ├── templates/
 │   └── scripts/
 └── User Project.app
 
@@ -366,7 +367,7 @@ enmanner.json
 
 is project-owned, while:
 
-.enmanner/launcher/
+.enmanner/framework/
 
 is framework-owned.
 
@@ -386,7 +387,7 @@ A starting design might be:
 
 {
   "$schema": "./.enmanner/enmanner.schema.json",
-  "version": 1,
+  "version": 2,
   "name": "Household Finances",
   "identifier": "local.enmanner.household-finances",
   "server": {
@@ -401,13 +402,10 @@ A starting design might be:
     }
   },
   "window": {
-    "mode": "embedded",
+    "mode": "browser",
     "width": 1200,
     "height": 800,
     "resizable": true
-  },
-  "development": {
-    "reload": "auto"
   }
 }
 
@@ -1074,7 +1072,7 @@ Phase 7: polish
 
 * improve errors
 * improve logs
-* add external-browser mode
+* add opt-in embedded-browser mode
 * add tests
 * tighten documentation
 * remove unnecessary complexity

@@ -24,7 +24,10 @@ assets.
 The root installer preserves existing agent instructions and appends a clearly
 delimited reference to Enmanner. Framework-owned files live under `.enmanner/`
 and are replaced only through the checksum-verified repair or upgrade workflow;
-`enmanner.json` and the application source remain project-owned. The installer
+there is no framework override area. Project supervisors, icons, data, scripts,
+`enmanner.json`, and the application source remain outside `.enmanner/` and
+project-owned. Installed distributions include native `Sources` but omit the
+framework's tests and installer. The installer
 offers a non-mutating JSON plan and stops with `configurationRequired` rather
 than manufacturing an unverified startup command.
 

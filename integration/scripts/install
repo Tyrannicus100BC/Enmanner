@@ -299,13 +299,15 @@ mkdir -p "$destination"
   --exclude ".build" \
   --exclude ".DS_Store" \
   --exclude "INSTALLATION.json" \
+  --exclude "framework/Tests/" \
+  --exclude "scripts/install" \
   "$source_dir/" "$destination/"
 
 if [[ ! -e "$manifest_path" && "$manifest_status" == "inferred" ]]; then
   {
     echo '{'
     echo '  "$schema": "./.enmanner/enmanner.schema.json",'
-    echo '  "version": 1,'
+    echo '  "version": 2,'
     printf '  "name": "%s",\n' "$(json_escape "$project_name")"
     printf '  "identifier": "%s",\n' "$(json_escape "$bundle_identifier")"
     echo '  "server": {'
@@ -318,7 +320,7 @@ if [[ ! -e "$manifest_path" && "$manifest_status" == "inferred" ]]; then
     echo '    }'
     echo '  },'
     echo '  "window": {'
-    echo '    "mode": "embedded",'
+    echo '    "mode": "browser",'
     echo '    "width": 1200,'
     echo '    "height": 800,'
     echo '    "resizable": true'
@@ -335,7 +337,7 @@ if ! grep -q "# enmanner:begin" "$gitignore" 2>/dev/null; then
     if [[ "$manifest_status" != "configurationRequired" ]]; then
       echo "$app_ignore"
     fi
-    echo "/.enmanner/launcher/.build/"
+    echo "/.enmanner/framework/.build/"
     echo "/.enmanner/.build/"
     echo "# enmanner:end"
   } >> "$gitignore"

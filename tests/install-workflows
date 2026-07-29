@@ -38,6 +38,10 @@ printf '%s\n' "$vite_result" | jq -e '
   (.manifestStatus == "inferred") and
   (.built == false)
 ' >/dev/null
+jq -e '
+  (.version == 2) and
+  (.window.mode == "browser")
+' "$vite_target/enmanner.json" >/dev/null
 
 generic_result="$(
   "$repository_dir/integration/scripts/install" \
@@ -52,11 +56,20 @@ test ! -e "$generic_target/enmanner.json"
 
 test -f "$vite_target/.enmanner/INSTALLATION.json"
 jq -e '
-  (.version == "0.2.0") and
+  (.version == "0.3.0") and
   (.manifestStatus == "inferred") and
   (.inferredManifestFields | index("server.command")) and
+  ([.files[].path] | any(startswith("framework/Sources/"))) and
+  ([.files[].path] | all(
+    (startswith("framework/Tests/") or . == "scripts/install") | not
+  )) and
   (.files | length > 0)
 ' "$vite_target/.enmanner/INSTALLATION.json" >/dev/null
+test -f "$vite_target/.enmanner/framework/Package.swift"
+test -d "$vite_target/.enmanner/framework/Sources"
+test ! -e "$vite_target/.enmanner/framework/Tests"
+test ! -e "$vite_target/.enmanner/scripts/install"
+test ! -e "$vite_target/.enmanner/project"
 grep -Fqx '/Vite Project.app/' "$vite_target/.gitignore"
 if grep -Eq '^data/|^\.env|^\*\.app/' "$vite_target/.gitignore"; then
   echo "Error: installer added an ignore rule outside Enmanner ownership." >&2
@@ -66,6 +79,17 @@ fi
 "$vite_target/.enmanner/scripts/upgrade" \
   --check --from "$repository_dir" --json |
   jq -e '.applicable and (.applied == false)' >/dev/null
+
+"$vite_target/.enmanner/scripts/upgrade" \
+  --apply --from "$repository_dir" --json |
+  jq -e '
+    .applicable and
+    .applied and
+    (.fromVersion == "0.3.0") and
+    (.toVersion == "0.3.0")
+  ' >/dev/null
+test ! -e "$vite_target/.enmanner/framework/Tests"
+test ! -e "$vite_target/.enmanner/scripts/install"
 
 cp "$repository_dir/LICENSE" "$vite_target/.enmanner/VERSION"
 if "$vite_target/.enmanner/scripts/upgrade" \
@@ -79,4 +103,4 @@ jq -e '
   (.conflicts | length == 1)
 ' "$test_root/conflict.json" >/dev/null
 
-echo "✓ install planning, conservative inference, scoped ignores, provenance, and conflict handling passed"
+echo "✓ install planning, inference, provenance, applied upgrade, and conflict handling passed"

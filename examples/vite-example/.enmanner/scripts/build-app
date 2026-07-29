@@ -4,7 +4,7 @@ set -euo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 integration_dir="$(cd "$script_dir/.." && pwd)"
 project_dir="$(cd "$integration_dir/.." && pwd)"
-launcher_dir="$integration_dir/launcher"
+framework_dir="$integration_dir/framework"
 
 allow_legacy_icon=false
 if [[ "${1:-}" == "--allow-legacy-icon" ]]; then
@@ -22,7 +22,7 @@ else
   "$script_dir/validate"
 fi
 
-validator_dir="$(swift build --package-path "$launcher_dir" -c release --show-bin-path)"
+validator_dir="$(swift build --package-path "$framework_dir" -c release --show-bin-path)"
 validator="$validator_dir/enmanner-validator"
 app_name="$("$validator" --project "$project_dir" --print name)"
 bundle_identifier="$("$validator" --project "$project_dir" --print identifier)"
@@ -53,7 +53,7 @@ if ! grep -Fqx "$app_ignore" "$gitignore" 2>/dev/null; then
       echo
       echo "# enmanner:begin"
       echo "$app_ignore"
-      echo "/.enmanner/launcher/.build/"
+      echo "/.enmanner/framework/.build/"
       echo "/.enmanner/.build/"
       echo "# enmanner:end"
     } > "$gitignore_update"
@@ -70,8 +70,8 @@ while read -r running_pid running_command; do
 done < <(/bin/ps -axo pid=,comm=)
 
 echo "Building the native Enmanner launcher…"
-swift build --package-path "$launcher_dir" -c release --product EnmannerLauncher
-bin_dir="$(swift build --package-path "$launcher_dir" -c release --show-bin-path)"
+swift build --package-path "$framework_dir" -c release --product EnmannerLauncher
+bin_dir="$(swift build --package-path "$framework_dir" -c release --show-bin-path)"
 
 stage_dir="$(mktemp -d "${TMPDIR:-/tmp}/enmanner-app.XXXXXX")"
 cleanup() {
@@ -94,7 +94,7 @@ plist="$contents/Info.plist"
 /usr/bin/plutil -insert CFBundleInfoDictionaryVersion -string "6.0" "$plist"
 /usr/bin/plutil -insert CFBundleName -string "$app_name" "$plist"
 /usr/bin/plutil -insert CFBundlePackageType -string "APPL" "$plist"
-/usr/bin/plutil -insert CFBundleShortVersionString -string "0.1.0" "$plist"
+/usr/bin/plutil -insert CFBundleShortVersionString -string "0.3.0" "$plist"
 /usr/bin/plutil -insert CFBundleVersion -string "1" "$plist"
 /usr/bin/plutil -insert LSMinimumSystemVersion -string "13.0" "$plist"
 /usr/bin/plutil -insert LSMultipleInstancesProhibited -bool true "$plist"
@@ -189,7 +189,7 @@ fi
 touch "$app_path"
 
 app_size="$(du -sh "$app_path" | awk '{print $1}')"
-cache_size="$(du -sh "$launcher_dir/.build" | awk '{print $1}')"
+cache_size="$(du -sh "$framework_dir/.build" | awk '{print $1}')"
 echo "✓ Created $app_name.app beside the project source ($app_size)"
 echo "  Enmanner build cache: $cache_size (remove with ./.enmanner/scripts/clean)"
 echo "  Ordinary web changes appear without rebuilding this launcher."

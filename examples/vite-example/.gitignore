@@ -1,9 +1,7 @@
+node_modules/
 
-# Enmanner generated files
-*.app/
-.enmanner/launcher/.build/
-.enmanner/.build/
-.env
-.env.*
-!.env.example
-data/
+# enmanner:begin
+/Enmanner Vite Example.app/
+/.enmanner/framework/.build/
+/.enmanner/.build/
+# enmanner:end

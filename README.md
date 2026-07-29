@@ -9,11 +9,12 @@ The idea is simple:
 
 > The repository is the source of truth. The `.app` is the front door.
 
-Enmanner adds transparent source files to a project, then builds a small native Mac
-app beside it. Opening that app starts the project's local server, waits until
-it is ready, and either presents the web interface in a normal WKWebView window
-or opens it in the default browser. In external-browser mode the launcher stays
-in the Dock without showing a window during a healthy launch. The launcher
+Enmanner adds a transparent, project-local framework distribution, then builds a
+small native Mac app beside it. Opening that app starts the project's local
+server, waits until it is ready, and opens it in the default browser. An
+opt-in embedded WKWebView presentation is available for applications that pass
+its compatibility checklist. In browser mode the launcher stays in the Dock
+without showing a window during a healthy launch. The launcher
 captures logs, explains startup failures, supervises the server, recovers after
 restarts, and stops the server when the app quits. Generated apps also provide
 standard macOS menus, keyboard shortcuts, a small Settings window, and normal
@@ -23,14 +24,23 @@ Enmanner is an MVP, not a universal application platform. It currently targets o
 local server, one user, one Mac, and projects that already contain the runtime
 needed by their startup command.
 
+Today, the coding agent is part of the product architecture: Enmanner is a
+packaging and lifecycle protocol that helps an agent turn a local web project
+into a well-behaved Mac app for normal human use.
+
 ## What stays where
 
 ```text
 Your Project/
 ├── source and dependencies       editable source of truth
 ├── project-owned local data      explicit and Git-ignored
-├── enmanner.json                     project configuration
-├── .enmanner/                        tracked launcher source and guidance
+├── enmanner.json                 project-owned configuration
+├── start                         optional project-owned supervisor
+├── .enmanner/                    tracked framework-owned distribution
+│   ├── scripts/                  stable public commands
+│   ├── framework/                native Package.swift and Sources
+│   ├── instructions/             agent compatibility guidance
+│   └── templates/                copy out before customization
 └── Your Project.app              small reproducible wrapper, Git-ignored
 ```
 
@@ -65,7 +75,7 @@ npm ci
 open "Enmanner Vite Example.app"
 ```
 
-Then edit `src/main.js`. Vite's own HMR updates the native window; the `.app`
+Then edit `src/main.js`. Vite's own HMR updates the browser; the `.app`
 does not need to be rebuilt. To verify the full server lifecycle without
 opening the app:
 
@@ -119,11 +129,9 @@ apply an update from an Enmanner checkout with:
 The upgrade refuses all changes if a framework-owned file was locally modified.
 The provenance also records exact file checksums, the upstream commit and dirty
 state, whether the manifest was inferred, and which fields came from that
-inference. A published aggregate baseline allows an untouched 0.1.0
-installation to enter the provenance-managed workflow safely.
-Project-owned supervisor code belongs outside `.enmanner/`, or under the
-reserved `.enmanner/project/` override directory. `install --repair` uses the
-same conflict-aware mechanism.
+inference. Every file inside `.enmanner/` is framework-owned. Project
+configuration, supervisors, icons, data, and scripts stay in visible paths
+outside it. `install --repair` uses the same conflict-aware mechanism.
 
 Use `./.enmanner/scripts/doctor --json` for resolved executable, arguments,
 working directory, effective GUI `PATH`, toolchain, icon capability, and
@@ -147,7 +155,7 @@ low-level settings yourself. The format is documented in
 
 Ordinary web source, styles, server code, and local application data do not.
 Rebuild after changing the display name, bundle identifier, icon, native window
-configuration, or files in `.enmanner/launcher`.
+configuration, or files in `.enmanner/framework`.
 
 ## Failure and recovery behavior
 
@@ -184,7 +192,7 @@ notarization, and distribution to other machines are future work.
 Run:
 
 ```bash
-swift test --package-path integration/launcher
+swift test --package-path integration/framework
 ./tests/smoke-vite-example
 ```
 

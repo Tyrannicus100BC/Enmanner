@@ -17,7 +17,7 @@
 - Restart recovery is bounded and does not preserve in-memory server state.
 - No code sandbox, secret store, data migration framework, backup service,
   project upgrade manager, auto-updater, notarization, or public distribution.
-- External-browser mode keeps a native status window but is intentionally basic.
+- Browser mode keeps a native status window but is intentionally basic.
 - Installer inference intentionally completes configuration only for tested,
   high-confidence adapters. Other stacks receive candidates and a
   `configurationRequired` result.

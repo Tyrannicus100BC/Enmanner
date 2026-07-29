@@ -6,7 +6,6 @@ public struct EnmannerManifest: Codable, Equatable, Sendable {
     public let identifier: String
     public let server: Server
     public let window: Window
-    public let development: Development?
     public let icon: String?
 
     public init(
@@ -15,7 +14,6 @@ public struct EnmannerManifest: Codable, Equatable, Sendable {
         identifier: String,
         server: Server,
         window: Window = Window(),
-        development: Development? = nil,
         icon: String? = nil
     ) {
         self.version = version
@@ -23,7 +21,6 @@ public struct EnmannerManifest: Codable, Equatable, Sendable {
         self.identifier = identifier
         self.server = server
         self.window = window
-        self.development = development
         self.icon = icon
     }
 
@@ -74,10 +71,10 @@ public struct EnmannerManifest: Codable, Equatable, Sendable {
     public struct Window: Codable, Equatable, Sendable {
         public enum Mode: String, Codable, Sendable {
             case embedded
-            case external
+            case browser
 
             public var launchesWindowless: Bool {
-                self == .external
+                self == .browser
             }
 
             public var keepsRunningAfterLastWindowClosed: Bool {
@@ -91,7 +88,7 @@ public struct EnmannerManifest: Codable, Equatable, Sendable {
         public let resizable: Bool
 
         public init(
-            mode: Mode = .embedded,
+            mode: Mode = .browser,
             width: Double = 1200,
             height: Double = 800,
             resizable: Bool = true
@@ -103,18 +100,6 @@ public struct EnmannerManifest: Codable, Equatable, Sendable {
         }
     }
 
-    public struct Development: Codable, Equatable, Sendable {
-        public enum Reload: String, Codable, Sendable {
-            case auto
-            case manual
-        }
-
-        public let reload: Reload
-
-        public init(reload: Reload = .auto) {
-            self.reload = reload
-        }
-    }
 }
 
 public enum ManifestLoader {
@@ -146,8 +131,8 @@ public enum ManifestValidator {
         var issues: [String] = []
         let fileManager = FileManager.default
 
-        if manifest.version != 1 {
-            issues.append("version must be 1.")
+        if manifest.version != 2 {
+            issues.append("version must be 2.")
         }
         if manifest.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             issues.append("name must not be empty.")

@@ -51,7 +51,7 @@ final class PathAndEnvironmentTests: XCTestCase {
     func testProcessCommandConstructionDoesNotUseShell() throws {
         let directory = try temporaryDirectory()
         let manifest = EnmannerManifest(
-            version: 1,
+            version: 2,
             name: "Example",
             identifier: "local.enmanner.example",
             server: .init(
@@ -93,7 +93,7 @@ final class PathAndEnvironmentTests: XCTestCase {
             ofItemAtPath: executable.path
         )
         let manifest = EnmannerManifest(
-            version: 1,
+            version: 2,
             name: "Example",
             identifier: "local.enmanner.example",
             server: .init(
@@ -116,7 +116,7 @@ final class PathAndEnvironmentTests: XCTestCase {
     func testRelativeExecutableCannotLeaveProject() throws {
         let directory = try temporaryDirectory()
         let manifest = EnmannerManifest(
-            version: 1,
+            version: 2,
             name: "Example",
             identifier: "local.enmanner.example",
             server: .init(

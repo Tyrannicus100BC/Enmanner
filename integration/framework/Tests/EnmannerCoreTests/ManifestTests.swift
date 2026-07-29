@@ -2,10 +2,10 @@ import XCTest
 @testable import EnmannerCore
 
 final class ManifestTests: XCTestCase {
-    func testDecodesManifestWithoutDeprecatedDevelopmentSection() throws {
+    func testDecodesVersionTwoBrowserManifest() throws {
         let json = """
         {
-          "version": 1,
+          "version": 2,
           "name": "Minimal",
           "identifier": "local.enmanner.minimal",
           "server": {
@@ -18,7 +18,7 @@ final class ManifestTests: XCTestCase {
             }
           },
           "window": {
-            "mode": "embedded",
+            "mode": "browser",
             "width": 800,
             "height": 600,
             "resizable": true
@@ -31,12 +31,12 @@ final class ManifestTests: XCTestCase {
             from: Data(json.utf8)
         )
 
-        XCTAssertNil(manifest.development)
+        XCTAssertEqual(manifest.window.mode, .browser)
     }
 
     func testValidationRejectsInvalidReadinessMatchers() {
         let manifest = EnmannerManifest(
-            version: 1,
+            version: 2,
             name: "Matchers",
             identifier: "local.enmanner.matchers",
             server: .init(
@@ -62,11 +62,11 @@ final class ManifestTests: XCTestCase {
         )
     }
 
-    func testDecodesVersionOneManifest() throws {
+    func testDecodesEmbeddedVersionTwoManifest() throws {
         let data = Data(
             """
             {
-              "version": 1,
+              "version": 2,
               "name": "Household Finances",
               "identifier": "local.enmanner.household-finances",
               "server": {
@@ -84,15 +84,14 @@ final class ManifestTests: XCTestCase {
                 "width": 1200,
                 "height": 800,
                 "resizable": true
-              },
-              "development": {"reload": "auto"}
+              }
             }
             """.utf8
         )
 
         let manifest = try JSONDecoder().decode(EnmannerManifest.self, from: data)
 
-        XCTAssertEqual(manifest.version, 1)
+        XCTAssertEqual(manifest.version, 2)
         XCTAssertEqual(manifest.name, "Household Finances")
         XCTAssertEqual(manifest.server.command, ["npm", "run", "dev"])
         XCTAssertEqual(manifest.server.preferredPort, 43120)
@@ -112,20 +111,40 @@ final class ManifestTests: XCTestCase {
     }
 
     func testWindowModeLifecycleBehavior() {
+        XCTAssertEqual(EnmannerManifest.Window().mode, .browser)
         XCTAssertFalse(EnmannerManifest.Window.Mode.embedded.launchesWindowless)
         XCTAssertTrue(
             EnmannerManifest.Window.Mode.embedded.keepsRunningAfterLastWindowClosed
         )
-        XCTAssertTrue(EnmannerManifest.Window.Mode.external.launchesWindowless)
+        XCTAssertTrue(EnmannerManifest.Window.Mode.browser.launchesWindowless)
         XCTAssertTrue(
-            EnmannerManifest.Window.Mode.external.keepsRunningAfterLastWindowClosed
+            EnmannerManifest.Window.Mode.browser.keepsRunningAfterLastWindowClosed
         )
+    }
+
+    func testValidationRejectsVersionOneManifest() {
+        let manifest = EnmannerManifest(
+            version: 1,
+            name: "Legacy",
+            identifier: "local.enmanner.legacy",
+            server: .init(
+                command: ["/usr/bin/true"],
+                readiness: .init(url: "http://127.0.0.1:43120/")
+            )
+        )
+
+        let issues = ManifestValidator.validate(
+            manifest,
+            projectURL: URL(fileURLWithPath: "/tmp")
+        )
+
+        XCTAssertTrue(issues.contains("version must be 2."))
     }
 
     func testValidationRejectsNonLoopbackAndTraversal() throws {
         let directory = try temporaryDirectory()
         let manifest = EnmannerManifest(
-            version: 1,
+            version: 2,
             name: "Unsafe App",
             identifier: "local.enmanner.unsafe",
             server: .init(
@@ -144,7 +163,7 @@ final class ManifestTests: XCTestCase {
     func testValidationRejectsPrivilegedPreferredPort() throws {
         let directory = try temporaryDirectory()
         let manifest = EnmannerManifest(
-            version: 1,
+            version: 2,
             name: "Unsafe Port",
             identifier: "local.enmanner.unsafe-port",
             server: .init(
@@ -174,7 +193,7 @@ final class ManifestTests: XCTestCase {
 
         for icon in ["Modern.icon", "Legacy.icns"] {
             let manifest = EnmannerManifest(
-                version: 1,
+                version: 2,
                 name: "Icon App",
                 identifier: "local.enmanner.icon-app",
                 server: .init(

@@ -1,0 +1,20 @@
+# Project-local Enmanner
+
+This directory is a vendored Enmanner distribution. Every file inside
+`.enmanner/` is framework-owned and should be changed only through Enmanner's
+repair or upgrade workflow.
+
+The supported project-facing surface is:
+
+- `../enmanner.json` — project-owned configuration;
+- `scripts/build-app` — validate and build the native application;
+- `scripts/validate` — static or opted-in runtime validation;
+- `scripts/doctor` — machine-readable diagnostics;
+- `scripts/upgrade` — checksum-verified framework updates;
+- `scripts/clean` — remove local Swift build products;
+- `scripts/create-icon` — create a layered icon package from project artwork;
+- `templates/` — files to copy into the visible project before customization.
+
+`framework/` is the native implementation. Do not place project supervisors,
+icons, data, scripts, or overrides inside `.enmanner/`; keep them in visible
+project-owned paths.

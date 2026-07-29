@@ -30,7 +30,8 @@
 
 ## MAY
 
-- Use an external browser instead of the embedded window.
+- Use the embedded WKWebView only after affirmatively testing its compatibility;
+  the default-browser presentation is the safe default.
 - Add project-specific native window dimensions.
 - Extend the app with project-local tools that do not change the compatibility
   contract.

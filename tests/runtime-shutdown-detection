@@ -17,6 +17,8 @@ project_dir="$test_root/Escaping Project"
 mkdir -p "$project_dir/.enmanner"
 cp "$repository_dir/tests/fixtures/escaping-runtime/"* "$project_dir/"
 /usr/bin/rsync -a --exclude '.build' \
+  --exclude 'framework/Tests/' \
+  --exclude 'scripts/install' \
   "$repository_dir/integration/" "$project_dir/.enmanner/"
 
 set +e
@@ -26,6 +28,12 @@ status=$?
 set -e
 if [[ $status -eq 0 ]]; then
   echo "Error: runtime validation accepted a detached surviving server." >&2
+  exit 1
+fi
+
+if [[ ! -f "$project_dir/runtime-child.pid" ]]; then
+  echo "Error: runtime fixture did not start its detached child." >&2
+  cat "$test_root/result.json" >&2
   exit 1
 fi
 

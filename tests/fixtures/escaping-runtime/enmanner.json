@@ -1,6 +1,6 @@
 {
   "$schema": "./.enmanner/enmanner.schema.json",
-  "version": 1,
+  "version": 2,
   "name": "Escaping Runtime Fixture",
   "identifier": "local.enmanner.escaping-runtime-fixture",
   "server": {
@@ -14,7 +14,7 @@
     }
   },
   "window": {
-    "mode": "embedded",
+    "mode": "browser",
     "width": 800,
     "height": 600,
     "resizable": true
