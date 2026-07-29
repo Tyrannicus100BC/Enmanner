@@ -37,9 +37,11 @@ because it already exists. Follow the hard preflight and acceptance gates in
 reconstruct it or use your image-generation capability. When `actool` is
 available, a `.icon` package is required.
 
-Validate lifecycle behavior before beginning icon work, but do not build or
-report the app complete until the icon passes its acceptance gate. Use
-`scripts/preview-icon` to render Default, Dark, Clear, and Tinted appearances.
+Validate lifecycle behavior before beginning icon work. When necessary, use
+`scripts/build-app --development` and `scripts/test-app --development` to test
+the native launcher with its separate identity and conspicuous DEV icon. Do
+not report the app complete until the finished icon passes its acceptance gate.
+Use `scripts/preview-icon` to render Default, Dark, Clear, and Tinted appearances.
 
 Treat **MUST** as required, **SHOULD** as the safe default, and **MAY** as
 optional. Run `./.enmanner/scripts/validate --runtime` after changing server
@@ -50,5 +52,6 @@ when native configuration or launcher files change; ordinary web source edits
 do not require it.
 
 Use `--json-lines` when an agent needs progress during runtime validation.
-After `build-app`, run `scripts/test-app`; `doctor.complete` requires its
-build-matched native launch and cleanup evidence.
+After the final `build-app`, run `scripts/test-app`; `doctor.complete` requires
+its build-matched final native launch and cleanup evidence. Development test
+evidence is reported separately and never satisfies completion.

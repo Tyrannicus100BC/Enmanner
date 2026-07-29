@@ -46,13 +46,14 @@ framework and writes a deliberately inactive
 evidence. Inferred single-app integrations receive a deterministic preferred
 port so browser-origin state remains stable when that port is available.
 
-Enmanner does not build a placeholder app. Agents validate server lifecycle
-before spending time on artwork, then create and preview a distinctive icon
-before the first `.app` is produced. `preview-icon` renders every supported
-Icon Composer appearance for agent-visible inspection.
-The preview command also creates a contact sheet and objective source-layer
-measurements. The first app remains icon-gated; there is no development-icon
-build path.
+Enmanner does not build a placeholder final app. Agents validate server
+lifecycle before spending time on artwork and may use the separately named,
+badged development bundle to test native lifecycle behavior. They then create
+and preview a distinctive icon before producing the finished `.app`.
+`preview-icon` renders every supported Icon Composer appearance for
+agent-visible inspection and creates a contact sheet plus objective
+source-layer measurements. Development evidence is explicitly excluded from
+completion.
 
 Agents should perform conservative Git work in user-facing terms: make a
 checkpoint before risky migrations, save a working milestone after verification,

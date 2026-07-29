@@ -2,12 +2,14 @@
 set -euo pipefail
 
 usage() {
-  echo "Usage: $0 [--json]" >&2
+  echo "Usage: $0 [--development] [--json]" >&2
 }
 
+development=false
 json=false
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --development) development=true ;;
     --json) json=true ;;
     --help|-h) usage; exit 0 ;;
     *) usage; exit 64 ;;
@@ -37,11 +39,22 @@ cleanup() {
 }
 trap cleanup EXIT
 
-"$script_dir/validate" --json >/dev/null
+validate_args=(--json)
+[[ "$development" == true ]] && validate_args+=(--development)
+"$script_dir/validate" "${validate_args[@]}" >/dev/null
 bin_dir="$(swift build --package-path "$framework_dir" -c release --show-bin-path)"
 validator="$bin_dir/enmanner-validator"
 app_name="$("$validator" --project "$project_dir" --print name)"
-bundle_identifier="$("$validator" --project "$project_dir" --print identifier)"
+manifest_bundle_identifier="$("$validator" --project "$project_dir" --print identifier)"
+bundle_identifier="$manifest_bundle_identifier"
+build_kind="final"
+receipt_name="app-test.json"
+if [[ "$development" == true ]]; then
+  app_name="$app_name Development"
+  bundle_identifier="$bundle_identifier.development"
+  build_kind="development"
+  receipt_name="development-app-test.json"
+fi
 app_path="$project_dir/$app_name.app"
 launcher="$app_path/Contents/MacOS/EnmannerLauncher"
 ownership="$app_path/Contents/Resources/EnmannerOwnership.plist"
@@ -53,7 +66,16 @@ fi
 owned_identifier="$(
   /usr/bin/plutil -extract bundleIdentifier raw "$ownership" 2>/dev/null || true
 )"
-if [[ "$owned_identifier" != "$bundle_identifier" ]]; then
+owned_manifest_identifier="$(
+  /usr/bin/plutil -extract manifestBundleIdentifier raw "$ownership" \
+    2>/dev/null || true
+)"
+owned_build_kind="$(
+  /usr/bin/plutil -extract buildKind raw "$ownership" 2>/dev/null || true
+)"
+if [[ "$owned_identifier" != "$bundle_identifier" ||
+  "$owned_manifest_identifier" != "$manifest_bundle_identifier" ||
+  "$owned_build_kind" != "$build_kind" ]]; then
   echo "Error: generated app ownership does not match enmanner/enmanner.json." >&2
   exit 1
 fi
@@ -141,9 +163,10 @@ app_modification_epoch="$(/usr/bin/stat -f %m "$app_path")"
 app_executable_sha256="$(
   /usr/bin/shasum -a 256 "$launcher" | /usr/bin/awk '{print $1}'
 )"
-receipt="$build_dir/app-test.json"
-printf '{"schemaVersion":1,"valid":true,"bundleIdentifier":"%s","appModificationEpoch":%d,"appExecutableSHA256":"%s","selectedPort":%d,"readinessURL":"%s","readinessPassed":true,"quitCleanly":true,"readinessUnavailable":true,"portReleased":true}\n' \
-  "$bundle_identifier" "$app_modification_epoch" "$app_executable_sha256" "$selected_port" \
+receipt="$build_dir/$receipt_name"
+printf '{"schemaVersion":1,"valid":true,"buildKind":"%s","bundleIdentifier":"%s","manifestBundleIdentifier":"%s","appModificationEpoch":%d,"appExecutableSHA256":"%s","selectedPort":%d,"readinessURL":"%s","readinessPassed":true,"quitCleanly":true,"readinessUnavailable":true,"portReleased":true}\n' \
+  "$build_kind" "$bundle_identifier" "$manifest_bundle_identifier" \
+  "$app_modification_epoch" "$app_executable_sha256" "$selected_port" \
   "$readiness_url" > "$receipt"
 
 if [[ "$json" == true ]]; then

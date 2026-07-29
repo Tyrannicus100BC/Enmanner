@@ -508,6 +508,7 @@ will_test_app=false
 [[ "$will_build" == true && "$runtime_validation" == true ]] &&
   will_test_app=true
 native_launch_verified=false
+development_native_launch_verified=false
 
 emit_result() {
   local installed="$1"
@@ -534,8 +535,11 @@ emit_result() {
     printf '"configurationRequired":%s,' \
       "$([[ "$manifest_status" == "configurationRequired" ]] && echo true || echo false)"
     printf '"built":%s,' "$built"
-    printf '"build":{"planned":%s,"iconConfigured":%s,"nativeLaunchTestPlanned":%s,"nativeLaunchVerified":%s,' \
-      "$will_build" "$icon_configured" "$will_test_app" \
+    printf '"build":{"planned":%s,"iconConfigured":%s,"developmentBuildAvailable":%s,"developmentNativeLaunchTestPlanned":%s,"developmentNativeLaunchVerified":%s,"nativeLaunchTestPlanned":%s,"nativeLaunchVerified":%s,' \
+      "$will_build" "$icon_configured" \
+      "$([[ "$manifest_status" != "configurationRequired" ]] && echo true || echo false)" \
+      "$([[ "$manifest_status" != "configurationRequired" && "$icon_configured" != true && "$runtime_validation" == true ]] && echo true || echo false)" \
+      "$development_native_launch_verified" "$will_test_app" \
       "$native_launch_verified"
     if [[ "$manifest_status" == "configurationRequired" ]]; then
       printf '"blockedBy":"configurationRequired"},'
@@ -684,6 +688,7 @@ emit_result() {
       printf '"validateLifecycle",'
     fi
     if [[ "$icon_configured" != true ]]; then
+      printf '"buildDevelopmentApp","testDevelopmentApp",'
       printf '"createAndConfigureIcon",'
     fi
     printf '"buildApp","testApp"],'
@@ -692,6 +697,10 @@ emit_result() {
       printf '{"id":"validateLifecycle","command":["./.enmanner/scripts/validate","--runtime","--json"]},'
     fi
     printf '{"id":"inspectIntegrationState","command":["./.enmanner/scripts/doctor","--json"]},'
+    if [[ "$icon_configured" != true ]]; then
+      printf '{"id":"buildDevelopmentApp","command":["./.enmanner/scripts/build-app","--development","--json"]},'
+      printf '{"id":"testDevelopmentApp","command":["./.enmanner/scripts/test-app","--development","--json"]},'
+    fi
     printf '{"id":"buildApp","command":["./.enmanner/scripts/build-app","--json"]},'
     printf '{"id":"testApp","command":["./.enmanner/scripts/test-app","--json"]}],'
     printf '"warnings":['
@@ -722,7 +731,7 @@ emit_result() {
     echo "  Build: $([[ "$will_build" == true ]] && echo planned || echo not-planned)"
     if [[ "$icon_configured" != true &&
       "$manifest_status" != "configurationRequired" ]]; then
-      echo "  Completion: icon required before the app can be built"
+      echo "  Completion: icon required before the final app can be built"
     fi
     [[ "$stale_draft" == true ]] &&
       echo "  Warning: remove stale $manifest_relative_path.example after confirming it is no longer needed"
@@ -917,9 +926,22 @@ else
         "$destination/scripts/validate"
       fi
     fi
+    if [[ "$runtime_validation" == true ]]; then
+      if [[ "$json" == true ]]; then
+        "$destination/scripts/build-app" --development --json >/dev/null
+        "$destination/scripts/test-app" --development --json >/dev/null
+      else
+        "$destination/scripts/build-app" --development
+        "$destination/scripts/test-app" --development
+      fi
+      development_native_launch_verified=true
+    fi
     [[ "$json" == true ]] || {
       echo "✓ Lifecycle configuration is ready for project-specific verification."
-      echo "! A distinctive icon is required before building the app."
+      if [[ "$development_native_launch_verified" == true ]]; then
+        echo "✓ The development-only native app lifecycle passed."
+      fi
+      echo "! A distinctive icon is required before building the final app."
       echo "  Follow .enmanner/instructions/icon.md, then run ./.enmanner/scripts/build-app."
     }
   else

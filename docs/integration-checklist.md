@@ -1,9 +1,9 @@
 # Integration checklist
 
 An Enmanner integration is complete only when project fit, lifecycle behavior,
-native packaging, and visual presentation all pass. Work in this order so icon
-design does not distract from server compatibility and no placeholder app is
-produced.
+final native packaging, and visual presentation all pass. A development-only
+bundle may be used to prove native lifecycle behavior before icon work, but it
+is provisional evidence and can never satisfy completion.
 
 1. Confirm the project has a human-facing local web interface. Stop and ask the
    user before wrapping a headless API, proxy, worker, daemon, CLI, or
@@ -32,17 +32,23 @@ produced.
 8. Run static validation. After reviewing state ownership, opt into runtime
    validation and confirm readiness, shutdown, process-group cleanup, endpoint
    disappearance, port release, and Git-status mutations.
-9. Inspect existing brand assets. Create layered source artwork under
+9. When launcher behavior needs proof before icon work, run
+   `build-app --development`, then `test-app --development`. The resulting
+   `Name Development.app` has a separate bundle identifier, a conspicuous DEV
+   icon, and separate doctor evidence. Do not present or report it as the
+   finished application.
+10. Inspect existing brand assets. Create layered source artwork under
    `enmanner/icon/` when necessary, package a modern `.icon` there, add its
    project-relative path to `enmanner/enmanner.json`, then run `preview-icon`.
    Open the generated contact sheet and confirm that every Default, Dark,
    Clear, and Tinted rendition is balanced and uncropped. Review structured
    source-layer measurements as warnings, not substitutes for visual judgment.
-10. Run `build-app`. Verify the compiled icon, ownership marker, code signature,
+11. Run `build-app`. Verify the compiled icon, ownership marker, code signature,
    and Finder/Dock appearance. Run `test-app` to verify native launch,
    readiness, normal app quit, process cleanup, and port release.
-11. Report tracked source and framework files separately from ignored build
-   products. Do not call the integration complete before step 10.
+12. Report tracked source and framework files separately from ignored build
+   products. Do not call the integration complete before step 11. Development
+   build or test receipts do not count as final-build evidence.
 
 For one frontend command, configure it directly. For several project-owned
 processes, copy and adapt the project supervisor template. Treat Docker Desktop

@@ -3,7 +3,7 @@ set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repository_dir="$(cd "$script_dir/.." && pwd)"
-example_dir="$repository_dir/examples/vite-example"
+example_dir="${ENMANNER_SMOKE_EXAMPLE_DIR:-$repository_dir/examples/vite-example}"
 
 if [[ ! -d "$example_dir/node_modules" ]]; then
   echo "Installing example dependencies…"
@@ -11,6 +11,22 @@ if [[ ! -d "$example_dir/node_modules" ]]; then
 fi
 
 "$example_dir/.enmanner/scripts/validate" --runtime
+"$example_dir/.enmanner/scripts/build-app" --development --json |
+  jq -e '
+    .valid and
+    (.buildKind == "development") and
+    (.bundleIdentifier | endswith(".development")) and
+    (.icon.packaging == "developmentIcns")
+  ' >/dev/null
+"$example_dir/.enmanner/scripts/test-app" --development --json |
+  jq -e '
+    .valid and
+    (.buildKind == "development") and
+    .readinessPassed and
+    .quitCleanly and
+    .readinessUnavailable and
+    .portReleased
+  ' >/dev/null
 "$example_dir/.enmanner/scripts/preview-icon" --json |
   jq -e '
     .valid and
@@ -40,7 +56,7 @@ if [[ "$ownership_identifier" != "local.enmanner.vite-example" ]]; then
   echo "Error: generated launcher has no matching Enmanner ownership marker." >&2
   exit 1
 fi
-folder_usage_description="The app’s project files are stored alongside it and are needed to start its local server."
+folder_usage_description="This folder contains your project, which the app needs to run."
 folder_usage_keys=(
   NSDesktopFolderUsageDescription
   NSDocumentsFolderUsageDescription
@@ -61,6 +77,7 @@ done
 "$example_dir/.enmanner/scripts/test-app" --json |
   jq -e '
     .valid and
+    (.buildKind == "final") and
     .readinessPassed and
     .quitCleanly and
     .readinessUnavailable and
@@ -68,9 +85,11 @@ done
   ' >/dev/null
 "$example_dir/.enmanner/scripts/doctor" --json |
   jq -e '
-    (.doctor.complete == false) and
+    .doctor.complete and
+    .doctor.completionEvidence.developmentNativeLaunchVerified and
     .doctor.completionEvidence.nativeLaunchVerified and
-    (.doctor.integrationStatus == "installationProvenanceRequired")
+    (.doctor.currentStatus.configuration == "valid") and
+    (.doctor.currentStatus.integration == "complete")
   ' >/dev/null
 if find "$app_path" \( -name node_modules -o -name .git -o -name src -o -name enmanner.json \) |
   grep -q .; then

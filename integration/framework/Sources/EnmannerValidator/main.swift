@@ -113,6 +113,15 @@ private struct ValidationReport: Codable {
 }
 
 private struct DoctorReport: Codable {
+    struct InstallationHistory: Codable {
+        let initialManifestStatus: String?
+    }
+
+    struct CurrentStatus: Codable {
+        let configuration: String
+        let integration: String
+    }
+
     struct CompletionEvidence: Codable {
         let manifestValid: Bool
         let installationProvenance: Bool
@@ -122,16 +131,24 @@ private struct DoctorReport: Codable {
         let iconSourceExists: Bool
         let appBuilt: Bool
         let appOwnershipMatches: Bool
+        let developmentAppBuilt: Bool
+        let developmentAppOwnershipMatches: Bool
+        let developmentNativeLaunchVerified: Bool
         let nativeLaunchVerified: Bool
     }
 
     let complete: Bool
+    let installationHistory: InstallationHistory
+    let currentStatus: CurrentStatus
+    @available(*, deprecated, message: "Use currentStatus.configuration.")
     let currentConfigurationStatus: String
+    @available(*, deprecated, message: "Use currentStatus.integration.")
     let integrationStatus: String
     let installationRecordPresent: Bool
     let installationVersion: String?
+    @available(*, deprecated, message: "Use installationHistory.initialManifestStatus.")
     let initialManifestStatus: String?
-    @available(*, deprecated, message: "Use initialManifestStatus.")
+    @available(*, deprecated, message: "Use installationHistory.initialManifestStatus.")
     let installationManifestStatus: String?
     let staleDraftManifest: Bool
     let iconConfigured: Bool
@@ -140,6 +157,9 @@ private struct DoctorReport: Codable {
     let appPath: String
     let appExists: Bool
     let appOwnershipMatches: Bool
+    let developmentAppPath: String
+    let developmentAppExists: Bool
+    let developmentAppOwnershipMatches: Bool
     let agentsManagedSectionPresent: Bool
     let gitignoreManagedSectionPresent: Bool
     let otherAgentInstructions: [String]
@@ -337,13 +357,24 @@ struct EnmannerValidatorCommand {
             projectURL.appendingPathComponent($0)
         }
         let appURL = projectURL.appendingPathComponent("\(manifest.name).app")
+        let developmentAppURL = projectURL.appendingPathComponent(
+            "\(manifest.name) Development.app"
+        )
         let appExecutableURL = appURL.appendingPathComponent(
+            "Contents/MacOS/EnmannerLauncher"
+        )
+        let developmentAppExecutableURL = developmentAppURL.appendingPathComponent(
             "Contents/MacOS/EnmannerLauncher"
         )
         let ownershipURL = appURL.appendingPathComponent(
             "Contents/Resources/EnmannerOwnership.plist"
         )
         let ownership = plistObject(at: ownershipURL)
+        let developmentOwnership = plistObject(
+            at: developmentAppURL.appendingPathComponent(
+                "Contents/Resources/EnmannerOwnership.plist"
+            )
+        )
         let agentsText = text(at: projectURL.appendingPathComponent("AGENTS.md"))
         let gitignoreText = text(at: projectURL.appendingPathComponent(".gitignore"))
         let installationRecordPresent = installation != nil
@@ -357,7 +388,18 @@ struct EnmannerValidatorCommand {
         } ?? false
         let appExists = fileManager.fileExists(atPath: appURL.path)
         let appOwnershipMatches =
-            ownership?["bundleIdentifier"] as? String == manifest.identifier
+            ownership?["bundleIdentifier"] as? String == manifest.identifier &&
+            ownership?["buildKind"] as? String == "final"
+        let developmentBundleIdentifier = "\(manifest.identifier).development"
+        let developmentAppExists = fileManager.fileExists(
+            atPath: developmentAppURL.path
+        )
+        let developmentAppOwnershipMatches =
+            developmentOwnership?["bundleIdentifier"] as? String ==
+                developmentBundleIdentifier &&
+            developmentOwnership?["manifestBundleIdentifier"] as? String ==
+                manifest.identifier &&
+            developmentOwnership?["buildKind"] as? String == "development"
         let agentsManagedSectionPresent =
             agentsText?.contains("<!-- enmanner:begin -->") == true &&
             agentsText?.contains("<!-- enmanner:end -->") == true
@@ -406,6 +448,11 @@ struct EnmannerValidatorCommand {
                 ".enmanner/.build/app-test.json"
             )
         )
+        let developmentLaunchReceipt = jsonObject(
+            at: projectURL.appendingPathComponent(
+                ".enmanner/.build/development-app-test.json"
+            )
+        )
         let appModificationDate = (
             try? fileManager.attributesOfItem(atPath: appURL.path)[
                 .modificationDate
@@ -413,13 +460,35 @@ struct EnmannerValidatorCommand {
         ) ?? nil
         let nativeLaunchVerified =
             launchReceipt?["valid"] as? Bool == true &&
+            launchReceipt?["buildKind"] as? String == "final" &&
             launchReceipt?["bundleIdentifier"] as? String == manifest.identifier &&
+            launchReceipt?["manifestBundleIdentifier"] as? String ==
+                manifest.identifier &&
             launchReceipt?["appModificationEpoch"] as? Int ==
                 appModificationDate.map { Int($0.timeIntervalSince1970) } &&
             launchReceipt?["appExecutableSHA256"] as? String ==
                 processOutput(
                     executable: "/usr/bin/shasum",
                     arguments: ["-a", "256", appExecutableURL.path]
+                ).split(whereSeparator: \.isWhitespace).first.map(String.init)
+        let developmentAppModificationDate = (
+            try? fileManager.attributesOfItem(atPath: developmentAppURL.path)[
+                .modificationDate
+            ] as? Date
+        ) ?? nil
+        let developmentNativeLaunchVerified =
+            developmentLaunchReceipt?["valid"] as? Bool == true &&
+            developmentLaunchReceipt?["buildKind"] as? String == "development" &&
+            developmentLaunchReceipt?["bundleIdentifier"] as? String ==
+                developmentBundleIdentifier &&
+            developmentLaunchReceipt?["manifestBundleIdentifier"] as? String ==
+                manifest.identifier &&
+            developmentLaunchReceipt?["appModificationEpoch"] as? Int ==
+                developmentAppModificationDate.map { Int($0.timeIntervalSince1970) } &&
+            developmentLaunchReceipt?["appExecutableSHA256"] as? String ==
+                processOutput(
+                    executable: "/usr/bin/shasum",
+                    arguments: ["-a", "256", developmentAppExecutableURL.path]
                 ).split(whereSeparator: \.isWhitespace).first.map(String.init)
         let completionEvidence = DoctorReport.CompletionEvidence(
             manifestValid: true,
@@ -430,6 +499,9 @@ struct EnmannerValidatorCommand {
             iconSourceExists: iconSourceExists,
             appBuilt: appExists,
             appOwnershipMatches: appOwnershipMatches,
+            developmentAppBuilt: developmentAppExists,
+            developmentAppOwnershipMatches: developmentAppOwnershipMatches,
+            developmentNativeLaunchVerified: developmentNativeLaunchVerified,
             nativeLaunchVerified: nativeLaunchVerified
         )
         let complete =
@@ -447,6 +519,8 @@ struct EnmannerValidatorCommand {
             integrationStatus = "complete"
         } else if !installationRecordPresent {
             integrationStatus = "installationProvenanceRequired"
+        } else if manifest.icon == nil || !iconSourceExists {
+            integrationStatus = "iconRequired"
         } else if !appExists {
             integrationStatus = "appBuildRequired"
         } else if !nativeLaunchVerified {
@@ -457,6 +531,13 @@ struct EnmannerValidatorCommand {
 
         return DoctorReport(
             complete: complete,
+            installationHistory: DoctorReport.InstallationHistory(
+                initialManifestStatus: installation?["manifestStatus"] as? String
+            ),
+            currentStatus: DoctorReport.CurrentStatus(
+                configuration: "valid",
+                integration: integrationStatus
+            ),
             currentConfigurationStatus: "valid",
             integrationStatus: integrationStatus,
             installationRecordPresent: installationRecordPresent,
@@ -470,6 +551,9 @@ struct EnmannerValidatorCommand {
             appPath: appURL.path,
             appExists: appExists,
             appOwnershipMatches: appOwnershipMatches,
+            developmentAppPath: developmentAppURL.path,
+            developmentAppExists: developmentAppExists,
+            developmentAppOwnershipMatches: developmentAppOwnershipMatches,
             agentsManagedSectionPresent: agentsManagedSectionPresent,
             gitignoreManagedSectionPresent: gitignoreManagedSectionPresent,
             otherAgentInstructions: otherAgentInstructions,
@@ -525,6 +609,16 @@ struct EnmannerValidatorCommand {
             print("\(mark(report.appOwnershipMatches)) generated app ownership")
         } else {
             print("! generated app is not built")
+        }
+        if report.developmentAppExists {
+            print(
+                "\(mark(report.developmentAppOwnershipMatches)) " +
+                "development-only app ownership"
+            )
+            print(
+                "\(mark(report.completionEvidence.developmentNativeLaunchVerified)) " +
+                "development-only native launch lifecycle (not completion evidence)"
+            )
         }
         print(
             "\(mark(report.completionEvidence.nativeLaunchVerified)) " +

@@ -41,6 +41,11 @@ embedded.
   metadata and image stack, ad-hoc signs locally, and verifies the signature.
   It embeds an ownership marker and refuses to replace a same-named app that it
   cannot attribute to the current bundle identifier.
+- `build-app --development` uses the same launcher but creates a separately
+  named sibling bundle with a `.development` identifier, explicit development
+  ownership metadata, and a conspicuous framework-generated DEV icon. Its
+  separate `test-app --development` receipt is diagnostic evidence only and
+  cannot satisfy final integration completion.
 
 The installed distribution includes `Package.swift` and `Sources`, but excludes
 the framework's own tests and installer. SwiftPM has no non-Apple dependencies.
@@ -222,13 +227,14 @@ receive framework files, an inactive `enmanner/enmanner.json.example`, and a str
 deterministic preferred port derived from the bundle identifier, with the
 normal allocated-port fallback.
 
-An app build is a finishing operation, not an installation side effect.
-Lifecycle validation can run without an icon, but `build-app` requires a
-configured distinctive icon. This lets an agent prove startup and shutdown
-before doing visual work while ensuring the first generated app is finished.
-`test-app` launches that finished bundle with a private test-status file and
+A final app build is a finishing operation. Lifecycle validation and the
+separate development app build can run without an icon, but the ordinary
+`build-app` requires a configured distinctive icon. `test-app` launches the
+selected development or final bundle with a private test-status file and
 browser suppression, verifies readiness, requests normal application quit, and
 records a build-matched ignored receipt only after cleanup and port release.
+Development and final receipts are separate; only the final receipt contributes
+to completion.
 `.enmanner/INSTALLATION.json` records the installed version, upstream commit,
 and checksums of framework-owned files. Repair and upgrade operations refuse to
 write when those files have local modifications. Every installed file is

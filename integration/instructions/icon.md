@@ -148,5 +148,8 @@ Inspect the compiled `.app`, not merely the source PNG or Icon Composer preview.
 Do not put assets inside the generated `.app` by hand; Enmanner creates each
 bundle reproducibly from tracked project files.
 
-`build-app` refuses a missing icon. Enmanner intentionally provides no
-placeholder-icon completion path.
+The final `build-app` refuses a missing icon. `build-app --development` may
+produce a separately named, conspicuously badged launcher for native lifecycle
+testing, but that artifact and its separate test receipt can never satisfy
+`doctor.complete`. Enmanner intentionally provides no placeholder-icon
+completion path.

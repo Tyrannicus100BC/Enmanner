@@ -171,6 +171,8 @@ printf '%s\n' "$plan" | jq -e '
   (.inference.preferredPortDerivation.identifier == "local.enmanner.vite-project") and
   (.nameCandidates | length >= 1) and
   ([.requiredInstructions[].path] | index(".enmanner/instructions/integration.md")) and
+  ([.nextActionCommands[].id] | index("buildDevelopmentApp")) and
+  ([.nextActionCommands[].id] | index("testDevelopmentApp")) and
   ([.nextActionCommands[].id] | index("buildApp")) and
   ([.nextActionCommands[].id] | index("testApp")) and
   (.fileOperations | type == "array") and
@@ -239,6 +241,39 @@ jq -e '
   (.error.message | contains("no app icon is configured"))
 ' "$test_root/missing-icon.json" >/dev/null
 test ! -e "$vite_target/Vite Project.app"
+
+"$vite_target/.enmanner/scripts/build-app" --development --json \
+  >"$test_root/development-build.json"
+jq -e '
+  .valid and
+  (.buildKind == "development") and
+  (.bundleIdentifier == "local.enmanner.vite-project.development") and
+  (.icon.source == "framework-generated-development-icon") and
+  (.icon.packaging == "developmentIcns") and
+  .icon.verified and
+  .signing.verified and
+  (.appPath | endswith("/Vite Project Development.app"))
+' "$test_root/development-build.json" >/dev/null
+development_app="$vite_target/Vite Project Development.app"
+test -x "$development_app/Contents/MacOS/EnmannerLauncher"
+test "$(
+  /usr/bin/plutil -extract buildKind raw \
+    "$development_app/Contents/Resources/EnmannerOwnership.plist"
+)" = "development"
+test "$(
+  /usr/bin/plutil -extract manifestBundleIdentifier raw \
+    "$development_app/Contents/Resources/EnmannerOwnership.plist"
+)" = "local.enmanner.vite-project"
+"$vite_target/.enmanner/scripts/doctor" --json |
+  jq -e '
+    (.doctor.complete == false) and
+    (.doctor.integrationStatus == "iconRequired") and
+    .doctor.developmentAppExists and
+    .doctor.developmentAppOwnershipMatches and
+    .doctor.completionEvidence.developmentAppBuilt and
+    (.doctor.completionEvidence.developmentNativeLaunchVerified == false) and
+    (.doctor.completionEvidence.nativeLaunchVerified == false)
+  ' >/dev/null
 
 generic_result="$(
   "$repository_dir/integration/scripts/install" \
@@ -388,6 +423,7 @@ test -f "$fake_app/Contents/Info.plist"
   >"$test_root/replaced-app.json"
 jq -e '
   .valid and
+  (.buildKind == "final") and
   (.icon.packaging == "modernIconImageStack") and
   .icon.verified and
   .signing.verified and
@@ -418,6 +454,9 @@ jq -e '
   (.doctor.complete == false) and
   .doctor.installationRecordPresent and
   (.doctor.installationVersion == "0.5.2") and
+  (.doctor.installationHistory.initialManifestStatus == "inferred") and
+  (.doctor.currentStatus.configuration == "valid") and
+  (.doctor.currentStatus.integration == .doctor.integrationStatus) and
   .doctor.staleDraftManifest and
   .doctor.iconConfigured and
   .doctor.iconSourceExists and

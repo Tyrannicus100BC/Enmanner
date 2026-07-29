@@ -139,9 +139,12 @@ and only accepts tested direct `vite` or `next dev` scripts. See
 [docs/supported-toolchains.md](docs/supported-toolchains.md) for the exact
 matrix and command contract.
 
-The installer deliberately does not build an app until a distinctive icon is
-configured. This keeps lifecycle work ahead of visual finishing without ever
-producing a placeholder launcher.
+The installer does not build the final app until a distinctive icon is
+configured. Before icon work, `build-app --development` can produce a
+separately named launcher with a `.development` bundle identifier and
+conspicuous DEV icon; `test-app --development` records provisional native
+lifecycle evidence. Neither the development artifact nor its receipt can
+satisfy `doctor.complete`.
 
 For other stacks it reports candidate package scripts, installs the framework,
 and stops with `configurationRequired`. It writes
@@ -152,8 +155,10 @@ provisional app.
 Use `--name` and `--identifier` to override inferred presentation values.
 Pass `--runtime` to opt into a real start/stop cycle after reviewing state
 ownership. When an icon is already configured and installation builds the app,
-that opt-in also runs the generated-app lifecycle test; otherwise the result is
-`nativeLaunchVerificationRequired` until `test-app` passes.
+that opt-in also runs the final generated-app lifecycle test. Without an icon,
+the opt-in builds and tests the development-only app while the result remains
+`iconRequired`. A final build without a matching `test-app` receipt reports
+`nativeLaunchVerificationRequired`.
 
 The plan classifies repository roots, repository subdirectories, unversioned
 folders, and workspaces containing nested repositories. A workspace containing
@@ -190,17 +195,18 @@ progress during longer lifecycle checks. After building, run
 `./.enmanner/scripts/test-app --json`; its build-matched receipt lets `doctor`
 report native-launch evidence instead of inferring success from bundle
 existence.
-Doctor separates `initialManifestStatus` provenance from
-`currentConfigurationStatus`, reports per-surface agent-instruction state, and
-shows the evidence behind completion. The former
-`installationManifestStatus` field remains as a deprecated compatibility alias.
+Doctor groups historical provenance under `installationHistory` and live
+configuration/integration state under `currentStatus`, reports per-surface
+agent-instruction state, and shows the evidence behind completion. The former
+flat status fields remain as deprecated compatibility aliases for one release.
 Use `./.enmanner/scripts/build-app --json` when the final artifact path, icon
 packaging, signing, replacement, and size evidence must be machine-readable.
 
 The intended integration order is documented in
 [docs/integration-checklist.md](docs/integration-checklist.md). In short:
-configure and validate lifecycle behavior, create and preview the icon, then
-build the only app the user will encounter.
+configure and validate lifecycle behavior, optionally prove it through the
+development-only native bundle, create and preview the icon, then build and
+test the finished app.
 
 For applications with several long-running components, Enmanner continues to
 own one foreground command. Adapt the published

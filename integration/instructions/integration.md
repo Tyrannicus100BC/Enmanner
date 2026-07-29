@@ -1,7 +1,8 @@
 # Integration sequence
 
 An Enmanner integration is complete only after the finished, distinctive app
-has been built and verified. Use this order:
+has been built and verified. A development-only bundle can prove native
+lifecycle behavior earlier, but cannot satisfy completion. Use this order:
 
 1. Confirm the project has a human-facing local web interface. Ask the user
    before wrapping a headless API, proxy, worker, daemon, CLI, or
@@ -24,13 +25,18 @@ has been built and verified. Use this order:
    would merely restate the label.
 7. Run static validation. Review state ownership before opting into runtime
    validation.
-8. Only after lifecycle behavior passes, read `icon.md`, create layered artwork
+8. When native launcher behavior needs verification before icon work, run
+   `build-app --development` and `test-app --development`. Treat the separate
+   app, bundle identifier, DEV icon, and doctor evidence as provisional.
+9. Only after lifecycle behavior passes, read `icon.md`, create layered artwork
    under `enmanner/icon/`, configure its project-relative path in
    `enmanner/enmanner.json`, render all appearances with `preview-icon`, and
-   open every rendition to inspect its crop and balance.
-9. Run `build-app` and inspect the actual Finder/Dock result. The build verifies
+   inspect every rendition on the generated contact sheet for crop and balance.
+   Open an individual rendition when the contact sheet leaves any ambiguity.
+10. Run `build-app` and inspect the actual Finder/Dock result. The build verifies
    modern icon packaging, app ownership metadata, and the code signature. Run
    `test-app` to verify native launch, readiness, normal quit, and cleanup.
-10. Report the task complete only after the finished app passes.
+11. Report the task complete only after the finished app passes. A development
+    app or development test receipt is never final evidence.
 
 Ordinary web source edits do not require rebuilding the app.
