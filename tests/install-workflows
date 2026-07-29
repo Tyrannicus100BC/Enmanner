@@ -248,7 +248,7 @@ jq -e '
   .valid and
   (.doctor.complete == false) and
   .doctor.installationRecordPresent and
-  (.doctor.installationVersion == "0.5.0") and
+  (.doctor.installationVersion == "0.5.1") and
   .doctor.staleDraftManifest and
   .doctor.iconConfigured and
   .doctor.iconSourceExists and
@@ -264,7 +264,7 @@ rm "$vite_target/enmanner.json.example"
 
 test -f "$vite_target/.enmanner/INSTALLATION.json"
 jq -e '
-  (.version == "0.5.0") and
+  (.version == "0.5.1") and
   (.upstreamURL | type == "string") and
   (.manifestStatus == "inferred") and
   (.inferredManifestFields | index("server.command")) and
@@ -294,8 +294,8 @@ fi
   jq -e '
     .applicable and
     .applied and
-    (.fromVersion == "0.5.0") and
-    (.toVersion == "0.5.0")
+    (.fromVersion == "0.5.1") and
+    (.toVersion == "0.5.1")
   ' >/dev/null
 test ! -e "$vite_target/.enmanner/framework/Tests"
 test ! -e "$vite_target/.enmanner/scripts/install"

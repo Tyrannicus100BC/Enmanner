@@ -39,6 +39,30 @@ public struct DotEnvConfigurationStore {
         )
     }
 
+    @discardableResult
+    public func materializeIfNeeded() throws -> Bool {
+        let destinationURL = try ProjectPaths.resolve(
+            configuration.file,
+            inside: projectURL
+        )
+        guard !FileManager.default.fileExists(atPath: destinationURL.path) else {
+            return false
+        }
+        try write(loadDocument(), to: destinationURL)
+        return true
+    }
+
+    public func missingRequiredFields() throws
+        -> [EnmannerManifest.UserConfiguration.Field] {
+        let values = try load()
+        return configuration.fields.filter { field in
+            field.required &&
+                values[field.key, default: ""]
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                    .isEmpty
+        }
+    }
+
     public func save(_ values: [String: String]) throws {
         for field in configuration.fields {
             let value = values[field.key, default: ""]
@@ -61,6 +85,13 @@ public struct DotEnvConfigurationStore {
             configuration.file,
             inside: projectURL
         )
+        try write(document, to: destinationURL)
+    }
+
+    private func write(
+        _ document: DotEnvDocument,
+        to destinationURL: URL
+    ) throws {
         let fileManager = FileManager.default
         let existingPermissions = (
             try? fileManager.attributesOfItem(atPath: destinationURL.path)[

@@ -26,5 +26,7 @@
   it in Git.
 
 Enmanner can present explicitly declared local settings stored in a Git-ignored
-dotenv file. This is configuration, not a replacement for a clear per-project
-runtime-data and backup policy.
+dotenv file. The launcher materializes a configured template only when the
+destination is absent and never overwrites an existing local file. This is
+configuration, not a replacement for a clear per-project runtime-data and
+backup policy.

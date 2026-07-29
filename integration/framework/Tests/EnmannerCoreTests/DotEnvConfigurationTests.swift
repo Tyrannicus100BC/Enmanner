@@ -180,6 +180,64 @@ final class DotEnvConfigurationTests: XCTestCase {
         )
     }
 
+    func testMaterializesTemplateWithoutOverwritingExistingFile() throws {
+        let directory = try temporaryDirectory()
+        let template = "# Local configuration\nTOKEN=\nOPTIONAL=example\n"
+        try Data(template.utf8).write(
+            to: directory.appendingPathComponent(".env.example")
+        )
+        let store = DotEnvConfigurationStore(
+            projectURL: directory,
+            configuration: .init(
+                template: ".env.example",
+                fields: [
+                    .init(
+                        key: "TOKEN",
+                        label: "API key",
+                        type: .secret,
+                        required: true
+                    )
+                ]
+            )
+        )
+
+        XCTAssertTrue(try store.materializeIfNeeded())
+        XCTAssertEqual(
+            try String(
+                contentsOf: directory.appendingPathComponent(".env"),
+                encoding: .utf8
+            ),
+            template
+        )
+        let attributes = try FileManager.default.attributesOfItem(
+            atPath: directory.appendingPathComponent(".env").path
+        )
+        XCTAssertEqual(
+            (attributes[.posixPermissions] as? NSNumber)?.intValue,
+            0o600
+        )
+        XCTAssertEqual(
+            try store.missingRequiredFields().map(\.label),
+            ["API key"]
+        )
+
+        try Data("TOKEN=already-configured\n".utf8).write(
+            to: directory.appendingPathComponent(".env")
+        )
+        XCTAssertFalse(try store.materializeIfNeeded())
+        XCTAssertEqual(
+            try store.missingRequiredFields().map(\.label),
+            []
+        )
+        XCTAssertEqual(
+            try String(
+                contentsOf: directory.appendingPathComponent(".env"),
+                encoding: .utf8
+            ),
+            "TOKEN=already-configured\n"
+        )
+    }
+
     func testPreservesCommentAfterInitiallyEmptyValue() throws {
         let directory = try temporaryDirectory()
         try Data("TOKEN= # supplied per developer\n".utf8).write(

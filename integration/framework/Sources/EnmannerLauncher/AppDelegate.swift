@@ -55,6 +55,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private func beginLaunch() {
         do {
             try prepare()
+            if try prepareProjectConfigurationForLaunch() {
+                return
+            }
             if manifest?.window.mode.launchesWindowless == false {
                 showLauncherWindow()
             }
@@ -118,6 +121,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             }
         }
         logBuffer.append("Resolved project at \(projectURL.path).")
+    }
+
+    private func prepareProjectConfigurationForLaunch() throws -> Bool {
+        guard let projectURL,
+              let configuration = manifest?.userConfiguration else {
+            return false
+        }
+
+        let store = DotEnvConfigurationStore(
+            projectURL: projectURL,
+            configuration: configuration
+        )
+        if try store.materializeIfNeeded() {
+            logBuffer.append(
+                "Created \(configuration.file) from " +
+                "\(configuration.template ?? "the declared project settings")."
+            )
+        }
+
+        let missingFields = try store.missingRequiredFields()
+        guard !missingFields.isEmpty else { return false }
+        let labels = missingFields.map(\.label).joined(separator: ", ")
+        logBuffer.append(
+            "Server launch is waiting for required project settings: \(labels)."
+        )
+        showSettings(
+            nil,
+            projectMessage:
+                "Complete the required settings before starting the server."
+        )
+        return true
     }
 
     private func startServer(recovering: Bool) {
@@ -360,6 +394,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     @objc private func showSettings(_ sender: Any?) {
+        showSettings(sender, projectMessage: nil)
+    }
+
+    private func showSettings(
+        _ sender: Any?,
+        projectMessage: String?
+    ) {
         guard let mode = manifest?.window.mode else { return }
         if settingsWindowController == nil {
             guard let projectURL else { return }
@@ -379,6 +420,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
         NSApplication.shared.activate(ignoringOtherApps: true)
         settingsWindowController?.showWindow(sender)
+        if let projectMessage {
+            settingsWindowController?.showProjectMessage(projectMessage)
+        }
     }
 
     @objc private func openApplicationInBrowser(_ sender: Any?) {

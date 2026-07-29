@@ -75,7 +75,10 @@ Optional `userConfiguration` exposes an explicit, curated set of dotenv values
 in the native Settings window. `file` defaults to `.env` and must be a
 project-relative, project-owned file outside `.enmanner/`. An optional
 `template`, commonly `.env.example`, supplies initial content when the
-destination does not exist. Enmanner never infers fields from the template.
+destination does not exist. The launcher materializes that template before
+starting the server; installation does not create machine-local configuration.
+Without a template, an explicitly configured missing destination is created as
+an empty owner-only file. Enmanner never infers fields from the template.
 
 Each field has an environment-variable `key`, human-readable `label`, optional
 `description`, optional `required` flag, and one of these types:
@@ -88,7 +91,10 @@ Each field has an environment-variable `key`, human-readable `label`, optional
 
 Saving writes only declared keys, preserves comments, ordering, and undeclared
 entries, then restarts the supervised server so normal dotenv loaders see the
-new values. New dotenv files use owner-only permissions. A configured dotenv
+new values. If required fields are blank at launch, Enmanner opens Project
+Settings and waits to start the server. Secret controls are masked by default
+and include an explicit reveal button for quick verification. New dotenv files
+use owner-only permissions. A configured dotenv
 file may not be tracked by Git. Duplicate declared keys, malformed quoting,
 multiline values, and tracked destinations fail instead of risking a destructive
 rewrite. `secret` controls only native presentation: values are never placed in

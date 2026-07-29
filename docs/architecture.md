@@ -135,11 +135,19 @@ mode without revealing Terminal.
 
 The Settings window stores a small set of launcher preferences in `UserDefaults`:
 embedded page zoom, external-link handling, and whether failure details include
-recent server output. An optional manifest declaration adds a Project tab for
-explicitly selected dotenv keys. The UI supports text, masked secret, boolean,
-file, and directory fields. Save & Restart updates the project-owned dotenv file
-atomically and restarts the supervised process; no values enter the generated
-app bundle or native preferences.
+recent server output. An optional manifest declaration adds project settings for
+explicitly selected dotenv keys. Browser-mode projects present that form
+directly instead of reserving a tab for embedded-browser preferences. The UI
+supports text, revealable masked secrets, booleans, files, and directories.
+Save & Restart updates the project-owned dotenv file atomically and restarts the
+supervised process; no values enter the generated app bundle or native
+preferences.
+
+Before the first server launch, an explicitly configured missing dotenv file is
+materialized from its template, or as an empty owner-only file when no template
+exists. Installation does not create machine-local state. If declared required
+values remain blank, the launcher opens Project Settings and waits rather than
+starting a server known to be misconfigured.
 
 ## Failure UI and logs
 

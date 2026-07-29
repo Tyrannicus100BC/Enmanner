@@ -17,7 +17,12 @@ It is not a security sandbox and agents must not describe it as one.
 
 - Keep `.env` ignored by Git. When `userConfiguration` is present, expose only
   the values a person should configure and mark credentials as `secret` so the
-  native UI masks them.
+  native UI masks them. Add an explicit project-owned template when the local
+  file should be materialized on first app launch; installation itself does not
+  create machine-local dotenv state.
+- Mark values `required` only when the server should wait for them before its
+  first launch. Required blank values open Project Settings instead of starting
+  a command known to be misconfigured.
 - Treat a `secret` field as presentation protection, not encrypted storage. The
   value remains in the configured dotenv file for existing project commands and
   tests.

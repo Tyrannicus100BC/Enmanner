@@ -189,8 +189,12 @@ low-level settings yourself. The format is documented in
 [docs/manifest.md](docs/manifest.md).
 
 Projects may declare a curated set of local dotenv values for the native
-Settings window. Enmanner can seed `.env` from `.env.example`, mask declared
-secret fields, preserve unrelated content, and restart the server after saving.
+Settings window. On first launch, Enmanner materializes the configured `.env`
+from `.env.example` before starting the server. If required declared values are
+blank, it opens Project Settings and waits instead of launching a server that is
+known to be misconfigured. Secret fields can be temporarily revealed for
+verification. Enmanner preserves unrelated dotenv content and restarts the
+server after saving.
 Values remain in the Git-ignored project file so existing dotenv loaders, unit
 tests, and direct development commands keep the same behavior. Enmanner does
 not infer or display every environment variable.
