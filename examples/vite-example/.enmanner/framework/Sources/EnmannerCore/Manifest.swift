@@ -7,6 +7,7 @@ public struct EnmannerManifest: Codable, Equatable, Sendable {
     public let server: Server
     public let window: Window
     public let icon: String?
+    public let userConfiguration: UserConfiguration?
 
     public init(
         version: Int,
@@ -14,7 +15,8 @@ public struct EnmannerManifest: Codable, Equatable, Sendable {
         identifier: String,
         server: Server,
         window: Window = Window(),
-        icon: String? = nil
+        icon: String? = nil,
+        userConfiguration: UserConfiguration? = nil
     ) {
         self.version = version
         self.name = name
@@ -22,6 +24,7 @@ public struct EnmannerManifest: Codable, Equatable, Sendable {
         self.server = server
         self.window = window
         self.icon = icon
+        self.userConfiguration = userConfiguration
     }
 
     public struct Server: Codable, Equatable, Sendable {
@@ -126,6 +129,97 @@ public struct EnmannerManifest: Codable, Equatable, Sendable {
         }
     }
 
+    public struct UserConfiguration: Codable, Equatable, Sendable {
+        public struct Field: Codable, Equatable, Sendable {
+            public enum FieldType: String, Codable, Sendable {
+                case string
+                case secret
+                case boolean
+                case file
+                case directory
+            }
+
+            public let key: String
+            public let label: String
+            public let type: FieldType
+            public let required: Bool
+            public let description: String?
+
+            public init(
+                key: String,
+                label: String,
+                type: FieldType = .string,
+                required: Bool = false,
+                description: String? = nil
+            ) {
+                self.key = key
+                self.label = label
+                self.type = type
+                self.required = required
+                self.description = description
+            }
+
+            private enum CodingKeys: String, CodingKey {
+                case key
+                case label
+                case type
+                case required
+                case description
+            }
+
+            public init(from decoder: Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                key = try container.decode(String.self, forKey: .key)
+                label = try container.decode(String.self, forKey: .label)
+                type = try container.decodeIfPresent(
+                    FieldType.self,
+                    forKey: .type
+                ) ?? .string
+                required = try container.decodeIfPresent(
+                    Bool.self,
+                    forKey: .required
+                ) ?? false
+                description = try container.decodeIfPresent(
+                    String.self,
+                    forKey: .description
+                )
+            }
+        }
+
+        public let file: String
+        public let template: String?
+        public let fields: [Field]
+
+        public init(
+            file: String = ".env",
+            template: String? = nil,
+            fields: [Field]
+        ) {
+            self.file = file
+            self.template = template
+            self.fields = fields
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case file
+            case template
+            case fields
+        }
+
+        public init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            file = try container.decodeIfPresent(
+                String.self,
+                forKey: .file
+            ) ?? ".env"
+            template = try container.decodeIfPresent(
+                String.self,
+                forKey: .template
+            )
+            fields = try container.decode([Field].self, forKey: .fields)
+        }
+    }
+
 }
 
 public enum ManifestLoader {
@@ -189,6 +283,7 @@ public enum ManifestValidator {
         #"^[A-Za-z0-9][A-Za-z0-9-]*(\.[A-Za-z0-9][A-Za-z0-9-]*)+$"#
     private static let secretKeyPattern =
         #"(?i)(secret|token|password|api[_-]?key|private[_-]?key)"#
+    private static let environmentKeyPattern = #"^[A-Za-z_][A-Za-z0-9_]*$"#
 
     public static func validate(_ manifest: EnmannerManifest, projectURL: URL) -> [String] {
         var issues: [String] = []
@@ -299,6 +394,157 @@ public enum ManifestValidator {
             }
         }
 
+        if let configuration = manifest.userConfiguration {
+            validateUserConfiguration(
+                configuration,
+                projectURL: projectURL,
+                issues: &issues
+            )
+        }
+
         return issues
+    }
+
+    private static func validateUserConfiguration(
+        _ configuration: EnmannerManifest.UserConfiguration,
+        projectURL: URL,
+        issues: inout [String]
+    ) {
+        let fileManager = FileManager.default
+        if configuration.fields.isEmpty {
+            issues.append("userConfiguration.fields must not be empty.")
+        }
+        if configuration.fields.count > 50 {
+            issues.append("userConfiguration.fields may contain at most 50 fields.")
+        }
+
+        var keys: Set<String> = []
+        for field in configuration.fields {
+            if field.key.range(
+                of: environmentKeyPattern,
+                options: .regularExpression
+            ) == nil {
+                issues.append(
+                    "userConfiguration field key \(field.key) is not a valid environment variable name."
+                )
+            }
+            if !keys.insert(field.key).inserted {
+                issues.append(
+                    "userConfiguration field key \(field.key) is duplicated."
+                )
+            }
+            if field.label.trimmingCharacters(
+                in: .whitespacesAndNewlines
+            ).isEmpty {
+                issues.append(
+                    "userConfiguration field \(field.key) must have a label."
+                )
+            }
+        }
+
+        do {
+            let fileURL = try ProjectPaths.resolve(
+                configuration.file,
+                inside: projectURL
+            )
+            if configuration.file.trimmingCharacters(
+                in: .whitespacesAndNewlines
+            ).isEmpty {
+                issues.append("userConfiguration.file must not be empty.")
+            }
+            let relativeComponents = URL(
+                fileURLWithPath: configuration.file
+            ).standardized.pathComponents
+            if configuration.file == "enmanner.json" ||
+                relativeComponents.contains(".enmanner") {
+                issues.append(
+                    "userConfiguration.file must be a project-owned file outside .enmanner."
+                )
+            }
+            let parentURL = fileURL.deletingLastPathComponent()
+            var isDirectory: ObjCBool = false
+            if !fileManager.fileExists(
+                atPath: parentURL.path,
+                isDirectory: &isDirectory
+            ) || !isDirectory.boolValue {
+                issues.append(
+                    "userConfiguration.file parent directory does not exist."
+                )
+            }
+            if fileManager.fileExists(
+                atPath: fileURL.path,
+                isDirectory: &isDirectory
+            ) && isDirectory.boolValue {
+                issues.append("userConfiguration.file must not be a directory.")
+            }
+            if isGitTracked(configuration.file, projectURL: projectURL) {
+                issues.append(
+                    "userConfiguration.file is tracked by Git; remove it from Git before storing local values."
+                )
+            }
+        } catch {
+            issues.append("userConfiguration.file must stay inside the project.")
+        }
+
+        if let template = configuration.template {
+            if template == configuration.file {
+                issues.append(
+                    "userConfiguration.template must differ from userConfiguration.file."
+                )
+            }
+            do {
+                let templateURL = try ProjectPaths.resolve(
+                    template,
+                    inside: projectURL
+                )
+                let templateComponents = URL(
+                    fileURLWithPath: template
+                ).standardized.pathComponents
+                if templateComponents.contains(".enmanner") {
+                    issues.append(
+                        "userConfiguration.template must be a project-owned file outside .enmanner."
+                    )
+                }
+                var isDirectory: ObjCBool = false
+                if !fileManager.fileExists(
+                    atPath: templateURL.path,
+                    isDirectory: &isDirectory
+                ) || isDirectory.boolValue {
+                    issues.append(
+                        "userConfiguration.template does not exist or is not a file."
+                    )
+                }
+            } catch {
+                issues.append(
+                    "userConfiguration.template must stay inside the project."
+                )
+            }
+        }
+    }
+
+    private static func isGitTracked(
+        _ relativePath: String,
+        projectURL: URL
+    ) -> Bool {
+        guard FileManager.default.isExecutableFile(
+            atPath: "/usr/bin/git"
+        ) else {
+            return false
+        }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+        process.arguments = [
+            "-C", projectURL.path,
+            "ls-files", "--error-unmatch", "--", relativePath
+        ]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        do {
+            try process.run()
+            process.waitUntilExit()
+            return process.terminationStatus == 0
+        } catch {
+            return false
+        }
     }
 }

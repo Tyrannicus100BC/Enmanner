@@ -4,6 +4,23 @@
   "name": "Enmanner Vite Example",
   "identifier": "local.enmanner.vite-example",
   "icon": "assets/EnmannerViteExample.icon",
+  "userConfiguration": {
+    "file": ".env",
+    "template": ".env.example",
+    "fields": [
+      {
+        "key": "VITE_GREETING",
+        "label": "Greeting",
+        "description": "Shown as the main heading in the example app."
+      },
+      {
+        "key": "VITE_TEAM_API_KEY",
+        "label": "Team API key",
+        "type": "secret",
+        "description": "Optional demonstration secret. The example reports only whether it is configured."
+      }
+    ]
+  },
   "server": {
     "command": [
       "npm",

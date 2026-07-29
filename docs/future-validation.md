@@ -24,3 +24,6 @@
 - Revisit which manifest fields are mandatory after several non-Vite adopters.
 - Test duplicate app launches and decide whether a project-local lock or
   single-instance handoff is worth the complexity.
+- Run the controlled single-agent, shared-checkout, worktree, and runtime-data
+  trials in `continued-development-study.md` before expanding Enmanner into
+  worktree orchestration or isolated test-instance management.

@@ -1,3 +1,4 @@
+import Darwin
 import XCTest
 @testable import EnmannerCore
 
@@ -61,9 +62,13 @@ final class ReadinessAndProcessTests: XCTestCase {
 
         try supervisor.start(configuration)
         XCTAssertTrue(supervisor.isRunning)
+        let processIdentifier = try XCTUnwrap(
+            supervisor.processIdentifier
+        )
         supervisor.stop(gracePeriod: 0.5)
         wait(for: [exited], timeout: 2)
         XCTAssertFalse(supervisor.isRunning)
+        XCTAssertNotEqual(Darwin.kill(-processIdentifier, 0), 0)
     }
 }
 

@@ -129,13 +129,17 @@ the native status window instead.
 The launcher constructs conventional Application, File, Edit, View, Window,
 and Help menus using the manifest name. Standard responder-chain actions cover
 Undo, Cut, Copy, Paste, Select All, Close Window, Minimize, and Full Screen.
-Embedded browser commands add Back, Forward, Reload, Stop, and page zoom.
+Embedded browser commands add Back, Forward, Reload, Stop, and page zoom. The
+Window menu opens a dedicated live Server Log window in either presentation
+mode without revealing Terminal.
 
-The Settings window currently stores a small set of native preferences in
-`UserDefaults`: embedded page zoom, external-link handling, and whether failure
-details include recent server output. These are launcher preferences only; a
-future manifest extension can describe project-owned settings without putting
-runtime data in the generated app bundle.
+The Settings window stores a small set of launcher preferences in `UserDefaults`:
+embedded page zoom, external-link handling, and whether failure details include
+recent server output. An optional manifest declaration adds a Project tab for
+explicitly selected dotenv keys. The UI supports text, masked secret, boolean,
+file, and directory fields. Save & Restart updates the project-owned dotenv file
+atomically and restarts the supervised process; no values enter the generated
+app bundle or native preferences.
 
 ## Failure UI and logs
 
@@ -143,8 +147,10 @@ The native state panel distinguishes starting, reconnecting, running in the brow
 and failed. Embedded mode presents it during startup. Browser mode presents it
 only after an explicit Dock reopen or when a failure needs attention. Failure
 includes the configured argument array, exit status when known, and recent
-output. Users can show the bounded log view, copy it, retry, or reveal the
-project without opening Terminal.
+output. Users can show the bounded inline log view, copy it, retry, or reveal
+the project without opening Terminal. A separate resizable Server Log window
+remains available while the server is healthy, starting, reconnecting, or
+failed and updates from the same in-memory buffer.
 
 Logs are memory-only and capped at 500 entries. Enmanner does not create a hidden
 log archive or leak project output into Application Support.
@@ -153,9 +159,11 @@ log archive or leak project output into Application Support.
 
 The MVP prefers explicit, Git-ignored project data directories. Small native
 window preferences may be stored by macOS through normal autosave behavior, but
-Enmanner has no registry and no large Application Support workspace. Future secret
-management should use Keychain. `.env` is supported only as an application
-compatibility fallback and is ignored by the installer.
+Enmanner has no registry and no large Application Support workspace. Projects
+may expose a curated set of local values through a project-owned dotenv file.
+Secret fields are masked in native UI but intentionally retain normal dotenv
+semantics so existing project commands and tests continue to work. Enmanner
+rejects configured dotenv files already tracked by Git.
 
 Enmanner executes repository code as the current user. It validates configuration
 boundaries but does not sandbox code, inspect package supply chains, or grant

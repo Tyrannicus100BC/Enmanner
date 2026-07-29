@@ -98,6 +98,65 @@ final class ManifestTests: XCTestCase {
         XCTAssertEqual(manifest.window.mode, .embedded)
     }
 
+    func testDecodesUserConfigurationDefaults() throws {
+        let data = Data(
+            """
+            {
+              "version": 2,
+              "name": "Configured",
+              "identifier": "local.enmanner.configured",
+              "userConfiguration": {
+                "template": ".env.example",
+                "fields": [
+                  {
+                    "key": "API_KEY",
+                    "label": "API key",
+                    "type": "secret",
+                    "required": true
+                  },
+                  {
+                    "key": "FEATURE_ENABLED",
+                    "label": "Feature enabled"
+                  }
+                ]
+              },
+              "server": {
+                "command": ["/usr/bin/true"],
+                "workingDirectory": ".",
+                "readiness": {
+                  "url": "http://127.0.0.1:${ENMANNER_PORT}/",
+                  "timeoutSeconds": 5
+                }
+              },
+              "window": {
+                "mode": "browser",
+                "width": 800,
+                "height": 600,
+                "resizable": true
+              }
+            }
+            """.utf8
+        )
+
+        let manifest = try JSONDecoder().decode(
+            EnmannerManifest.self,
+            from: data
+        )
+
+        XCTAssertEqual(manifest.userConfiguration?.file, ".env")
+        XCTAssertEqual(
+            manifest.userConfiguration?.fields[0].type,
+            .secret
+        )
+        XCTAssertEqual(
+            manifest.userConfiguration?.fields[1].type,
+            .string
+        )
+        XCTAssertFalse(
+            manifest.userConfiguration?.fields[1].required ?? true
+        )
+    }
+
     func testMalformedManifestProducesUsefulError() throws {
         let directory = try temporaryDirectory()
         let url = directory.appendingPathComponent("enmanner.json")
@@ -280,6 +339,80 @@ final class ManifestTests: XCTestCase {
 
             XCTAssertFalse(issues.contains { $0.contains("icon must be") })
         }
+    }
+
+    func testValidationRejectsUnsafeUserConfiguration() throws {
+        let directory = try temporaryDirectory()
+        let manifest = EnmannerManifest(
+            version: 2,
+            name: "Unsafe Configuration",
+            identifier: "local.enmanner.unsafe-configuration",
+            server: .init(
+                command: ["/usr/bin/true"],
+                readiness: .init(url: "http://127.0.0.1:43120/")
+            ),
+            userConfiguration: .init(
+                file: ".enmanner/secrets.env",
+                template: "missing.example",
+                fields: [
+                    .init(key: "NOT-VALID", label: ""),
+                    .init(key: "NOT-VALID", label: "Duplicate")
+                ]
+            )
+        )
+
+        let issues = ManifestValidator.validate(
+            manifest,
+            projectURL: directory
+        )
+
+        XCTAssertTrue(issues.contains { $0.contains("outside .enmanner") })
+        XCTAssertTrue(issues.contains { $0.contains("not a valid") })
+        XCTAssertTrue(issues.contains { $0.contains("duplicated") })
+        XCTAssertTrue(issues.contains { $0.contains("must have a label") })
+        XCTAssertTrue(issues.contains { $0.contains("template does not exist") })
+    }
+
+    func testValidationRejectsTrackedUserConfigurationFile() throws {
+        let directory = try temporaryDirectory()
+        try Data("API_KEY=\n".utf8).write(
+            to: directory.appendingPathComponent(".env")
+        )
+        try runGit(["init", "--quiet"], in: directory)
+        try runGit(["add", ".env"], in: directory)
+
+        let manifest = EnmannerManifest(
+            version: 2,
+            name: "Tracked Configuration",
+            identifier: "local.enmanner.tracked-configuration",
+            server: .init(
+                command: ["/usr/bin/true"],
+                readiness: .init(url: "http://127.0.0.1:43120/")
+            ),
+            userConfiguration: .init(
+                fields: [
+                    .init(key: "API_KEY", label: "API key", type: .secret)
+                ]
+            )
+        )
+
+        let issues = ManifestValidator.validate(
+            manifest,
+            projectURL: directory
+        )
+
+        XCTAssertTrue(issues.contains { $0.contains("tracked by Git") })
+    }
+
+    private func runGit(_ arguments: [String], in directory: URL) throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+        process.arguments = ["-C", directory.path] + arguments
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        process.waitUntilExit()
+        XCTAssertEqual(process.terminationStatus, 0)
     }
 }
 

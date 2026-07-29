@@ -158,7 +158,7 @@ public final class ProcessSupervisor: @unchecked Sendable {
 
     private let queue = DispatchQueue(label: "local.enmanner.process-supervisor")
     private var process: Process?
-    private var stopping = false
+    private var expectedExitProcessIdentifiers: Set<Int32> = []
     private let logBuffer: LogBuffer
 
     public var onExit: (@Sendable (Exit) -> Void)?
@@ -183,7 +183,6 @@ public final class ProcessSupervisor: @unchecked Sendable {
             guard process?.isRunning != true else {
                 throw EnmannerError.processAlreadyRunning
             }
-            stopping = false
 
             let process = Process()
             let outputPipe = Pipe()
@@ -199,13 +198,18 @@ public final class ProcessSupervisor: @unchecked Sendable {
             attach(pipe: errorPipe, stream: .stderr)
             process.terminationHandler = { [weak self] completed in
                 guard let self else { return }
-                let expected = self.queue.sync { self.stopping }
+                let expected = self.queue.sync {
+                    let pid = completed.processIdentifier
+                    let expected =
+                        self.expectedExitProcessIdentifiers.remove(pid) != nil
+                    if self.process === completed {
+                        self.process = nil
+                    }
+                    return expected
+                }
                 self.logBuffer.append(
                     "Server exited with status \(completed.terminationStatus)."
                 )
-                self.queue.async {
-                    self.process = nil
-                }
                 self.onExit?(
                     Exit(status: completed.terminationStatus, expected: expected)
                 )
@@ -230,7 +234,10 @@ public final class ProcessSupervisor: @unchecked Sendable {
 
     public func stop(gracePeriod: TimeInterval = 2) {
         let processToStop: Process? = queue.sync {
-            stopping = true
+            guard let process, process.isRunning else { return nil }
+            expectedExitProcessIdentifiers.insert(
+                process.processIdentifier
+            )
             return process
         }
         guard let processToStop, processToStop.isRunning else { return }
@@ -240,14 +247,24 @@ public final class ProcessSupervisor: @unchecked Sendable {
         Darwin.kill(-pid, SIGTERM)
 
         let deadline = Date().addingTimeInterval(gracePeriod)
-        while processToStop.isRunning && Date() < deadline {
+        while (processToStop.isRunning || Self.processGroupExists(pid)) &&
+                Date() < deadline {
             Thread.sleep(forTimeInterval: 0.05)
         }
-        if processToStop.isRunning {
+        if processToStop.isRunning || Self.processGroupExists(pid) {
             logBuffer.append("Server did not stop gracefully; forcing shutdown.")
             Darwin.kill(-pid, SIGKILL)
-            processToStop.waitUntilExit()
+            if processToStop.isRunning {
+                processToStop.waitUntilExit()
+            }
         }
+    }
+
+    private static func processGroupExists(_ identifier: Int32) -> Bool {
+        if Darwin.kill(-identifier, 0) == 0 {
+            return true
+        }
+        return errno == EPERM
     }
 
     private func attach(pipe: Pipe, stream: LogBuffer.Stream) {

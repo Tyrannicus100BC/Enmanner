@@ -25,6 +25,6 @@
 - Keep local data in an explicit project data directory for the MVP and ignore
   it in Git.
 
-Enmanner may eventually offer a clearer per-project data policy and Keychain-backed
-secrets. Until then, choose transparent project-local locations and document
-them.
+Enmanner can present explicitly declared local settings stored in a Git-ignored
+dotenv file. This is configuration, not a replacement for a clear per-project
+runtime-data and backup policy.

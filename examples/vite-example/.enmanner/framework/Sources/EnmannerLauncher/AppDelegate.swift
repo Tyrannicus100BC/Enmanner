@@ -9,6 +9,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private lazy var supervisor = ProcessSupervisor(logBuffer: logBuffer)
     private var windowController: MainWindowController?
     private var settingsWindowController: SettingsWindowController?
+    private var logWindowController: LogWindowController?
     private var manifest: EnmannerManifest?
     private var projectURL: URL?
     private var applicationURL: URL?
@@ -23,6 +24,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApplication.shared.setActivationPolicy(.regular)
+        observeLogs()
         // Activation lets macOS resolve access to projects in protected folders
         // such as Desktop before Enmanner reads the manifest. Browser mode still
         // remains windowless because no window controller is created here.
@@ -240,13 +242,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     private func retry() {
-        logBuffer.append("Retry requested.")
+        restartServer(
+            reallocatingPort: true,
+            logMessage: "Retry requested."
+        )
+    }
+
+    private func restartAfterConfigurationChange() {
+        restartServer(
+            reallocatingPort: false,
+            logMessage: "Project configuration saved; restarting server."
+        )
+    }
+
+    private func restartServer(
+        reallocatingPort: Bool,
+        logMessage: String
+    ) {
+        logBuffer.append(logMessage)
         readinessTask?.cancel()
         supervisor.stop()
         reachedReadyState = false
         isRecovering = false
         recoveryAttempts = 0
-        chosenPort = nil
+        if reallocatingPort {
+            chosenPort = nil
+        }
         startServer(recovering: false)
     }
 
@@ -325,21 +346,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             NSWorkspace.shared.activateFileViewerSelecting([projectURL])
         }
         controller.updateLogs(logBuffer.snapshot())
-        logBuffer.onChange = { [weak controller] snapshot in
-            DispatchQueue.main.async {
-                controller?.updateLogs(snapshot)
-            }
-        }
         windowController = controller
         return controller
+    }
+
+    private func observeLogs() {
+        logBuffer.onChange = { [weak self] snapshot in
+            DispatchQueue.main.async {
+                self?.windowController?.updateLogs(snapshot)
+                self?.logWindowController?.updateLogs(snapshot)
+            }
+        }
     }
 
     @objc private func showSettings(_ sender: Any?) {
         guard let mode = manifest?.window.mode else { return }
         if settingsWindowController == nil {
-            let controller = SettingsWindowController(settings: settings, mode: mode)
+            guard let projectURL else { return }
+            let controller = SettingsWindowController(
+                settings: settings,
+                mode: mode,
+                projectURL: projectURL,
+                userConfiguration: manifest?.userConfiguration
+            )
             controller.onChange = { [weak self] in
                 self?.windowController?.applySettings()
+            }
+            controller.onSaveAndRestart = { [weak self] in
+                self?.restartAfterConfigurationChange()
             }
             settingsWindowController = controller
         }
@@ -355,6 +389,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     @objc private func revealProject(_ sender: Any?) {
         guard let projectURL else { return }
         NSWorkspace.shared.activateFileViewerSelecting([projectURL])
+    }
+
+    @objc private func showServerLog(_ sender: Any?) {
+        if logWindowController == nil {
+            let appName = manifest?.name ?? "Enmanner"
+            let controller = LogWindowController(appName: appName)
+            controller.updateLogs(logBuffer.snapshot())
+            logWindowController = controller
+        }
+        NSApplication.shared.activate(ignoringOtherApps: true)
+        logWindowController?.showWindow(sender)
     }
 
     @objc private func reloadApplication(_ sender: Any?) {
@@ -569,6 +614,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             item("Minimize", action: #selector(NSWindow.performMiniaturize(_:)), key: "m")
         )
         windowMenu.addItem(item("Zoom", action: #selector(NSWindow.performZoom(_:))))
+        windowMenu.addItem(.separator())
+        windowMenu.addItem(
+            item(
+                "Server Log",
+                action: #selector(showServerLog(_:)),
+                key: "l",
+                modifiers: [.command, .shift],
+                target: self
+            )
+        )
         windowMenu.addItem(.separator())
         windowMenu.addItem(
             item("Bring All to Front", action: #selector(NSApplication.arrangeInFront(_:)))

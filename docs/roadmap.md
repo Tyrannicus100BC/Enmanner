@@ -14,7 +14,8 @@
   stateful services.
 - Add machine-readable launcher status and bounded diagnostic log interfaces
   without creating a large hidden workspace.
-- Add Keychain-backed secret injection without writing values to the manifest.
+- Evaluate optional Keychain-backed secret injection only for projects that
+  explicitly choose a storage contract other than dotenv.
 - Extend icon-source diagnostics beyond the new automated appearance renderer.
 - Improve accessibility, menu commands, native update states, and diagnostics.
 - Expand conflict-aware upgrades with explicit manifest migrations when a future

@@ -9,6 +9,23 @@ provides editor and agent validation.
   "version": 2,
   "name": "Household Finances",
   "identifier": "local.enmanner.household-finances",
+  "userConfiguration": {
+    "file": ".env",
+    "template": ".env.example",
+    "fields": [
+      {
+        "key": "IMPORT_DIRECTORY",
+        "label": "Import directory",
+        "type": "directory",
+        "required": true
+      },
+      {
+        "key": "TEAM_API_KEY",
+        "label": "Team API key",
+        "type": "secret"
+      }
+    ]
+  },
   "server": {
     "command": [
       "npm",
@@ -54,6 +71,30 @@ and may not escape through `..` or symlinks.
 decodes as an empty object. Validation errors include the exact field path, and
 JSON diagnostics use stable `code`, `path`, and `message` fields.
 
+Optional `userConfiguration` exposes an explicit, curated set of dotenv values
+in the native Settings window. `file` defaults to `.env` and must be a
+project-relative, project-owned file outside `.enmanner/`. An optional
+`template`, commonly `.env.example`, supplies initial content when the
+destination does not exist. Enmanner never infers fields from the template.
+
+Each field has an environment-variable `key`, human-readable `label`, optional
+`description`, optional `required` flag, and one of these types:
+
+- `string` — ordinary text, and the default when `type` is omitted
+- `secret` — masked text that is still stored in the configured dotenv file
+- `boolean` — a checkbox stored as `true` or `false`
+- `file` — text with a native file picker
+- `directory` — text with a native directory picker
+
+Saving writes only declared keys, preserves comments, ordering, and undeclared
+entries, then restarts the supervised server so normal dotenv loaders see the
+new values. New dotenv files use owner-only permissions. A configured dotenv
+file may not be tracked by Git. Duplicate declared keys, malformed quoting,
+multiline values, and tracked destinations fail instead of risking a destructive
+rewrite. `secret` controls only native presentation: values are never placed in
+`enmanner.json`, logs, diagnostics, or the `.app`, but remain ordinary dotenv
+values for project commands and tests.
+
 For current macOS icon behavior, `icon` must point to an Icon Composer `.icon`
 package whenever Xcode's `actool` is available. Enmanner compiles it, adds
 `Assets.car` and `CFBundleIconName`, verifies that the catalog contains an
@@ -90,6 +131,10 @@ In browser mode, this same URL is opened in the user's default browser after it
 passes readiness. Configure a meaningful human-facing application page, not a
 raw JSON or text health endpoint. Enmanner intentionally uses one URL for both
 purposes in the current manifest version.
+
+Enmanner edits the dotenv file but does not itself parse that file into the
+server environment. The project command remains responsible for its established
+dotenv-loading behavior.
 
 Runtime validation starts and stops the configured command. For applications
 with databases, containers, or other stateful services, review ownership,

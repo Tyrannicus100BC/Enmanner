@@ -17,8 +17,8 @@ its compatibility checklist. In browser mode the launcher stays in the Dock
 without showing a window during a healthy launch. The launcher
 captures logs, explains startup failures, supervises the server, recovers after
 restarts, and stops the server when the app quits. Generated apps also provide
-standard macOS menus, keyboard shortcuts, a small Settings window, and normal
-windowless/reopen behavior.
+standard macOS menus, keyboard shortcuts, a small Settings window, a live
+Server Log window, and normal windowless/reopen behavior.
 
 Enmanner is an MVP, not a universal application platform. It currently targets one
 local server, one user, one Mac, and projects that already contain the runtime
@@ -188,6 +188,13 @@ Ask the coding agent to inspect the generated manifest rather than editing
 low-level settings yourself. The format is documented in
 [docs/manifest.md](docs/manifest.md).
 
+Projects may declare a curated set of local dotenv values for the native
+Settings window. Enmanner can seed `.env` from `.env.example`, mask declared
+secret fields, preserve unrelated content, and restart the server after saving.
+Values remain in the Git-ignored project file so existing dotenv loaders, unit
+tests, and direct development commands keep the same behavior. Enmanner does
+not infer or display every environment variable.
+
 ## What requires an app rebuild?
 
 Ordinary web source, styles, server code, and local application data do not.
@@ -201,6 +208,9 @@ standard output and error, and polls the configured HTTP readiness URL. If
 initial startup fails, it shows a plain-language error with recent output,
 copy/retry controls, and a way to reveal the project. If a previously-ready
 server exits, Enmanner shows a reconnecting state and performs bounded restarts.
+Choose **Window → Server Log** or press **Command-Shift-L** to inspect the
+bounded live output while the app is starting, healthy, reconnecting, or
+failed. Logs remain memory-only and are not archived to disk.
 
 Enmanner runs project code with the current user's permissions. It is not a
 sandbox. Servers are loopback-only by default and the validator rejects public
@@ -220,6 +230,7 @@ notarization, and distribution to other machines are future work.
 - `docs/architecture.md` — launcher and lifecycle design
 - `docs/philosophy.md` — product values
 - `docs/agent-guidance.md` — instruction-package design
+- `docs/continued-development-study.md` — post-integration agent study protocol
 - `docs/roadmap.md` — intentionally deferred work
 - `docs/known-limitations.md` — honest MVP boundaries
 - `docs/future-validation.md` — decisions that need broader Mac testing

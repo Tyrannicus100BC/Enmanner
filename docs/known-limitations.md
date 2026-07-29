@@ -14,8 +14,11 @@
 - Browser origins change between launches unless `server.preferredPort` remains
   available. There is no stable-origin proxy or atomic multi-port allocation.
 - Runtime logs are bounded and memory-only.
+- Project Settings supports single-line dotenv assignments. Duplicate declared
+  keys, malformed quoting, and multiline values require manual cleanup rather
+  than risking a destructive rewrite.
 - Restart recovery is bounded and does not preserve in-memory server state.
-- No code sandbox, secret store, data migration framework, backup service,
+- No code sandbox, encrypted secret store, data migration framework, backup service,
   project upgrade manager, auto-updater, notarization, or public distribution.
 - Browser mode keeps a native status window but is intentionally basic.
 - Installer inference intentionally completes configuration only for tested,
