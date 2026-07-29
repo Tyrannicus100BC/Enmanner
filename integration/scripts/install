@@ -144,6 +144,7 @@ preferred_port=$((42000 + identifier_checksum % 6000))
 package_manager=""
 candidate_command=""
 candidate_working_directory="."
+candidate_inspect_path=""
 manifest_status="configurationRequired"
 inference_reason="No supported high-confidence startup command was found."
 detected_stacks=()
@@ -163,6 +164,7 @@ add_detected_stack() {
 
 if [[ -f "$target_dir/package.json" ]]; then
   add_detected_stack "Node.js"
+  candidate_inspect_path="package.json"
   if [[ -f "$target_dir/bun.lock" || -f "$target_dir/bun.lockb" ]]; then
     package_manager="bun"
   elif [[ -f "$target_dir/pnpm-lock.yaml" ]]; then
@@ -174,9 +176,13 @@ if [[ -f "$target_dir/package.json" ]]; then
   fi
 
   selected_script=""
+  selected_script_value=""
   for script_name in dev start serve; do
-    if /usr/bin/plutil -extract "scripts.$script_name" raw \
-      "$target_dir/package.json" >/dev/null 2>&1; then
+    selected_script_value="$(
+      /usr/bin/plutil -extract "scripts.$script_name" raw \
+        "$target_dir/package.json" 2>/dev/null || true
+    )"
+    if [[ -n "$selected_script_value" ]]; then
       selected_script="$script_name"
       break
     fi
@@ -188,6 +194,14 @@ if [[ -f "$target_dir/package.json" ]]; then
       candidate_command="[\"$package_manager\", \"run\", \"$selected_script\"]"
     fi
     inference_reason="Found the root $package_manager script '$selected_script'; host and dynamic-port behavior remain unverified."
+    if [[ "$selected_script_value" =~ ^node[[:space:]]+([^[:space:]]+) ]]; then
+      possible_entry="${BASH_REMATCH[1]}"
+      possible_entry="${possible_entry#./}"
+      if [[ "$possible_entry" != /* &&
+        -f "$target_dir/$possible_entry" ]]; then
+        candidate_inspect_path="$possible_entry"
+      fi
+    fi
   fi
 
   if [[ "$package_manager" == "npm" && "$selected_script" == "dev" ]] &&
@@ -210,30 +224,59 @@ else
   if [[ -n "$nested_package" && "$nested_package" != "multiple" ]]; then
     relative_package="${nested_package#"$target_dir"/}"
     candidate_working_directory="$(dirname "$relative_package")"
+    candidate_inspect_path="$relative_package"
     inference_reason="Found one nested package.json at ${nested_package#"$target_dir"/}; startup and port behavior require review."
   elif [[ "$nested_package" == "multiple" ]]; then
     inference_reason="Found multiple nested packages; choose a project-owned foreground supervisor."
   fi
 fi
 
-find "$target_dir" -maxdepth 4 -not -path '*/node_modules/*' \
+compose_path="$(find "$target_dir" -maxdepth 4 -not -path '*/node_modules/*' \
   \( -name 'compose.yml' -o -name 'compose.yaml' \
   -o -name 'docker-compose.yml' -o -name 'docker-compose.yaml' \) \
-  -print -quit 2>/dev/null | grep -q . && add_detected_stack "Docker Compose"
-find "$target_dir" -maxdepth 4 -not -path '*/node_modules/*' \
-  -name Makefile -print -quit 2>/dev/null | grep -q . &&
+  -print -quit 2>/dev/null)"
+if [[ -n "$compose_path" ]]; then
+  add_detected_stack "Docker Compose"
+  [[ -n "$candidate_inspect_path" ]] ||
+    candidate_inspect_path="${compose_path#"$target_dir"/}"
+fi
+makefile_path="$(
+  find "$target_dir" -maxdepth 4 -not -path '*/node_modules/*' \
+    -name Makefile -print -quit 2>/dev/null
+)"
+if [[ -n "$makefile_path" ]]; then
   add_detected_stack "Make"
-find "$target_dir" -maxdepth 4 -name go.mod -print -quit 2>/dev/null |
-  grep -q . && add_detected_stack "Go"
-find "$target_dir" -maxdepth 4 -name Cargo.toml -print -quit 2>/dev/null |
-  grep -q . && add_detected_stack "Cargo"
-find "$target_dir" -maxdepth 4 \
+  [[ -n "$candidate_inspect_path" ]] ||
+    candidate_inspect_path="${makefile_path#"$target_dir"/}"
+fi
+go_mod_path="$(find "$target_dir" -maxdepth 4 -name go.mod -print -quit 2>/dev/null)"
+if [[ -n "$go_mod_path" ]]; then
+  add_detected_stack "Go"
+  [[ -n "$candidate_inspect_path" ]] ||
+    candidate_inspect_path="${go_mod_path#"$target_dir"/}"
+fi
+cargo_path="$(find "$target_dir" -maxdepth 4 -name Cargo.toml -print -quit 2>/dev/null)"
+if [[ -n "$cargo_path" ]]; then
+  add_detected_stack "Cargo"
+  [[ -n "$candidate_inspect_path" ]] ||
+    candidate_inspect_path="${cargo_path#"$target_dir"/}"
+fi
+python_path="$(find "$target_dir" -maxdepth 4 \
   \( -name pyproject.toml -o -name requirements.txt \) \
-  -print -quit 2>/dev/null | grep -q . && add_detected_stack "Python"
+  -print -quit 2>/dev/null)"
+if [[ -n "$python_path" ]]; then
+  add_detected_stack "Python"
+  [[ -n "$candidate_inspect_path" ]] ||
+    candidate_inspect_path="${python_path#"$target_dir"/}"
+fi
 
 if [[ -f "$manifest_path" ]]; then
   manifest_status="existing"
   inference_reason="An existing project-owned enmanner.json will be preserved."
+elif [[ "$manifest_status" == "configurationRequired" &&
+  "$inference_reason" == "No supported high-confidence startup command was found." &&
+  $detected_stack_count -gt 0 ]]; then
+  inference_reason="Detected ${detected_stacks[*]}, but no tested high-confidence adapter matched. Hand-author the manifest using the reported evidence and compatibility checks."
 fi
 
 escaped_app_name="$project_name"
@@ -257,6 +300,21 @@ grep -q "# enmanner:begin" "$target_dir/.gitignore" 2>/dev/null &&
 agents_needs_update=true
 grep -q "<!-- enmanner:begin -->" "$target_dir/AGENTS.md" 2>/dev/null &&
   agents_needs_update=false
+other_agent_files=()
+other_agent_file_count=0
+for agent_file in CLAUDE.md GEMINI.md .github/copilot-instructions.md; do
+  if [[ -f "$target_dir/$agent_file" ]]; then
+    other_agent_files+=("$agent_file")
+    other_agent_file_count=$((other_agent_file_count + 1))
+  fi
+done
+if [[ -d "$target_dir/.cursor/rules" ]]; then
+  other_agent_files+=(".cursor/rules/")
+  other_agent_file_count=$((other_agent_file_count + 1))
+fi
+stale_draft=false
+[[ -f "$manifest_path" && -f "$target_dir/enmanner.json.example" ]] &&
+  stale_draft=true
 manifest_will_write=false
 [[ ! -e "$manifest_path" && "$manifest_status" == "inferred" ]] &&
   manifest_will_write=true
@@ -309,7 +367,7 @@ emit_result() {
     else
       printf '"blockedBy":null},'
     fi
-    printf '"git":{"classification":"%s","root":"%s","nestedRepositories":%d,"branch":"%s","dirty":%s,"hasUpstream":%s,"ahead":%d,"behind":%d},' \
+    printf '"git":{"classification":"%s","root":"%s","nestedRepositories":%d,"branch":"%s","dirty":%s,"hasUpstream":%s,"ahead":%d,"behind":%d,"aheadBehindSource":"localRemoteTrackingRefs","networkAccessed":false},' \
       "$(json_escape "$git_classification")" "$(json_escape "$git_root")" \
       "$nested_repositories" "$(json_escape "$git_branch")" "$git_dirty" \
       "$git_has_upstream" "$git_ahead" "$git_behind"
@@ -322,11 +380,24 @@ emit_result() {
       done
     fi
     printf '],'
-    printf '"inference":{"packageManager":"%s","workingDirectory":"%s","command":%s,"preferredPort":%d,"reason":"%s"},' \
+    printf '"inference":{"packageManager":"%s","workingDirectory":"%s","command":%s,"preferredPort":%d,"reason":"%s","signalsExamined":["root package.json scripts dev/start/serve","root npm Vite dependency","nested package.json files","Docker Compose files","Makefile","go.mod","Cargo.toml","pyproject.toml or requirements.txt"],"inspect":[' \
       "$(json_escape "$package_manager")" \
       "$(json_escape "$candidate_working_directory")" \
       "${candidate_command:-null}" "$preferred_port" \
       "$(json_escape "$inference_reason")"
+    if [[ -n "$candidate_inspect_path" ]]; then
+      printf '"%s"' "$(json_escape "$candidate_inspect_path")"
+    fi
+    printf ']},'
+    printf '"otherAgentInstructions":['
+    other_agent_separator=""
+    if [[ $other_agent_file_count -gt 0 ]]; then
+      for agent_file in "${other_agent_files[@]}"; do
+        printf '%s"%s"' "$other_agent_separator" "$(json_escape "$agent_file")"
+        other_agent_separator=","
+      done
+    fi
+    printf '],'
     printf '"fileOperations":['
     printf '{"action":"createDirectory","path":".enmanner/","willWrite":true},'
     printf '{"action":"ensureManagedSection","path":"AGENTS.md","willWrite":%s},' \
@@ -359,9 +430,13 @@ emit_result() {
     printf '],'
     printf '"unresolvedChecks":['
     if [[ "$manifest_status" == "configurationRequired" ]]; then
-      printf '{"id":"dynamicPort","status":"unknown","requirement":"server honors ENMANNER_PORT","evidence":"startup candidate found but dynamic-port behavior is unverified","suggestedChange":"prefer ENMANNER_PORT over framework-specific port variables"},'
-      printf '{"id":"loopbackBinding","status":"unknown","requirement":"server binds only to loopback","evidence":"startup candidate does not prove its listener host","suggestedChange":"bind the public listener explicitly to 127.0.0.1"},'
-      printf '{"id":"foregroundLifecycle","status":"unknown","requirement":"command remains in the foreground","evidence":"child and daemon behavior requires project review","suggestedChange":"use one foreground command or a project-owned supervisor"}'
+      inspect_json="[]"
+      if [[ -n "$candidate_inspect_path" ]]; then
+        inspect_json="[\"$(json_escape "$candidate_inspect_path")\"]"
+      fi
+      printf '{"id":"dynamicPort","status":"unknown","requirement":"server honors ENMANNER_PORT","evidence":"startup candidate found but dynamic-port behavior is unverified","inspect":%s,"suggestedChange":"prefer ENMANNER_PORT over framework-specific port variables"},' "$inspect_json"
+      printf '{"id":"loopbackBinding","status":"unknown","requirement":"server binds only to loopback","evidence":"startup candidate does not prove its listener host","inspect":%s,"suggestedChange":"bind the public listener explicitly to 127.0.0.1"},' "$inspect_json"
+      printf '{"id":"foregroundLifecycle","status":"unknown","requirement":"command remains in the foreground","evidence":"child and daemon behavior requires project review","inspect":%s,"suggestedChange":"use one foreground command or a project-owned supervisor"}' "$inspect_json"
     fi
     printf '],'
     printf '"nextActions":['
@@ -374,7 +449,23 @@ emit_result() {
     if [[ "$icon_configured" != true ]]; then
       printf '"createAndConfigureIcon",'
     fi
-    printf '"buildApp"]'
+    printf '"buildApp"],'
+    printf '"nextActionCommands":['
+    if [[ "$manifest_status" != "configurationRequired" ]]; then
+      printf '{"id":"validateLifecycle","command":["./.enmanner/scripts/validate","--runtime","--json"]},'
+    fi
+    printf '{"id":"inspectIntegrationState","command":["./.enmanner/scripts/doctor","--json"]},'
+    printf '{"id":"buildApp","command":["./.enmanner/scripts/build-app","--json"]}],'
+    printf '"warnings":['
+    warning_separator=""
+    if [[ "$stale_draft" == true ]]; then
+      printf '"enmanner.json.example remains beside the live enmanner.json; remove the stale draft after confirming it is no longer needed"'
+      warning_separator=","
+    fi
+    if [[ $other_agent_file_count -gt 0 ]]; then
+      printf '%s"Other agent instruction files were detected; mirror the managed AGENTS.md guidance there when they are authoritative for this project"' "$warning_separator"
+    fi
+    printf ']'
     printf '}\n'
   else
     echo "Enmanner $action for: $target_dir"
@@ -393,6 +484,12 @@ emit_result() {
     if [[ "$icon_configured" != true &&
       "$manifest_status" != "configurationRequired" ]]; then
       echo "  Completion: icon required before the app can be built"
+    fi
+    [[ "$stale_draft" == true ]] &&
+      echo "  Warning: remove stale enmanner.json.example after confirming it is no longer needed"
+    if [[ $other_agent_file_count -gt 0 ]]; then
+      echo "  Agent instructions: also review ${other_agent_files[*]}"
+      echo "  Mirror the managed AGENTS.md guidance when one of those files is authoritative."
     fi
   fi
 }
@@ -419,6 +516,19 @@ if [[ "$repair" == true ]]; then
   [[ "$json" == true ]] && upgrade_args+=(--json)
   "$source_dir/scripts/upgrade" "${upgrade_args[@]}"
   exit 0
+fi
+
+if [[ "$json" != true ]]; then
+  echo "Installing Enmanner into: $target_dir"
+  echo "  Will copy framework-owned files into .enmanner/."
+  echo "  Will update only managed sections in AGENTS.md and .gitignore."
+  if [[ "$manifest_status" == "configurationRequired" ]]; then
+    echo "  Will write an inactive enmanner.json.example; no app will be built."
+  elif [[ "$icon_configured" != true ]]; then
+    echo "  Will validate configuration; no app will be built until an icon is configured."
+  else
+    echo "  Will validate configuration and build the configured app."
+  fi
 fi
 
 if [[ -e "$destination" ]]; then
@@ -569,7 +679,12 @@ else
     [[ "$allow_legacy_icon" == true ]] && build_args+=(--allow-legacy-icon)
     [[ "$replace_existing_app" == true ]] && build_args+=(--replace-existing-app)
     if [[ "$json" == true ]]; then
-      "$destination/scripts/build-app" "${build_args[@]}" >/dev/null
+      if ! build_result="$(
+        "$destination/scripts/build-app" "${build_args[@]}" --json
+      )"; then
+        printf '%s\n' "$build_result"
+        exit 1
+      fi
     else
       "$destination/scripts/build-app" "${build_args[@]}"
     fi

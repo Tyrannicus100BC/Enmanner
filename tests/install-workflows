@@ -9,6 +9,14 @@ cleanup() {
 }
 trap cleanup EXIT
 
+if "$repository_dir/integration/scripts/validate" --json \
+  >"$test_root/source-validate.out" 2>&1; then
+  echo "Error: source validate acted like installed-project tooling." >&2
+  exit 1
+fi
+grep -Fq "First run integration/scripts/install" \
+  "$test_root/source-validate.out"
+
 vite_target="$test_root/Vite Project"
 generic_target="$test_root/Generic Project"
 workspace_target="$test_root/Workspace Project"
@@ -19,6 +27,7 @@ cp "$repository_dir/examples/vite-example/package.json" \
   "$vite_target/"
 cp "$repository_dir/tests/fixtures/generic-package.json" \
   "$generic_target/package.json"
+printf '%s\n' '# Generic project instructions' > "$generic_target/CLAUDE.md"
 
 plan="$(
   "$repository_dir/integration/scripts/install" \
@@ -33,6 +42,10 @@ printf '%s\n' "$plan" | jq -e '
   (.build.blockedBy == "iconRequired") and
   (.git.dirty | type == "boolean") and
   (.git.ahead | type == "number") and
+  (.git.aheadBehindSource == "localRemoteTrackingRefs") and
+  (.git.networkAccessed == false) and
+  (.inference.signalsExamined | length > 0) and
+  ([.nextActionCommands[].id] | index("buildApp")) and
   (.fileOperations | type == "array") and
   ([.fileOperations[].path] | index("enmanner.json"))
 ' >/dev/null
@@ -69,6 +82,16 @@ if "$vite_target/.enmanner/scripts/build-app" \
   exit 1
 fi
 grep -Fq "does not build placeholder launchers" "$test_root/missing-icon.out"
+if "$vite_target/.enmanner/scripts/build-app" --json \
+  >"$test_root/missing-icon.json"; then
+  echo "Error: JSON build-app accepted a manifest without an icon." >&2
+  exit 1
+fi
+jq -e '
+  (.valid == false) and
+  (.error.code == "buildFailed") and
+  (.error.message | contains("no app icon is configured"))
+' "$test_root/missing-icon.json" >/dev/null
 test ! -e "$vite_target/Vite Project.app"
 
 generic_result="$(
@@ -84,6 +107,9 @@ printf '%s\n' "$generic_result" | jq -e '
   (.completionStatus == "configurationRequired") and
   (.build.blockedBy == "configurationRequired") and
   (.unresolvedChecks | length == 3) and
+  ([.unresolvedChecks[].inspect[]] | index("package.json")) and
+  ([.otherAgentInstructions[]] | index("CLAUDE.md")) and
+  (.warnings | length == 1) and
   ([.fileOperations[].path] | index("enmanner.json.example")) and
   ([.performedWrites[]] | index("enmanner.json.example"))
 ' >/dev/null
@@ -95,6 +121,7 @@ jq -e '
   (.server.preferredPort >= 42000) and
   (.server.preferredPort < 48000)
 ' "$generic_target/enmanner.json.example" >/dev/null
+grep -Fqx '# Generic project instructions' "$generic_target/CLAUDE.md"
 
 cp "$generic_target/enmanner.json.example" "$generic_target/enmanner.json"
 /usr/bin/plutil -remove server.readiness "$generic_target/enmanner.json"
@@ -110,10 +137,63 @@ jq -e '
 ' "$test_root/manifest-error.json" >/dev/null
 
 mkdir -p "$vite_target/assets"
-cp -R "$repository_dir/examples/vite-example/assets/EnmannerViteExample.icon" \
-  "$vite_target/assets/Test.icon"
+cp "$repository_dir/examples/vite-example/assets/icon-background.png" \
+  "$vite_target/assets/icon-background.png"
+cp "$repository_dir/examples/vite-example/assets/icon-foreground.png" \
+  "$vite_target/assets/icon-foreground.png"
+/usr/bin/xcrun swift - \
+  "$vite_target/assets/icon-background.png" \
+  "$vite_target/assets/rgba-background.png" <<'SWIFT'
+import CoreGraphics
+import Foundation
+import ImageIO
+
+let inputURL = URL(fileURLWithPath: CommandLine.arguments[1]) as CFURL
+let outputURL = URL(fileURLWithPath: CommandLine.arguments[2]) as CFURL
+guard let source = CGImageSourceCreateWithURL(inputURL, nil),
+      let image = CGImageSourceCreateImageAtIndex(source, 0, nil),
+      let destination = CGImageDestinationCreateWithURL(
+        outputURL,
+        "public.png" as CFString,
+        1,
+        nil
+      ) else {
+    fatalError("Could not rewrite the background PNG.")
+}
+let width = image.width
+let height = image.height
+guard let context = CGContext(
+    data: nil,
+    width: width,
+    height: height,
+    bitsPerComponent: 8,
+    bytesPerRow: width * 4,
+    space: CGColorSpaceCreateDeviceRGB(),
+    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+) else {
+    fatalError("Could not create an RGBA image.")
+}
+context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+guard let rgbaImage = context.makeImage() else {
+    fatalError("Could not create an RGBA image.")
+}
+CGImageDestinationAddImage(destination, rgbaImage, nil)
+guard CGImageDestinationFinalize(destination) else {
+    fatalError("Could not save the RGBA image.")
+}
+SWIFT
+"$vite_target/.enmanner/scripts/create-icon" \
+  --background assets/rgba-background.png \
+  --foreground assets/icon-foreground.png \
+  --output assets/Test.icon >"$test_root/create-icon.out"
 /usr/bin/plutil -insert icon -string "assets/Test.icon" \
   "$vite_target/enmanner.json"
+if "$vite_target/.enmanner/scripts/preview-icon" \
+  --output .enmanner/icon-previews >"$test_root/preview-owned.out" 2>&1; then
+  echo "Error: preview-icon wrote outside .enmanner/.build." >&2
+  exit 1
+fi
+grep -Fq "must stay under .enmanner/.build" "$test_root/preview-owned.out"
 gitignore_with_stale_app="$test_root/gitignore-with-stale-app"
 /usr/bin/awk '
   $0 == "# enmanner:end" { print "/Old Name.app/" }
@@ -136,8 +216,17 @@ grep -Fq "refusing to replace an unowned existing Vite Project.app" \
   "$test_root/app-collision.out"
 test -f "$fake_app/Contents/Info.plist"
 
-"$vite_target/.enmanner/scripts/build-app" --replace-existing-app \
-  >"$test_root/replaced-app.out"
+"$vite_target/.enmanner/scripts/build-app" --replace-existing-app --json \
+  >"$test_root/replaced-app.json"
+jq -e '
+  .valid and
+  (.icon.packaging == "modernIconImageStack") and
+  .icon.verified and
+  .signing.verified and
+  .replacement.replacedExistingApp and
+  .replacement.explicitlyAuthorized and
+  (.appPath | endswith("/Vite Project.app"))
+' "$test_root/replaced-app.json" >/dev/null
 test -x "$fake_app/Contents/MacOS/EnmannerLauncher"
 test "$(
   /usr/bin/plutil -extract bundleIdentifier raw \
@@ -151,6 +240,27 @@ fi
 test "$(
   grep -Fxc "/Vite Project.app/" "$vite_target/.gitignore"
 )" -eq 1
+
+cp "$vite_target/enmanner.json" "$vite_target/enmanner.json.example"
+"$vite_target/.enmanner/scripts/doctor" --json \
+  >"$test_root/doctor.json"
+jq -e '
+  .valid and
+  (.doctor.complete == false) and
+  .doctor.installationRecordPresent and
+  (.doctor.installationVersion == "0.4.0") and
+  .doctor.staleDraftManifest and
+  .doctor.iconConfigured and
+  .doctor.iconSourceExists and
+  .doctor.appExists and
+  .doctor.appOwnershipMatches and
+  .doctor.agentsManagedSectionPresent and
+  .doctor.gitignoreManagedSectionPresent and
+  ([.warnings[]] | any(contains("stale draft")))
+' "$test_root/doctor.json" >/dev/null
+rm "$vite_target/enmanner.json.example"
+"$vite_target/.enmanner/scripts/doctor" --json |
+  jq -e '.valid and .doctor.complete' >/dev/null
 
 test -f "$vite_target/.enmanner/INSTALLATION.json"
 jq -e '

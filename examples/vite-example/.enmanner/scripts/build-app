@@ -6,23 +6,85 @@ integration_dir="$(cd "$script_dir/.." && pwd)"
 project_dir="$(cd "$integration_dir/.." && pwd)"
 framework_dir="$integration_dir/framework"
 
+json_escape() {
+  local value="$1"
+  value="${value//\\/\\\\}"
+  value="${value//\"/\\\"}"
+  value="${value//$'\n'/\\n}"
+  value="${value//$'\r'/\\r}"
+  value="${value//$'\t'/\\t}"
+  printf '%s' "$value"
+}
+
 allow_legacy_icon=false
 replace_existing_app=false
+json=false
 while [[ "${1:-}" == --* ]]; do
   case "$1" in
     --allow-legacy-icon) allow_legacy_icon=true ;;
     --replace-existing-app) replace_existing_app=true ;;
+    --json) json=true ;;
     *)
-      echo "Usage: $0 [--allow-legacy-icon] [--replace-existing-app]" >&2
+      echo "Usage: $0 [--allow-legacy-icon] [--replace-existing-app] [--json]" >&2
       exit 64
       ;;
   esac
   shift
 done
 if [[ $# -ne 0 ]]; then
-  echo "Usage: $0 [--allow-legacy-icon] [--replace-existing-app]" >&2
+  echo "Usage: $0 [--allow-legacy-icon] [--replace-existing-app] [--json]" >&2
   exit 64
 fi
+
+stage_dir=""
+json_log=""
+build_succeeded=false
+app_path=""
+app_size=""
+cache_size=""
+bundle_identifier=""
+icon_path=""
+icon_packaging=""
+signing_verified=false
+replaced_existing_app=false
+
+finish() {
+  local status=$?
+  if [[ -n "$stage_dir" && -d "$stage_dir" ]]; then
+    rm -rf "$stage_dir"
+  fi
+  if [[ "$json" == true ]]; then
+    exec 1>&3
+    if [[ $status -eq 0 && "$build_succeeded" == true ]]; then
+      printf '{"schemaVersion":1,"valid":true,"appPath":"%s","bundleIdentifier":"%s","icon":{"source":"%s","packaging":"%s","verified":true},"signing":{"verified":%s},"replacement":{"replacedExistingApp":%s,"explicitlyAuthorized":%s},"sizes":{"app":"%s","buildCache":"%s"}}\n' \
+        "$(json_escape "$app_path")" \
+        "$(json_escape "$bundle_identifier")" \
+        "$(json_escape "$icon_path")" \
+        "$(json_escape "$icon_packaging")" \
+        "$signing_verified" "$replaced_existing_app" "$replace_existing_app" \
+        "$(json_escape "$app_size")" "$(json_escape "$cache_size")"
+    else
+      local message
+      local details
+      message="$(
+        /usr/bin/awk '/^(Error:|error:)/ { last = $0 } END { print last }' \
+          "$json_log"
+      )"
+      [[ -n "$message" ]] || message="build-app failed"
+      details="$(/usr/bin/tail -n 20 "$json_log")"
+      printf '{"schemaVersion":1,"valid":false,"error":{"code":"buildFailed","message":"%s","details":"%s"}}\n' \
+        "$(json_escape "$message")" "$(json_escape "$details")"
+    fi
+    rm -f "$json_log"
+  fi
+}
+
+if [[ "$json" == true ]]; then
+  json_log="$(mktemp "${TMPDIR:-/tmp}/enmanner-build.XXXXXX")"
+  exec 3>&1
+  exec >"$json_log" 2>&1
+fi
+trap finish EXIT
 
 if [[ "$allow_legacy_icon" == true ]]; then
   "$script_dir/validate" --allow-legacy-icon
@@ -81,6 +143,7 @@ if [[ -e "$app_path" && "$replace_existing_app" != true ]]; then
     exit 1
   fi
 fi
+[[ -e "$app_path" ]] && replaced_existing_app=true
 
 escaped_app_name="$app_name"
 escaped_app_name="${escaped_app_name//\\/\\\\}"
@@ -139,10 +202,6 @@ swift build --package-path "$framework_dir" -c release --product EnmannerLaunche
 bin_dir="$(swift build --package-path "$framework_dir" -c release --show-bin-path)"
 
 stage_dir="$(mktemp -d "${TMPDIR:-/tmp}/enmanner-app.XXXXXX")"
-cleanup() {
-  rm -rf "$stage_dir"
-}
-trap cleanup EXIT
 
 staged_app="$stage_dir/$app_name.app"
 contents="$staged_app/Contents"
@@ -177,6 +236,7 @@ icon_source="$project_dir/$icon_path"
 icon_extension="${icon_path##*.}"
 
 if [[ "$icon_extension" == "icon" ]]; then
+    icon_packaging="modernIconImageStack"
     if ! command -v xcrun >/dev/null 2>&1 ||
       ! xcrun --find actool >/dev/null 2>&1; then
       echo "Error: building an Icon Composer package requires Xcode with actool." >&2
@@ -228,6 +288,7 @@ if [[ "$icon_extension" == "icon" ]]; then
     fi
     echo "✓ Verified CFBundleIconName and the compiled IconImageStack"
 else
+  icon_packaging="legacyIcns"
   cp "$icon_source" "$contents/Resources/AppIcon.icns"
   /usr/bin/plutil -insert CFBundleIconFile -string "AppIcon" "$plist"
 fi
@@ -235,6 +296,7 @@ fi
 if command -v codesign >/dev/null 2>&1; then
   /usr/bin/codesign --force --sign - --timestamp=none "$staged_app"
   /usr/bin/codesign --verify --deep --strict "$staged_app"
+  signing_verified=true
   echo "✓ Verified the app's ad-hoc code signature"
 fi
 
@@ -261,3 +323,4 @@ cache_size="$(du -sh "$framework_dir/.build" | awk '{print $1}')"
 echo "✓ Created $app_name.app beside the project source ($app_size)"
 echo "  Enmanner build cache: $cache_size (remove with ./.enmanner/scripts/clean)"
 echo "  Ordinary web changes appear without rebuilding this launcher."
+build_succeeded=true

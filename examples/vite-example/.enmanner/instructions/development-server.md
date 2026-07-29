@@ -24,10 +24,17 @@
 ## SHOULD
 
 - Use a startup command already present in the project's normal dependency
-  system, such as an npm script.
+  system, such as an npm script. Package-manager commands such as
+  `npm run start` are valid foreground commands; do not unwrap them into their
+  apparent underlying command because that can skip lifecycle hooks,
+  environment setup, and package-manager semantics.
 - Configure `server.preferredPort` in browser mode so origin-scoped state stays
   stable when possible. Installer-inferred manifests do this automatically.
   Continue to use `${ENMANNER_PORT}` because Enmanner falls back if that port is busy.
+- Before starting a stateful application, confirm that a separately
+  terminal-started copy is not already using the same project data. Launch
+  Services prevents a second copy of the generated `.app`, but cannot identify
+  every independently started project server.
 - Exit cleanly after `SIGTERM` and close database/file handles.
 - Make repeated start/stop cycles safe.
 

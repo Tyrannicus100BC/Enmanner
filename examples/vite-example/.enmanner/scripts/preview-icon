@@ -26,6 +26,14 @@ if [[ "$output_relative" == /* || "$output_relative" == ".." ||
   echo "Error: preview output must stay inside the project." >&2
   exit 1
 fi
+if [[ "$output_relative" == ".enmanner" ||
+  ( "$output_relative" == .enmanner/* &&
+    "$output_relative" != ".enmanner/.build" &&
+    "$output_relative" != .enmanner/.build/* ) ]]; then
+  echo "Error: preview output inside .enmanner must stay under .enmanner/.build." >&2
+  echo "  Use the default path or choose a visible project-owned directory." >&2
+  exit 1
+fi
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 integration_dir="$(cd "$script_dir/.." && pwd)"
@@ -35,6 +43,7 @@ manifest="$project_dir/enmanner.json"
 icon_path="$(/usr/bin/plutil -extract icon raw "$manifest" 2>/dev/null || true)"
 if [[ "$icon_path" != *.icon ]]; then
   echo "Error: icon previews require a configured Icon Composer .icon package." >&2
+  echo "  Add the package's project-relative path to enmanner.json first." >&2
   exit 1
 fi
 

@@ -28,6 +28,23 @@ Today, the coding agent is part of the product architecture: Enmanner is a
 packaging and lifecycle protocol that helps an agent turn a local web project
 into a well-behaved Mac app for normal human use.
 
+## Agent fast path
+
+First decide whether the project is a good fit. Enmanner expects a
+human-facing local web interface that should become a Mac application. A
+headless API, proxy, worker, daemon, CLI, or infrastructure service is not a
+fit unless the user explicitly wants a browser-facing front door for it.
+
+For an integration, read and follow these in order:
+
+1. `docs/integration-checklist.md`
+2. `docs/manifest.md`
+3. the installed project's `.enmanner/AGENTS.md`
+
+Only `integration/scripts/install` is run from this Enmanner checkout. After
+installation, run validation, icon, doctor, and build commands from the target
+project through `./.enmanner/scripts/...`.
+
 ## What stays where
 
 ```text
@@ -103,6 +120,10 @@ Preview an installation before changing the project:
 ./integration/scripts/install --plan --json "/path/to/Your Project"
 ```
 
+The plan performs local filesystem and Git inspection only. Its `ahead` and
+`behind` values come from existing local remote-tracking refs; it does not fetch
+or otherwise contact a Git remote.
+
 For a root npm/Vite project, the installer can infer a safe loopback startup
 command, create `enmanner.json`, append narrowly-owned managed sections to
 `.gitignore` and `AGENTS.md`, and perform static validation. It deliberately
@@ -142,10 +163,13 @@ configuration, supervisors, icons, data, and scripts stay in visible paths
 outside it. `install --repair` uses the same conflict-aware mechanism.
 
 Use `./.enmanner/scripts/doctor --json` for resolved executable, arguments,
-working directory, effective GUI `PATH`, toolchain, icon capability, and
-optional runtime evidence. Enmanner does not load `.env`; the project command
-may do so explicitly. Remove local Swift products with
+working directory, effective GUI `PATH`, installation provenance, draft
+manifest state, generated-app ownership, managed-file state, icon capability,
+and optional runtime evidence. Enmanner does not load `.env`; the project
+command may do so explicitly. Remove local Swift products with
 `./.enmanner/scripts/clean`; builds report both app and cache size.
+Use `./.enmanner/scripts/build-app --json` when the final artifact path, icon
+packaging, signing, replacement, and size evidence must be machine-readable.
 
 The intended integration order is documented in
 [docs/integration-checklist.md](docs/integration-checklist.md). In short:

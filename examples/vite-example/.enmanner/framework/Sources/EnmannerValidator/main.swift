@@ -63,10 +63,28 @@ private struct ValidationReport: Codable {
     let modernIconToolingAvailable: Bool
     let warnings: [String]
     let runtime: RuntimeReport?
+    let doctor: DoctorReport?
 }
 
-private struct ErrorReport: Codable {
-    struct Diagnostic: Codable {
+private struct DoctorReport: Codable {
+    let complete: Bool
+    let installationRecordPresent: Bool
+    let installationVersion: String?
+    let installationManifestStatus: String?
+    let staleDraftManifest: Bool
+    let iconConfigured: Bool
+    let iconPath: String?
+    let iconSourceExists: Bool
+    let appPath: String
+    let appExists: Bool
+    let appOwnershipMatches: Bool
+    let agentsManagedSectionPresent: Bool
+    let gitignoreManagedSectionPresent: Bool
+    let otherAgentInstructions: [String]
+}
+
+private struct ErrorReport: Encodable {
+    struct Diagnostic: Encodable {
         let code: String
         let path: String?
         let message: String
@@ -112,6 +130,7 @@ struct EnmannerValidatorCommand {
         let projectPath = value(after: "--project", in: arguments) ??
             FileManager.default.currentDirectoryPath
         let runtime = arguments.contains("--runtime")
+        let doctor = arguments.contains("--doctor")
         let printField = value(after: "--print", in: arguments)
         let projectURL = URL(fileURLWithPath: projectPath, isDirectory: true)
             .standardizedFileURL
@@ -147,6 +166,24 @@ struct EnmannerValidatorCommand {
         let runtimeReport = runtime
             ? try await validateRuntime(manifest: manifest, projectURL: projectURL)
             : nil
+        let doctorReport = doctor
+            ? inspectProject(manifest: manifest, projectURL: projectURL)
+            : nil
+        var warnings = manifest.server.preferredPort == nil &&
+            manifest.window.mode == .browser
+            ? ["browser mode has no preferred port; origin-scoped state may move between launches"]
+            : []
+        if doctorReport?.staleDraftManifest == true {
+            warnings.append(
+                "enmanner.json.example remains beside the live manifest; remove the stale draft when it is no longer needed"
+            )
+        }
+        if let otherAgentInstructions = doctorReport?.otherAgentInstructions,
+           !otherAgentInstructions.isEmpty {
+            warnings.append(
+                "other agent instruction files exist; mirror Enmanner guidance there when one is authoritative"
+            )
+        }
         let report = ValidationReport(
             valid: runtimeReport?.passed ?? true,
             project: projectURL.path,
@@ -163,11 +200,9 @@ struct EnmannerValidatorCommand {
                 executable: "/usr/bin/xcrun",
                 arguments: ["--find", "actool"]
             ).isEmpty,
-            warnings: manifest.server.preferredPort == nil &&
-                manifest.window.mode == .browser
-                ? ["browser mode has no preferred port; origin-scoped state may move between launches"]
-                : [],
-            runtime: runtimeReport
+            warnings: warnings,
+            runtime: runtimeReport,
+            doctor: doctorReport
         )
 
         if json {
@@ -183,6 +218,9 @@ struct EnmannerValidatorCommand {
             print("  Effective GUI PATH: \(report.effectivePath)")
             print("  .env loading: project-managed (Enmanner does not load it)")
             report.warnings.forEach { print("! \($0)") }
+            if let doctorReport {
+                printDoctorReport(doctorReport)
+            }
             if let runtimeReport {
                 printRuntimeReport(runtimeReport)
             }
@@ -194,6 +232,141 @@ struct EnmannerValidatorCommand {
             }
             throw EnmannerError.processLaunchFailed(
                 "Shutdown postconditions failed; inspect the runtime report."
+            )
+        }
+    }
+
+    private static func inspectProject(
+        manifest: EnmannerManifest,
+        projectURL: URL
+    ) -> DoctorReport {
+        let fileManager = FileManager.default
+        let installationURL = projectURL
+            .appendingPathComponent(".enmanner/INSTALLATION.json")
+        let installation = jsonObject(at: installationURL)
+        let iconURL = manifest.icon.map {
+            projectURL.appendingPathComponent($0)
+        }
+        let appURL = projectURL.appendingPathComponent("\(manifest.name).app")
+        let ownershipURL = appURL.appendingPathComponent(
+            "Contents/Resources/EnmannerOwnership.plist"
+        )
+        let ownership = plistObject(at: ownershipURL)
+        let agentsText = text(at: projectURL.appendingPathComponent("AGENTS.md"))
+        let gitignoreText = text(at: projectURL.appendingPathComponent(".gitignore"))
+        let installationRecordPresent = installation != nil
+        let staleDraftManifest = fileManager.fileExists(
+            atPath: projectURL.appendingPathComponent(
+                "enmanner.json.example"
+            ).path
+        )
+        let iconSourceExists = iconURL.map {
+            fileManager.fileExists(atPath: $0.path)
+        } ?? false
+        let appExists = fileManager.fileExists(atPath: appURL.path)
+        let appOwnershipMatches =
+            ownership?["bundleIdentifier"] as? String == manifest.identifier
+        let agentsManagedSectionPresent =
+            agentsText?.contains("<!-- enmanner:begin -->") == true &&
+            agentsText?.contains("<!-- enmanner:end -->") == true
+        let gitignoreManagedSectionPresent =
+            gitignoreText?.contains("# enmanner:begin") == true &&
+            gitignoreText?.contains("# enmanner:end") == true
+        let otherAgentInstructions = [
+            "CLAUDE.md",
+            "GEMINI.md",
+            ".github/copilot-instructions.md"
+        ].filter {
+            fileManager.fileExists(
+                atPath: projectURL.appendingPathComponent($0).path
+            )
+        } + (
+            fileManager.fileExists(
+                atPath: projectURL.appendingPathComponent(".cursor/rules").path
+            ) ? [".cursor/rules/"] : []
+        )
+
+        return DoctorReport(
+            complete:
+                installationRecordPresent &&
+                !staleDraftManifest &&
+                manifest.icon != nil &&
+                iconSourceExists &&
+                appExists &&
+                appOwnershipMatches &&
+                agentsManagedSectionPresent &&
+                gitignoreManagedSectionPresent,
+            installationRecordPresent: installationRecordPresent,
+            installationVersion: installation?["version"] as? String,
+            installationManifestStatus: installation?["manifestStatus"] as? String,
+            staleDraftManifest: staleDraftManifest,
+            iconConfigured: manifest.icon != nil,
+            iconPath: manifest.icon,
+            iconSourceExists: iconSourceExists,
+            appPath: appURL.path,
+            appExists: appExists,
+            appOwnershipMatches: appOwnershipMatches,
+            agentsManagedSectionPresent: agentsManagedSectionPresent,
+            gitignoreManagedSectionPresent: gitignoreManagedSectionPresent,
+            otherAgentInstructions: otherAgentInstructions
+        )
+    }
+
+    private static func jsonObject(at url: URL) -> [String: Any]? {
+        guard let data = try? Data(contentsOf: url),
+              let object = try? JSONSerialization.jsonObject(with: data) else {
+            return nil
+        }
+        return object as? [String: Any]
+    }
+
+    private static func plistObject(at url: URL) -> [String: Any]? {
+        guard let data = try? Data(contentsOf: url),
+              let object = try? PropertyListSerialization.propertyList(
+                from: data,
+                options: [],
+                format: nil
+              ) else {
+            return nil
+        }
+        return object as? [String: Any]
+    }
+
+    private static func text(at url: URL) -> String? {
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
+    private static func printDoctorReport(_ report: DoctorReport) {
+        print(
+            report.complete
+                ? "✓ integration state is complete"
+                : "! integration state is incomplete"
+        )
+        print(
+            "\(mark(report.installationRecordPresent)) installation provenance " +
+            (report.installationVersion.map { "records Enmanner \($0)" } ??
+                "is missing")
+        )
+        print("\(mark(report.agentsManagedSectionPresent)) AGENTS.md managed section")
+        print("\(mark(report.gitignoreManagedSectionPresent)) .gitignore managed section")
+        if report.iconConfigured {
+            print("\(mark(report.iconSourceExists)) configured icon source exists")
+        } else {
+            print("! no icon is configured")
+        }
+        if report.appExists {
+            print("\(mark(report.appOwnershipMatches)) generated app ownership")
+        } else {
+            print("! generated app is not built")
+        }
+        if report.staleDraftManifest {
+            print("! enmanner.json.example remains beside the live manifest")
+        }
+        if !report.otherAgentInstructions.isEmpty {
+            print(
+                "! other agent instructions: " +
+                report.otherAgentInstructions.joined(separator: ", ")
             )
         }
     }

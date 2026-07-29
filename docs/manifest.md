@@ -86,6 +86,11 @@ seconds deliberately: cloning, first-time dependency installation, large seeds,
 and other long initialization belong in an explicit setup step rather than
 normal app startup.
 
+In browser mode, this same URL is opened in the user's default browser after it
+passes readiness. Configure a meaningful human-facing application page, not a
+raw JSON or text health endpoint. Enmanner intentionally uses one URL for both
+purposes in the current manifest version.
+
 Runtime validation starts and stops the configured command. For applications
 with databases, containers, or other stateful services, review ownership,
 mounts, backups, and controlled stop/start persistence before running it.

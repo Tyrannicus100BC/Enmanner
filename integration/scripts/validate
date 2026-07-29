@@ -6,12 +6,14 @@ integration_dir="$(cd "$script_dir/.." && pwd)"
 project_dir="$(cd "$integration_dir/.." && pwd)"
 framework_dir="$integration_dir/framework"
 runtime_flag=""
+doctor_flag=false
 allow_legacy_icon=false
 json=false
 
 while [[ "${1:-}" == --* ]]; do
   case "$1" in
     --runtime) runtime_flag="--runtime" ;;
+    --doctor) doctor_flag=true ;;
     --allow-legacy-icon) allow_legacy_icon=true ;;
     --json) json=true ;;
     *)
@@ -23,6 +25,13 @@ while [[ "${1:-}" == --* ]]; do
 done
 if [[ $# -ne 0 ]]; then
   echo "Usage: $0 [--runtime] [--json] [--allow-legacy-icon]" >&2
+  exit 64
+fi
+
+if [[ -x "$script_dir/install" ]]; then
+  echo "Error: integration/scripts/validate is installed-project tooling." >&2
+  echo "  First run integration/scripts/install /path/to/project, then run" >&2
+  echo "  ./.enmanner/scripts/validate from that target project." >&2
   exit 64
 fi
 
@@ -71,6 +80,7 @@ fi
 
 validator_args=(--project "$project_dir")
 [[ -n "$runtime_flag" ]] && validator_args+=("$runtime_flag")
+[[ "$doctor_flag" == true ]] && validator_args+=(--doctor)
 [[ "$json" == true ]] && validator_args+=(--json)
 "$bin_dir/enmanner-validator" "${validator_args[@]}"
 [[ "$json" == true ]] || echo "✓ validator compiles with the active Apple toolchain"

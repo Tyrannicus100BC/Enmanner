@@ -31,7 +31,11 @@ and are replaced only through the checksum-verified repair or upgrade workflow;
 there is no framework override area. Project supervisors, icons, data, scripts,
 `enmanner.json`, and the application source remain outside `.enmanner/` and
 project-owned. Installed distributions include native `Sources` but omit the
-framework's tests and installer. The installer
+framework's tests and installer. The installer reports existing `CLAUDE.md`,
+`GEMINI.md`, `.github/copilot-instructions.md`, and `.cursor/rules/` surfaces
+without editing them automatically. When one is authoritative, the integrating
+agent mirrors the narrowly managed `AGENTS.md` guidance instead of making
+Enmanner proliferate tool-specific policy files. The installer
 offers a non-mutating JSON plan and stops with `configurationRequired` rather
 than manufacturing an unverified startup command. It still installs the
 framework and writes a deliberately inactive `enmanner.json.example` preserving

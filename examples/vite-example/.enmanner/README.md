@@ -7,9 +7,11 @@ repair or upgrade workflow.
 The supported project-facing surface is:
 
 - `../enmanner.json` — project-owned configuration;
-- `scripts/build-app` — validate and build the native application;
+- `scripts/build-app` — validate and build the native application, with
+  optional structured `--json` evidence;
 - `scripts/validate` — static or opted-in runtime validation;
-- `scripts/doctor` — machine-readable diagnostics;
+- `scripts/doctor` — validation plus installation, manifest-draft, icon,
+  generated-app ownership, and managed-file diagnostics;
 - `scripts/upgrade` — checksum-verified framework updates;
 - `scripts/clean` — remove local Swift build products;
 - `scripts/create-icon` — create a layered icon package from project artwork;

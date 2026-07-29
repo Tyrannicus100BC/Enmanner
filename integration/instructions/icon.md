@@ -37,6 +37,8 @@ layers.
    - Make the background full-bleed and unmasked.
    - Give foreground artwork real transparency and enough breathing room for
      the system to crop and compose it safely.
+     Keeping the main artwork roughly within the central 70% of the canvas
+     (about 15% margin per side) is a useful starting point, not a hard rule.
    - Never bake in a squircle, rounded corners, outer shadow, border, backing
      plate, or transparent corners. macOS supplies the container and material.
 4. In Icon Composer, verify the Default, Dark, Clear, and Tinted appearances.
@@ -61,6 +63,12 @@ The `.icon` package contains its own copies of the configured layers so it is
 self-contained. Keep the original high-resolution layers as canonical source
 artwork; the package copies are expected, not accidental duplication.
 
+Before previewing, add the package's project-relative path to `enmanner.json`:
+
+```json
+"icon": "assets/AppIcon.icon",
+```
+
 Render every supported appearance without opening Icon Composer:
 
 ```bash
@@ -68,7 +76,9 @@ Render every supported appearance without opening Icon Composer:
 ```
 
 The default output is `.enmanner/.build/icon-previews/`. Pass `--output` with a
-project-relative directory when previews should be preserved for review.
+visible project-relative directory when previews should be preserved for
+review. Other locations directly under `.enmanner/` are framework-owned and
+rejected.
 
 ## Package the modern icon
 
@@ -109,8 +119,9 @@ The icon task is not complete until all of these pass:
 - `./.enmanner/scripts/validate` passes.
 - `./.enmanner/scripts/build-app` confirms `CFBundleIconName` and an
   `IconImageStack` in `Assets.car`.
-- Default, Dark, Clear, and Tinted renditions have been rendered or visually
-  inspected; `preview-icon` is the supported automated path.
+- Default, Dark, Clear, and Tinted renditions have been rendered, opened, and
+  visually inspected for clipping, balance, and unintended container effects;
+  `preview-icon` is the supported automated rendering path.
 - The actual Dock/Finder icon has one system-supplied outer container, never a
   smaller rounded icon inside it.
 

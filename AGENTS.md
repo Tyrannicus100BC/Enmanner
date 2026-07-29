@@ -1,4 +1,17 @@
-# Enmanner contributor guidance
+# Enmanner agent router
+
+Choose the route that matches the task:
+
+- Integrating Enmanner into another project: start with
+  `docs/integration-checklist.md`, then use `docs/manifest.md` and the installed
+  `.enmanner/AGENTS.md` as directed by that checklist.
+- Modifying Enmanner itself: follow the contributor guidance below and read
+  `docs/architecture.md` before changing lifecycle behavior.
+
+Do not treat framework-development instructions as a reason to edit files inside
+an installed project's `.enmanner/` directory.
+
+## Contributor guidance
 
 Enmanner turns project-local web applications into lightweight macOS applications.
 Preserve these invariants:

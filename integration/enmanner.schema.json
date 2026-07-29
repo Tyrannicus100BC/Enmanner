@@ -63,6 +63,7 @@
           "properties": {
             "url": {
               "type": "string",
+              "description": "Loopback application URL polled for readiness and, in browser mode, opened for the user after it becomes ready. Use a meaningful human-facing page rather than a raw health response.",
               "pattern": "^https?://(127\\.0\\.0\\.1|localhost|\\[::1\\])"
             },
             "timeoutSeconds": {
