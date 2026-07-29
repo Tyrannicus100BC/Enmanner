@@ -59,6 +59,21 @@ The generator requires square PNG layers of at least 1024×1024, an opaque
 background, and an alpha-bearing foreground. Open the result in Icon Composer
 for visual adjustment and appearance review.
 
+To adjust composition without changing canonical source artwork, transform only
+the foreground copy embedded in the package:
+
+```bash
+./.enmanner/scripts/create-icon \
+  --background enmanner/icon/icon-background.png \
+  --foreground enmanner/icon/icon-foreground.png \
+  --foreground-scale 0.86 \
+  --foreground-offset-y 24 \
+  --output enmanner/icon/AppIcon.icon
+```
+
+Positive X moves right and positive Y moves down. The original PNG remains
+unchanged.
+
 The `.icon` package contains its own copies of the configured layers so it is
 self-contained. Keep the original high-resolution layers as canonical source
 artwork; the package copies are expected, not accidental duplication.
@@ -79,6 +94,10 @@ The default output is `.enmanner/.build/icon-previews/`. Pass `--output` with a
 visible project-relative directory when previews should be preserved for
 review. Other locations directly under `.enmanner/` are framework-owned and
 rejected.
+Preview PNGs, the contact sheet, and measurements are reproducible QA evidence
+and should normally remain under `.enmanner/.build`; do not commit them unless
+the project intentionally preserves visual snapshots. Automated bounds, alpha,
+and corner-opacity warnings complement but never replace visual inspection.
 
 ## Package the modern icon
 

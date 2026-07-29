@@ -82,6 +82,10 @@ destination does not exist. The launcher materializes that template before
 starting the server; installation does not create machine-local configuration.
 Without a template, an explicitly configured missing destination is created as
 an empty owner-only file. Enmanner never infers fields from the template.
+Validation warns when the template assigns a key also supplied by
+`server.environment`, because project dotenv loaders can override launcher-owned
+values such as `PORT` or `HOST`. Prefer a curated template such as
+`enmanner/settings.env.example` containing only settings a person should edit.
 
 Each field has an environment-variable `key`, human-readable `label`, optional
 `description`, optional `required` flag, and one of these types. Labels should
@@ -137,7 +141,10 @@ Installer-inferred manifests receive a deterministic preferred port by default.
 Successful and redirect responses count as ready by default. `timeoutSeconds`
 is the overall startup deadline. Optional `acceptableStatusCodes`,
 `contentTypeContains`, and `bodyContains` fields make readiness assert something
-more specific than a listening HTTP server. The deadline is capped at 300
+more specific than a listening HTTP server. `bodyContains` examines the raw
+HTTP response body; it does not execute JavaScript or inspect the
+browser-rendered DOM. Client-rendered text belongs in application acceptance
+tests, not this cheap readiness check. The deadline is capped at 300
 seconds deliberately: cloning, first-time dependency installation, large seeds,
 and other long initialization belong in an explicit setup step rather than
 normal app startup.

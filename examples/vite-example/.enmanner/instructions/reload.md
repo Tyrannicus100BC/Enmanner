@@ -2,7 +2,6 @@
 
 ## MUST
 
-- Keep framework-native source watching, HMR, and browser refresh enabled.
 - Do not make ordinary source edits require a launcher rebuild.
 - Ensure a full browser reload is safe after a server restart.
 
@@ -14,6 +13,10 @@ again.
 
 ## SHOULD
 
+- Preserve framework-native source watching, HMR, and browser refresh when the
+  project already supports them.
+- Add a restart watcher only when it is safe for the project's state and
+  established development behavior.
 - Preserve durable user data while development processes restart.
 - Avoid watcher configurations that include generated `.app`, `.enmanner/.build`,
   database, upload, or cache directories.

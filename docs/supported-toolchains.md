@@ -55,3 +55,9 @@ Bun receive framework arguments directly after the script name.
 Projects outside this matrix continue to receive an inactive draft manifest and
 structured checks. They are not necessarily incompatible with Enmanner; their
 startup contract has not been inferred automatically.
+
+For common Express entry points, the plan reports conservative source evidence
+for `process.env.PORT` and loopback host declarations as `detected`. This
+evidence cites the source line but never promotes an Express project to
+verified or automatically completes its manifest; runtime validation remains
+the proof.

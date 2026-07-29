@@ -2,6 +2,30 @@ import XCTest
 @testable import EnmannerCore
 
 final class DotEnvConfigurationTests: XCTestCase {
+    func testReportsEveryAssignedTemplateKey() throws {
+        let directory = try temporaryDirectory()
+        try Data(
+            """
+            PORT=3000
+            export HOST='127.0.0.1'
+            # IGNORED=value
+            USER_SETTING=
+            """.utf8
+        ).write(to: directory.appendingPathComponent(".env.example"))
+        let store = DotEnvConfigurationStore(
+            projectURL: directory,
+            configuration: .init(
+                template: ".env.example",
+                fields: [.init(key: "USER_SETTING", label: "User Setting")]
+            )
+        )
+
+        XCTAssertEqual(
+            try store.templateAssignedKeys(),
+            ["PORT", "HOST", "USER_SETTING"]
+        )
+    }
+
     func testLoadsTemplateAndPreservesUnmanagedContentWhenSaving() throws {
         let directory = try temporaryDirectory()
         let templateURL = directory.appendingPathComponent(".env.example")

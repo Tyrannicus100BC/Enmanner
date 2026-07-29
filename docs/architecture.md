@@ -102,12 +102,18 @@ before readiness therefore fails immediately with its status and bounded recent
 output instead of consuming the rest of the readiness timeout. It is an
 explicitly state-changing operation: Enmanner cannot infer whether a project
 command mutates databases, containers, volumes, or caches.
+The validator also handles `SIGINT` and `SIGTERM`, stops the owned process group
+with the same bounded escalation policy, and emits structured interruption
+postconditions. Optional JSON Lines progress reports startup, readiness,
+shutdown, and postcondition phases without changing the single-result JSON
+mode.
 
 After readiness, validation records the launched process tree, stops the
 supervisor, and requires the immediate process to exit, its process group to
 disappear, the readiness endpoint to remain unavailable, and the selected port
 to have no loopback listener. It reports surviving tracked PIDs and the
-Git-status delta.
+Git-status delta as `gitStatusMutations`. The former `workspaceMutations` JSON
+field remains as a deprecated compatibility alias for one release.
 External containers, daemons, and deliberately detached processes remain
 project-owned and are reported as outside the proof boundary.
 
@@ -220,6 +226,9 @@ An app build is a finishing operation, not an installation side effect.
 Lifecycle validation can run without an icon, but `build-app` requires a
 configured distinctive icon. This lets an agent prove startup and shutdown
 before doing visual work while ensuring the first generated app is finished.
+`test-app` launches that finished bundle with a private test-status file and
+browser suppression, verifies readiness, requests normal application quit, and
+records a build-matched ignored receipt only after cleanup and port release.
 `.enmanner/INSTALLATION.json` records the installed version, upstream commit,
 and checksums of framework-owned files. Repair and upgrade operations refuse to
 write when those files have local modifications. Every installed file is

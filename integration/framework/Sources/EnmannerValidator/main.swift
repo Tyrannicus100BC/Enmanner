@@ -21,9 +21,51 @@ private actor RuntimeExitWaiter {
     }
 }
 
+private actor RuntimeInterruptWaiter {
+    private var signal: Int32?
+    private var cancelled = false
+    private var continuation: CheckedContinuation<Int32?, Never>?
+
+    func record(_ signal: Int32) {
+        guard self.signal == nil else { return }
+        if let continuation {
+            self.continuation = nil
+            continuation.resume(returning: signal)
+        } else {
+            self.signal = signal
+        }
+    }
+
+    func cancel() {
+        cancelled = true
+        if let continuation {
+            self.continuation = nil
+            continuation.resume(returning: nil)
+        }
+    }
+
+    func wait() async -> Int32? {
+        if let signal { return signal }
+        if cancelled || Task.isCancelled { return nil }
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                if self.cancelled || Task.isCancelled {
+                    continuation.resume(returning: nil)
+                } else {
+                    self.continuation = continuation
+                }
+            }
+        } onCancel: {
+            Task { await self.cancel() }
+        }
+    }
+}
+
 private enum RuntimeValidationOutcome {
     case readiness(Bool)
     case exited(ProcessSupervisor.Exit)
+    case interrupted(Int32)
+    case cancelledSignalWait
 }
 
 private struct RuntimeObservation {
@@ -42,10 +84,14 @@ private struct RuntimeReport: Codable {
     let portReleased: Bool
     let nonLoopbackListeners: [String]
     let remainingProcesses: [String]
+    let gitStatusMutations: [String]
+    @available(*, deprecated, message: "Use gitStatusMutations.")
     let workspaceMutations: [String]
+    let interrupted: Bool
+    let interruptSignal: Int32?
 
     var passed: Bool {
-        readinessPassed && supervisorExited && processGroupStopped &&
+        !interrupted && readinessPassed && supervisorExited && processGroupStopped &&
             readinessUnavailable && portReleased &&
             nonLoopbackListeners.isEmpty && remainingProcesses.isEmpty
     }
@@ -67,9 +113,25 @@ private struct ValidationReport: Codable {
 }
 
 private struct DoctorReport: Codable {
+    struct CompletionEvidence: Codable {
+        let manifestValid: Bool
+        let installationProvenance: Bool
+        let managedAgentGuidance: Bool
+        let managedGitignore: Bool
+        let iconConfigured: Bool
+        let iconSourceExists: Bool
+        let appBuilt: Bool
+        let appOwnershipMatches: Bool
+        let nativeLaunchVerified: Bool
+    }
+
     let complete: Bool
+    let currentConfigurationStatus: String
+    let integrationStatus: String
     let installationRecordPresent: Bool
     let installationVersion: String?
+    let initialManifestStatus: String?
+    @available(*, deprecated, message: "Use initialManifestStatus.")
     let installationManifestStatus: String?
     let staleDraftManifest: Bool
     let iconConfigured: Bool
@@ -81,6 +143,8 @@ private struct DoctorReport: Codable {
     let agentsManagedSectionPresent: Bool
     let gitignoreManagedSectionPresent: Bool
     let otherAgentInstructions: [String]
+    let agentInstructions: [String: String]
+    let completionEvidence: CompletionEvidence
 }
 
 private struct ErrorReport: Encodable {
@@ -98,10 +162,17 @@ private struct ErrorReport: Encodable {
 struct EnmannerValidatorCommand {
     static func main() async {
         let json = CommandLine.arguments.contains("--json")
+        let jsonLines = CommandLine.arguments.contains("--json-lines")
+        if json && jsonLines {
+            FileHandle.standardError.write(
+                Data("Error: --json and --json-lines are mutually exclusive.\n".utf8)
+            )
+            Foundation.exit(64)
+        }
         do {
-            try await run(json: json)
+            try await run(json: json, jsonLines: jsonLines)
         } catch {
-            if json {
+            if json || jsonLines {
                 let enmannerError = error as? EnmannerError
                 let report = ErrorReport(
                     error: .init(
@@ -114,7 +185,12 @@ struct EnmannerValidatorCommand {
                 encoder.outputFormatting = [.sortedKeys]
                 if let data = try? encoder.encode(report),
                    let output = String(data: data, encoding: .utf8) {
-                    print(output)
+                    if jsonLines,
+                       let object = try? JSONSerialization.jsonObject(with: data) {
+                        printJSONLine(event: "error", fields: ["report": object])
+                    } else {
+                        print(output)
+                    }
                 }
             } else {
                 FileHandle.standardError.write(
@@ -125,7 +201,7 @@ struct EnmannerValidatorCommand {
         }
     }
 
-    private static func run(json: Bool) async throws {
+    private static func run(json: Bool, jsonLines: Bool) async throws {
         let arguments = Array(CommandLine.arguments.dropFirst())
         let projectPath = value(after: "--project", in: arguments) ??
             FileManager.default.currentDirectoryPath
@@ -163,7 +239,11 @@ struct EnmannerValidatorCommand {
             port: diagnosticPort
         )
         let runtimeReport = runtime
-            ? try await validateRuntime(manifest: manifest, projectURL: projectURL)
+            ? try await validateRuntime(
+                manifest: manifest,
+                projectURL: projectURL,
+                jsonLines: jsonLines
+            )
             : nil
         let doctorReport = doctor
             ? inspectProject(manifest: manifest, projectURL: projectURL)
@@ -177,12 +257,16 @@ struct EnmannerValidatorCommand {
                 "enmanner/enmanner.json.example remains beside the live manifest; remove the stale draft when it is no longer needed"
             )
         }
-        if let otherAgentInstructions = doctorReport?.otherAgentInstructions,
-           !otherAgentInstructions.isEmpty {
+        if let agentInstructions = doctorReport?.agentInstructions,
+           agentInstructions.values.contains("needsMirroring") {
             warnings.append(
                 "other agent instruction files exist; mirror Enmanner guidance there when one is authoritative"
             )
         }
+        warnings.append(contentsOf: dotenvEnvironmentWarnings(
+            manifest: manifest,
+            projectURL: projectURL
+        ))
         let report = ValidationReport(
             valid: runtimeReport?.passed ?? true,
             project: projectURL.path,
@@ -204,10 +288,16 @@ struct EnmannerValidatorCommand {
             doctor: doctorReport
         )
 
-        if json {
+        if json || jsonLines {
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.sortedKeys]
-            print(String(data: try encoder.encode(report), encoding: .utf8)!)
+            let data = try encoder.encode(report)
+            if jsonLines,
+               let object = try? JSONSerialization.jsonObject(with: data) {
+                printJSONLine(event: "complete", fields: ["report": object])
+            } else {
+                print(String(data: data, encoding: .utf8)!)
+            }
         } else {
             print("✓ enmanner/enmanner.json is valid")
             print("✓ configured paths stay inside the project")
@@ -226,7 +316,7 @@ struct EnmannerValidatorCommand {
         }
 
         if let runtimeReport, !runtimeReport.passed {
-            if json {
+            if json || jsonLines {
                 Foundation.exit(1)
             }
             throw EnmannerError.processLaunchFailed(
@@ -247,6 +337,9 @@ struct EnmannerValidatorCommand {
             projectURL.appendingPathComponent($0)
         }
         let appURL = projectURL.appendingPathComponent("\(manifest.name).app")
+        let appExecutableURL = appURL.appendingPathComponent(
+            "Contents/MacOS/EnmannerLauncher"
+        )
         let ownershipURL = appURL.appendingPathComponent(
             "Contents/Resources/EnmannerOwnership.plist"
         )
@@ -284,19 +377,91 @@ struct EnmannerValidatorCommand {
                 atPath: projectURL.appendingPathComponent(".cursor/rules").path
             ) ? [".cursor/rules/"] : []
         )
+        var agentInstructions: [String: String] = [
+            "AGENTS.md": agentsManagedSectionPresent ? "managed" : "missingManagedSection"
+        ]
+        for path in otherAgentInstructions {
+            let managed: Bool
+            if path == ".cursor/rules/" {
+                let directoryURL = projectURL.appendingPathComponent(path)
+                let files = (
+                    try? fileManager.contentsOfDirectory(
+                        at: directoryURL,
+                        includingPropertiesForKeys: nil
+                    )
+                ) ?? []
+                managed = files.contains {
+                    text(at: $0)?.contains("<!-- enmanner:begin -->") == true &&
+                        text(at: $0)?.contains("<!-- enmanner:end -->") == true
+                }
+            } else {
+                let content = text(at: projectURL.appendingPathComponent(path))
+                managed = content?.contains("<!-- enmanner:begin -->") == true &&
+                    content?.contains("<!-- enmanner:end -->") == true
+            }
+            agentInstructions[path] = managed ? "managed" : "needsMirroring"
+        }
+        let launchReceipt = jsonObject(
+            at: projectURL.appendingPathComponent(
+                ".enmanner/.build/app-test.json"
+            )
+        )
+        let appModificationDate = (
+            try? fileManager.attributesOfItem(atPath: appURL.path)[
+                .modificationDate
+            ] as? Date
+        ) ?? nil
+        let nativeLaunchVerified =
+            launchReceipt?["valid"] as? Bool == true &&
+            launchReceipt?["bundleIdentifier"] as? String == manifest.identifier &&
+            launchReceipt?["appModificationEpoch"] as? Int ==
+                appModificationDate.map { Int($0.timeIntervalSince1970) } &&
+            launchReceipt?["appExecutableSHA256"] as? String ==
+                processOutput(
+                    executable: "/usr/bin/shasum",
+                    arguments: ["-a", "256", appExecutableURL.path]
+                ).split(whereSeparator: \.isWhitespace).first.map(String.init)
+        let completionEvidence = DoctorReport.CompletionEvidence(
+            manifestValid: true,
+            installationProvenance: installationRecordPresent,
+            managedAgentGuidance: agentsManagedSectionPresent,
+            managedGitignore: gitignoreManagedSectionPresent,
+            iconConfigured: manifest.icon != nil,
+            iconSourceExists: iconSourceExists,
+            appBuilt: appExists,
+            appOwnershipMatches: appOwnershipMatches,
+            nativeLaunchVerified: nativeLaunchVerified
+        )
+        let complete =
+            installationRecordPresent &&
+            !staleDraftManifest &&
+            manifest.icon != nil &&
+            iconSourceExists &&
+            appExists &&
+            appOwnershipMatches &&
+            agentsManagedSectionPresent &&
+            gitignoreManagedSectionPresent &&
+            nativeLaunchVerified
+        let integrationStatus: String
+        if complete {
+            integrationStatus = "complete"
+        } else if !installationRecordPresent {
+            integrationStatus = "installationProvenanceRequired"
+        } else if !appExists {
+            integrationStatus = "appBuildRequired"
+        } else if !nativeLaunchVerified {
+            integrationStatus = "nativeLaunchVerificationRequired"
+        } else {
+            integrationStatus = "incomplete"
+        }
 
         return DoctorReport(
-            complete:
-                installationRecordPresent &&
-                !staleDraftManifest &&
-                manifest.icon != nil &&
-                iconSourceExists &&
-                appExists &&
-                appOwnershipMatches &&
-                agentsManagedSectionPresent &&
-                gitignoreManagedSectionPresent,
+            complete: complete,
+            currentConfigurationStatus: "valid",
+            integrationStatus: integrationStatus,
             installationRecordPresent: installationRecordPresent,
             installationVersion: installation?["version"] as? String,
+            initialManifestStatus: installation?["manifestStatus"] as? String,
             installationManifestStatus: installation?["manifestStatus"] as? String,
             staleDraftManifest: staleDraftManifest,
             iconConfigured: manifest.icon != nil,
@@ -307,7 +472,9 @@ struct EnmannerValidatorCommand {
             appOwnershipMatches: appOwnershipMatches,
             agentsManagedSectionPresent: agentsManagedSectionPresent,
             gitignoreManagedSectionPresent: gitignoreManagedSectionPresent,
-            otherAgentInstructions: otherAgentInstructions
+            otherAgentInstructions: otherAgentInstructions,
+            agentInstructions: agentInstructions,
+            completionEvidence: completionEvidence
         )
     }
 
@@ -359,20 +526,55 @@ struct EnmannerValidatorCommand {
         } else {
             print("! generated app is not built")
         }
+        print(
+            "\(mark(report.completionEvidence.nativeLaunchVerified)) " +
+            "generated app native launch lifecycle"
+        )
         if report.staleDraftManifest {
             print("! enmanner/enmanner.json.example remains beside the live manifest")
         }
-        if !report.otherAgentInstructions.isEmpty {
+        let needsMirroring = report.agentInstructions
+            .filter { $0.value == "needsMirroring" }
+            .map(\.key)
+            .sorted()
+        if !needsMirroring.isEmpty {
             print(
                 "! other agent instructions: " +
-                report.otherAgentInstructions.joined(separator: ", ")
+                needsMirroring.joined(separator: ", ")
             )
+        }
+    }
+
+    private static func dotenvEnvironmentWarnings(
+        manifest: EnmannerManifest,
+        projectURL: URL
+    ) -> [String] {
+        guard let userConfiguration = manifest.userConfiguration,
+              userConfiguration.template != nil else {
+            return []
+        }
+        do {
+            let templateKeys = try DotEnvConfigurationStore(
+                projectURL: projectURL,
+                configuration: userConfiguration
+            ).templateAssignedKeys()
+            return templateKeys
+                .intersection(manifest.server.environment.keys)
+                .sorted()
+                .map { key in
+                    "\(userConfiguration.template!) assigns \(key), which is also set by server.environment; verify the project's dotenv precedence or use a curated launcher template"
+                }
+        } catch {
+            return [
+                "could not inspect \(userConfiguration.template!) for server.environment conflicts: \(error.localizedDescription)"
+            ]
         }
     }
 
     private static func validateRuntime(
         manifest: EnmannerManifest,
-        projectURL: URL
+        projectURL: URL,
+        jsonLines: Bool
     ) async throws -> RuntimeReport {
         let beforeStatus = gitStatus(projectURL: projectURL)
         let logBuffer = LogBuffer(maximumEntries: 100)
@@ -385,6 +587,15 @@ struct EnmannerValidatorCommand {
             projectURL: projectURL,
             port: port
         )
+        if jsonLines {
+            printJSONLine(
+                event: "starting",
+                fields: [
+                    "component": "server",
+                    "selectedPort": Int(port)
+                ]
+            )
+        }
         let variables = [
             "ENMANNER_PORT": String(port),
             "ENMANNER_PROJECT_DIR": projectURL.path
@@ -400,6 +611,31 @@ struct EnmannerValidatorCommand {
         }
 
         let exitWaiter = RuntimeExitWaiter()
+        let interruptWaiter = RuntimeInterruptWaiter()
+        Darwin.signal(SIGINT, SIG_IGN)
+        Darwin.signal(SIGTERM, SIG_IGN)
+        let interruptSource = DispatchSource.makeSignalSource(
+            signal: SIGINT,
+            queue: .global()
+        )
+        let terminateSource = DispatchSource.makeSignalSource(
+            signal: SIGTERM,
+            queue: .global()
+        )
+        interruptSource.setEventHandler {
+            Task { await interruptWaiter.record(SIGINT) }
+        }
+        terminateSource.setEventHandler {
+            Task { await interruptWaiter.record(SIGTERM) }
+        }
+        interruptSource.activate()
+        terminateSource.activate()
+        defer {
+            interruptSource.cancel()
+            terminateSource.cancel()
+            Darwin.signal(SIGINT, SIG_DFL)
+            Darwin.signal(SIGTERM, SIG_DFL)
+        }
         supervisor.onExit = { exit in
             Task { await exitWaiter.record(exit) }
         }
@@ -407,6 +643,15 @@ struct EnmannerValidatorCommand {
         guard let processIdentifier = supervisor.processIdentifier else {
             throw EnmannerError.processLaunchFailed(
                 "The launched process did not remain running."
+            )
+        }
+        if jsonLines {
+            printJSONLine(
+                event: "waitingForReadiness",
+                fields: [
+                    "url": url.absoluteString,
+                    "timeoutSeconds": manifest.server.readiness.timeoutSeconds
+                ]
             )
         }
 
@@ -425,11 +670,44 @@ struct EnmannerValidatorCommand {
                 return .readiness(ready)
             }
             group.addTask { .exited(await exitWaiter.wait()) }
+            group.addTask {
+                if let signal = await interruptWaiter.wait() {
+                    return .interrupted(signal)
+                }
+                return .cancelledSignalWait
+            }
             let first = await group.next()!
             let tracked = processTree(rootPID: processIdentifier)
             let publicListeners = self.nonLoopbackListeners(
                 processIdentifiers: Array(tracked.keys)
             )
+            if jsonLines {
+                switch first {
+                case .readiness(true):
+                    printJSONLine(
+                        event: "readinessPassed",
+                        fields: ["url": url.absoluteString]
+                    )
+                case .readiness(false):
+                    printJSONLine(
+                        event: "readinessTimedOut",
+                        fields: ["url": url.absoluteString]
+                    )
+                case .exited(let exit):
+                    printJSONLine(
+                        event: "serverExited",
+                        fields: ["status": Int(exit.status)]
+                    )
+                case .interrupted(let signal):
+                    printJSONLine(
+                        event: "interrupted",
+                        fields: ["signal": Int(signal)]
+                    )
+                case .cancelledSignalWait:
+                    break
+                }
+                printJSONLine(event: "stopping", fields: ["component": "server"])
+            }
             supervisor.stop()
             group.cancelAll()
             return RuntimeObservation(
@@ -439,6 +717,9 @@ struct EnmannerValidatorCommand {
             )
         }
 
+        let readinessPassed: Bool
+        let interrupted: Bool
+        let interruptSignal: Int32?
         switch observation.outcome {
         case .readiness(false):
             throw EnmannerError.processLaunchFailed(
@@ -450,7 +731,17 @@ struct EnmannerValidatorCommand {
                 "Recent output:\n\(logBuffer.snapshot())"
             )
         case .readiness(true):
-            break
+            readinessPassed = true
+            interrupted = false
+            interruptSignal = nil
+        case .interrupted(let signal):
+            readinessPassed = false
+            interrupted = true
+            interruptSignal = signal
+        case .cancelledSignalWait:
+            throw EnmannerError.processLaunchFailed(
+                "Runtime signal monitoring ended unexpectedly."
+            )
         }
 
         let supervisorExited = !supervisor.isRunning
@@ -468,23 +759,41 @@ struct EnmannerValidatorCommand {
         )
         let afterStatus = gitStatus(projectURL: projectURL)
         let mutations = Array(afterStatus.subtracting(beforeStatus)).sorted()
+        if jsonLines {
+            printJSONLine(
+                event: "shutdownChecked",
+                fields: [
+                    "supervisorExited": supervisorExited,
+                    "processGroupStopped": processGroupStopped,
+                    "readinessUnavailable": readinessUnavailable,
+                    "portReleased": portReleased
+                ]
+            )
+        }
 
         return RuntimeReport(
             selectedPort: port,
             readinessURL: url.absoluteString,
-            readinessPassed: true,
+            readinessPassed: readinessPassed,
             supervisorExited: supervisorExited,
             processGroupStopped: processGroupStopped,
             readinessUnavailable: readinessUnavailable,
             portReleased: portReleased,
             nonLoopbackListeners: observation.nonLoopbackListeners,
             remainingProcesses: remainingProcesses,
-            workspaceMutations: mutations
+            gitStatusMutations: mutations,
+            workspaceMutations: mutations,
+            interrupted: interrupted,
+            interruptSignal: interruptSignal
         )
     }
 
     private static func printRuntimeReport(_ report: RuntimeReport) {
-        print("✓ server became ready at \(report.readinessURL)")
+        if report.interrupted {
+            print("! runtime validation was interrupted by signal \(report.interruptSignal ?? 0)")
+        } else {
+            print("✓ server became ready at \(report.readinessURL)")
+        }
         print("\(mark(report.supervisorExited)) supervisor process exited")
         print("\(mark(report.processGroupStopped)) process group stopped")
         print("\(mark(report.readinessUnavailable)) readiness became unavailable")
@@ -497,9 +806,9 @@ struct EnmannerValidatorCommand {
             print("✗ remaining tracked processes:")
             report.remainingProcesses.forEach { print("  \($0)") }
         }
-        if !report.workspaceMutations.isEmpty {
-            print("! workspace changes observed during runtime validation:")
-            report.workspaceMutations.forEach { print("  \($0)") }
+        if !report.gitStatusMutations.isEmpty {
+            print("! Git-status changes observed during runtime validation:")
+            report.gitStatusMutations.forEach { print("  \($0)") }
         }
         print("  External resources outside the process tree remain project-managed.")
     }
@@ -629,6 +938,24 @@ struct EnmannerValidatorCommand {
         guard let index = arguments.firstIndex(of: flag),
               arguments.indices.contains(index + 1) else { return nil }
         return arguments[index + 1]
+    }
+
+    private static func printJSONLine(
+        event: String,
+        fields: [String: Any] = [:]
+    ) {
+        var object = fields
+        object["event"] = event
+        guard JSONSerialization.isValidJSONObject(object),
+              let data = try? JSONSerialization.data(
+                withJSONObject: object,
+                options: [.sortedKeys]
+              ),
+              let output = String(data: data, encoding: .utf8) else {
+            return
+        }
+        print(output)
+        fflush(stdout)
     }
 
 }

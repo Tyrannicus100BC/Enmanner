@@ -13,6 +13,8 @@ The package uses:
 The short `instructions/integration.md` checklist is the authoritative route
 through a normal integration. Focused documents remain references for detected
 capabilities rather than a reading prerequisite for every project.
+Installer plans expose `requiredInstructions` with a reason for each selected
+reference so agents can follow this routing mechanically.
 
 Native presentation is also agent-owned finishing work. The package tells
 agents that an existing flattened app icon is not necessarily reusable source
@@ -48,6 +50,9 @@ Enmanner does not build a placeholder app. Agents validate server lifecycle
 before spending time on artwork, then create and preview a distinctive icon
 before the first `.app` is produced. `preview-icon` renders every supported
 Icon Composer appearance for agent-visible inspection.
+The preview command also creates a contact sheet and objective source-layer
+measurements. The first app remains icon-gated; there is no development-icon
+build path.
 
 Agents should perform conservative Git work in user-facing terms: make a
 checkpoint before risky migrations, save a working milestone after verification,
@@ -59,6 +64,6 @@ Runtime validation is deliberately stronger than static validation and is not
 assumed to be side-effect-free. Before invoking it, agents inspect stateful
 services, persistence mounts, existing ownership, and shutdown commands. After
 readiness, the validator proves observable process-group, endpoint, port, and
-tracked-descendant shutdown postconditions and reports workspace mutations.
+tracked-descendant shutdown postconditions and reports Git-status mutations.
 Agents still verify requested startup commands against the current repository
 instead of treating remembered target names as authoritative.

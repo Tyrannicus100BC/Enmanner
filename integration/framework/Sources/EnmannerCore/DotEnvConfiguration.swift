@@ -39,6 +39,17 @@ public struct DotEnvConfigurationStore {
         )
     }
 
+    public func templateAssignedKeys() throws -> Set<String> {
+        guard let template = configuration.template else { return [] }
+        let templateURL = try ProjectPaths.resolve(
+            template,
+            inside: projectURL
+        )
+        return try DotEnvDocument(
+            text: String(contentsOf: templateURL, encoding: .utf8)
+        ).assignedKeys()
+    }
+
     @discardableResult
     public func materializeIfNeeded() throws -> Bool {
         let destinationURL = try ProjectPaths.resolve(
@@ -174,6 +185,17 @@ private struct DotEnvDocument {
             result[assignment.key] = assignment.value
         }
         return result
+    }
+
+    func assignedKeys() throws -> Set<String> {
+        var keys: Set<String> = []
+        for line in lines {
+            guard let assignment = try Self.assignment(from: line) else {
+                continue
+            }
+            keys.insert(assignment.key)
+        }
+        return keys
     }
 
     mutating func update(

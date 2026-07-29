@@ -19,7 +19,9 @@ has been built and verified. Use this order:
    services, containers, secrets, uploads, user data, or machine-local settings.
    When adding `userConfiguration`, curate only values a person should edit or
    verify. Use consistent human-facing Title Case independent of dotenv key
-   casing, and keep descriptions useful, concise, and at most 80 characters.
+   casing. Treat descriptions as compact subtitles: add information the label
+   does not, prefer 45 characters or fewer, never exceed 60, and omit one that
+   would merely restate the label.
 7. Run static validation. Review state ownership before opting into runtime
    validation.
 8. Only after lifecycle behavior passes, read `icon.md`, create layered artwork
@@ -27,7 +29,8 @@ has been built and verified. Use this order:
    `enmanner/enmanner.json`, render all appearances with `preview-icon`, and
    open every rendition to inspect its crop and balance.
 9. Run `build-app` and inspect the actual Finder/Dock result. The build verifies
-   modern icon packaging, app ownership metadata, and the code signature.
+   modern icon packaging, app ownership metadata, and the code signature. Run
+   `test-app` to verify native launch, readiness, normal quit, and cleanup.
 10. Report the task complete only after the finished app passes.
 
 Ordinary web source edits do not require rebuilding the app.

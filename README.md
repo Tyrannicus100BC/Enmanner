@@ -151,13 +151,15 @@ checks; it never treats that draft as the live manifest or builds a knowingly
 provisional app.
 Use `--name` and `--identifier` to override inferred presentation values.
 Pass `--runtime` to opt into a real start/stop cycle after reviewing state
-ownership.
+ownership. When an icon is already configured and installation builds the app,
+that opt-in also runs the generated-app lifecycle test; otherwise the result is
+`nativeLaunchVerificationRequired` until `test-app` passes.
 
 The plan classifies repository roots, repository subdirectories, unversioned
 folders, and workspaces containing nested repositories. A workspace containing
-sibling repositories needs an explicit choice: create a small launcher
-repository at the workspace root, install in a designated existing repository,
-or knowingly keep the launcher configuration unversioned.
+sibling repositories needs an explicit choice: install in a designated
+existing repository, or knowingly keep the launcher configuration unversioned
+by passing `--allow-unversioned`.
 
 Installed framework provenance lives in `.enmanner/INSTALLATION.json`. Check or
 apply an update from an Enmanner checkout with:
@@ -183,6 +185,15 @@ manifest state, generated-app ownership, managed-file state, icon capability,
 and optional runtime evidence. Enmanner does not load `.env`; the project
 command may do so explicitly. Remove local Swift products with
 `./.enmanner/scripts/clean`; builds report both app and cache size.
+Use `./.enmanner/scripts/validate --runtime --json-lines` for newline-delimited
+progress during longer lifecycle checks. After building, run
+`./.enmanner/scripts/test-app --json`; its build-matched receipt lets `doctor`
+report native-launch evidence instead of inferring success from bundle
+existence.
+Doctor separates `initialManifestStatus` provenance from
+`currentConfigurationStatus`, reports per-surface agent-instruction state, and
+shows the evidence behind completion. The former
+`installationManifestStatus` field remains as a deprecated compatibility alias.
 Use `./.enmanner/scripts/build-app --json` when the final artifact path, icon
 packaging, signing, replacement, and size evidence must be machine-readable.
 

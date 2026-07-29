@@ -6,7 +6,6 @@
 - Keep the server process in the foreground so Enmanner can supervise it.
 - Bind the server to loopback by default and respect `ENMANNER_PORT`.
 - Keep a cheap readiness URL available.
-- Monitor relevant source changes and preserve framework-native hot reload.
 - Make browser clients recover after a server restart.
 - Keep runtime data outside generated build output.
 - Keep secrets out of source, Git, logs, and `enmanner/enmanner.json`.
@@ -18,6 +17,8 @@
 ## SHOULD
 
 - Make startup idempotent and shutdown graceful.
+- Preserve framework-native hot reload when the project already supports it.
+- Add a restart watcher only when it is safe and appropriate for the project.
 - Show useful user-facing errors.
 - Preserve user-entered state across safe upgrades.
 - Keep generated files reproducible and disposable.

@@ -1,0 +1,154 @@
+#!/bin/bash
+set -euo pipefail
+
+usage() {
+  echo "Usage: $0 [--json]" >&2
+}
+
+json=false
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --json) json=true ;;
+    --help|-h) usage; exit 0 ;;
+    *) usage; exit 64 ;;
+  esac
+  shift
+done
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+integration_dir="$(cd "$script_dir/.." && pwd)"
+project_dir="$(cd "$integration_dir/.." && pwd)"
+framework_dir="$integration_dir/framework"
+build_dir="$integration_dir/.build"
+status_file="$(mktemp "${TMPDIR:-/tmp}/enmanner-app-status.XXXXXX")"
+log_file="$(mktemp "${TMPDIR:-/tmp}/enmanner-app-test.XXXXXX")"
+launcher_pid=""
+
+cleanup() {
+  if [[ -n "$launcher_pid" ]] && kill -0 "$launcher_pid" 2>/dev/null; then
+    kill -TERM "$launcher_pid" 2>/dev/null || true
+    for _ in {1..40}; do
+      kill -0 "$launcher_pid" 2>/dev/null || break
+      sleep 0.05
+    done
+    kill -KILL "$launcher_pid" 2>/dev/null || true
+  fi
+  rm -f "$status_file" "$log_file"
+}
+trap cleanup EXIT
+
+"$script_dir/validate" --json >/dev/null
+bin_dir="$(swift build --package-path "$framework_dir" -c release --show-bin-path)"
+validator="$bin_dir/enmanner-validator"
+app_name="$("$validator" --project "$project_dir" --print name)"
+bundle_identifier="$("$validator" --project "$project_dir" --print identifier)"
+app_path="$project_dir/$app_name.app"
+launcher="$app_path/Contents/MacOS/EnmannerLauncher"
+ownership="$app_path/Contents/Resources/EnmannerOwnership.plist"
+
+if [[ ! -x "$launcher" || ! -f "$ownership" ]]; then
+  echo "Error: build the generated app before running test-app." >&2
+  exit 1
+fi
+owned_identifier="$(
+  /usr/bin/plutil -extract bundleIdentifier raw "$ownership" 2>/dev/null || true
+)"
+if [[ "$owned_identifier" != "$bundle_identifier" ]]; then
+  echo "Error: generated app ownership does not match enmanner/enmanner.json." >&2
+  exit 1
+fi
+while read -r running_pid running_command; do
+  if [[ "$running_command" == "$launcher" ]]; then
+    echo "Error: $app_name is already running (PID $running_pid)." >&2
+    echo "  Quit it before running the isolated native lifecycle test." >&2
+    exit 1
+  fi
+done < <(/bin/ps -axo pid=,comm=)
+
+rm -f "$status_file"
+ENMANNER_TEST_STATUS_FILE="$status_file" \
+ENMANNER_TEST_SUPPRESS_BROWSER=1 \
+  "$launcher" >"$log_file" 2>&1 &
+launcher_pid="$!"
+
+timeout_seconds="$(
+  /usr/bin/plutil -extract server.readiness.timeoutSeconds raw \
+    "$project_dir/enmanner/enmanner.json" 2>/dev/null || echo 30
+)"
+deadline="$(
+  /usr/bin/awk -v now="$(date +%s)" -v timeout="$timeout_seconds" \
+    'BEGIN { print int(now + timeout + 15) }'
+)"
+while [[ ! -s "$status_file" && "$(date +%s)" -lt "$deadline" ]]; do
+  if ! kill -0 "$launcher_pid" 2>/dev/null; then
+    echo "Error: generated app exited before reporting readiness." >&2
+    tail -n 30 "$log_file" >&2
+    exit 1
+  fi
+  sleep 0.1
+done
+if [[ ! -s "$status_file" ]]; then
+  echo "Error: generated app did not become ready before the test deadline." >&2
+  tail -n 30 "$log_file" >&2
+  exit 1
+fi
+
+readiness_url="$(/usr/bin/plutil -extract readinessURL raw "$status_file")"
+selected_port="$(/usr/bin/plutil -extract selectedPort raw "$status_file")"
+if ! /usr/bin/curl --silent --show-error --fail \
+  --max-time 2 "$readiness_url" >/dev/null; then
+  echo "Error: generated app reported readiness but its URL was unavailable." >&2
+  exit 1
+fi
+
+/usr/bin/osascript - "$bundle_identifier" <<'APPLESCRIPT' >/dev/null
+on run arguments
+  tell application id (item 1 of arguments) to quit
+end run
+APPLESCRIPT
+
+for _ in {1..100}; do
+  kill -0 "$launcher_pid" 2>/dev/null || break
+  sleep 0.1
+done
+if kill -0 "$launcher_pid" 2>/dev/null; then
+  echo "Error: generated app did not quit cleanly." >&2
+  exit 1
+fi
+wait "$launcher_pid" || true
+launcher_pid=""
+
+readiness_unavailable=false
+for _ in {1..40}; do
+  if ! /usr/bin/curl --silent --max-time 0.25 "$readiness_url" >/dev/null 2>&1; then
+    readiness_unavailable=true
+    break
+  fi
+  sleep 0.1
+done
+if [[ "$readiness_unavailable" != true ]]; then
+  echo "Error: readiness remained available after the generated app quit." >&2
+  exit 1
+fi
+if /usr/sbin/lsof -nP -iTCP:"$selected_port" -sTCP:LISTEN 2>/dev/null |
+  /usr/bin/grep -q .; then
+  echo "Error: selected port $selected_port still has a listener after app quit." >&2
+  exit 1
+fi
+
+mkdir -p "$build_dir"
+app_modification_epoch="$(/usr/bin/stat -f %m "$app_path")"
+app_executable_sha256="$(
+  /usr/bin/shasum -a 256 "$launcher" | /usr/bin/awk '{print $1}'
+)"
+receipt="$build_dir/app-test.json"
+printf '{"schemaVersion":1,"valid":true,"bundleIdentifier":"%s","appModificationEpoch":%d,"appExecutableSHA256":"%s","selectedPort":%d,"readinessURL":"%s","readinessPassed":true,"quitCleanly":true,"readinessUnavailable":true,"portReleased":true}\n' \
+  "$bundle_identifier" "$app_modification_epoch" "$app_executable_sha256" "$selected_port" \
+  "$readiness_url" > "$receipt"
+
+if [[ "$json" == true ]]; then
+  /bin/cat "$receipt"
+else
+  echo "✓ Generated app launched and became ready at $readiness_url"
+  echo "✓ Normal app quit stopped the server and released port $selected_port"
+fi

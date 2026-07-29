@@ -29,7 +29,8 @@ has been built and verified. Use this order:
    `enmanner/enmanner.json`, render all appearances with `preview-icon`, and
    open every rendition to inspect its crop and balance.
 9. Run `build-app` and inspect the actual Finder/Dock result. The build verifies
-   modern icon packaging, app ownership metadata, and the code signature.
+   modern icon packaging, app ownership metadata, and the code signature. Run
+   `test-app` to verify native launch, readiness, normal quit, and cleanup.
 10. Report the task complete only after the finished app passes.
 
 Ordinary web source edits do not require rebuilding the app.

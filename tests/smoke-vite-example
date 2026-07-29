@@ -16,7 +16,10 @@ fi
     .valid and
     (.appearances | length == 6) and
     ([.appearances[].name] | index("ClearLight")) and
-    ([.appearances[].name] | index("TintedDark"))
+    ([.appearances[].name] | index("TintedDark")) and
+    (.contactSheet | endswith("contact-sheet.png")) and
+    (.metrics.foreground.alphaCoverage > 0) and
+    (.metrics.background.cornersOpaque == true)
   ' >/dev/null
 "$example_dir/.enmanner/scripts/build-app"
 
@@ -55,6 +58,20 @@ for usage_key in "${folder_usage_keys[@]}"; do
   fi
 done
 /usr/bin/codesign --verify --deep --strict "$app_path"
+"$example_dir/.enmanner/scripts/test-app" --json |
+  jq -e '
+    .valid and
+    .readinessPassed and
+    .quitCleanly and
+    .readinessUnavailable and
+    .portReleased
+  ' >/dev/null
+"$example_dir/.enmanner/scripts/doctor" --json |
+  jq -e '
+    (.doctor.complete == false) and
+    .doctor.completionEvidence.nativeLaunchVerified and
+    (.doctor.integrationStatus == "installationProvenanceRequired")
+  ' >/dev/null
 if find "$app_path" \( -name node_modules -o -name .git -o -name src -o -name enmanner.json \) |
   grep -q .; then
   echo "Error: generated app contains project source or dependencies." >&2

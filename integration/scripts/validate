@@ -9,6 +9,7 @@ runtime_flag=""
 doctor_flag=false
 allow_legacy_icon=false
 json=false
+json_lines=false
 
 while [[ "${1:-}" == --* ]]; do
   case "$1" in
@@ -16,15 +17,16 @@ while [[ "${1:-}" == --* ]]; do
     --doctor) doctor_flag=true ;;
     --allow-legacy-icon) allow_legacy_icon=true ;;
     --json) json=true ;;
+    --json-lines) json_lines=true ;;
     *)
-      echo "Usage: $0 [--runtime] [--json] [--allow-legacy-icon]" >&2
+      echo "Usage: $0 [--runtime] [--json|--json-lines] [--allow-legacy-icon]" >&2
       exit 64
       ;;
   esac
   shift
 done
-if [[ $# -ne 0 ]]; then
-  echo "Usage: $0 [--runtime] [--json] [--allow-legacy-icon]" >&2
+if [[ $# -ne 0 || ( "$json" == true && "$json_lines" == true ) ]]; then
+  echo "Usage: $0 [--runtime] [--json|--json-lines] [--allow-legacy-icon]" >&2
   exit 64
 fi
 
@@ -35,7 +37,7 @@ if [[ -x "$script_dir/install" ]]; then
   exit 64
 fi
 
-if [[ -n "$runtime_flag" && "$json" != true ]]; then
+if [[ -n "$runtime_flag" && "$json" != true && "$json_lines" != true ]]; then
   echo "Warning: runtime validation starts and stops the configured application." >&2
   echo "  It may mutate databases, containers, volumes, caches, or other local state." >&2
   echo "  Review state ownership and persistence before using it." >&2
@@ -46,8 +48,8 @@ if ! command -v swift >/dev/null 2>&1; then
   exit 1
 fi
 
-[[ "$json" == true ]] || echo "Validating Enmanner configuration…"
-if [[ "$json" == true ]]; then
+[[ "$json" == true || "$json_lines" == true ]] || echo "Validating Enmanner configuration…"
+if [[ "$json" == true || "$json_lines" == true ]]; then
   swift build --package-path "$framework_dir" -c release \
     --product enmanner-validator >/dev/null
 else
@@ -82,5 +84,7 @@ validator_args=(--project "$project_dir")
 [[ -n "$runtime_flag" ]] && validator_args+=("$runtime_flag")
 [[ "$doctor_flag" == true ]] && validator_args+=(--doctor)
 [[ "$json" == true ]] && validator_args+=(--json)
+[[ "$json_lines" == true ]] && validator_args+=(--json-lines)
 "$bin_dir/enmanner-validator" "${validator_args[@]}"
-[[ "$json" == true ]] || echo "✓ validator compiles with the active Apple toolchain"
+[[ "$json" == true || "$json_lines" == true ]] ||
+  echo "✓ validator compiles with the active Apple toolchain"

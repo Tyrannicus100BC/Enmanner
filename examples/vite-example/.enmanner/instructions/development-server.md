@@ -17,6 +17,8 @@
   an unsupervised child process behind.
 - Return a successful HTTP status from the readiness URL only when the app can
   serve its interface.
+- Treat `bodyContains` as a raw HTTP-response assertion. Do not use text that
+  exists only after client-side JavaScript renders the page.
 - In a multi-component project, expose one project-owned foreground supervisor.
   Start and stop only project-owned resources; treat shared or already-running
   services as prerequisites that Enmanner observes but does not adopt.

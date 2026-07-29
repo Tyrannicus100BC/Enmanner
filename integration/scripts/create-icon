@@ -2,8 +2,9 @@
 set -euo pipefail
 
 usage() {
-  echo "Usage: $0 --background path.png --foreground path.png --output AppIcon.icon" >&2
+  echo "Usage: $0 --background path.png --foreground path.png --output AppIcon.icon [options]" >&2
   echo "  All paths are project-relative; output must end in .icon." >&2
+  echo "  Options: --foreground-scale NUMBER --foreground-offset-x PIXELS --foreground-offset-y PIXELS" >&2
 }
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -11,10 +12,13 @@ project_dir="$(cd "$script_dir/../.." && pwd -P)"
 background_path=""
 foreground_path=""
 output_path=""
+foreground_scale="1"
+foreground_offset_x="0"
+foreground_offset_y="0"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --background|--foreground|--output)
+    --background|--foreground|--output|--foreground-scale|--foreground-offset-x|--foreground-offset-y)
       if [[ $# -lt 2 ]]; then
         usage
         exit 64
@@ -23,6 +27,9 @@ while [[ $# -gt 0 ]]; do
         --background) background_path="$2" ;;
         --foreground) foreground_path="$2" ;;
         --output) output_path="$2" ;;
+        --foreground-scale) foreground_scale="$2" ;;
+        --foreground-offset-x) foreground_offset_x="$2" ;;
+        --foreground-offset-y) foreground_offset_y="$2" ;;
       esac
       shift 2
       ;;
@@ -37,6 +44,17 @@ if [[ -z "$background_path" || -z "$foreground_path" || -z "$output_path" ]]; th
   usage
   exit 64
 fi
+if ! /usr/bin/awk -v value="$foreground_scale" \
+  'BEGIN { exit !(value ~ /^[0-9]+([.][0-9]+)?$/ && value >= 0.1 && value <= 1.5) }'; then
+  echo "Error: --foreground-scale must be between 0.1 and 1.5." >&2
+  exit 64
+fi
+for offset in "$foreground_offset_x" "$foreground_offset_y"; do
+  if ! [[ "$offset" =~ ^-?[0-9]+([.][0-9]+)?$ ]]; then
+    echo "Error: foreground offsets must be numeric pixel values." >&2
+    exit 64
+  fi
+done
 
 for relative_path in "$background_path" "$foreground_path" "$output_path"; do
   if [[ "$relative_path" == /* ||
@@ -178,7 +196,64 @@ trap cleanup EXIT
 staged_icon="$stage_dir/AppIcon.icon"
 mkdir -p "$staged_icon/Assets"
 cp "$background_source" "$staged_icon/Assets/background.png"
-cp "$foreground_source" "$staged_icon/Assets/foreground.png"
+if [[ "$foreground_scale" == "1" &&
+  "$foreground_offset_x" == "0" &&
+  "$foreground_offset_y" == "0" ]]; then
+  cp "$foreground_source" "$staged_icon/Assets/foreground.png"
+else
+  /usr/bin/xcrun swift - "$foreground_source" \
+    "$staged_icon/Assets/foreground.png" "$foreground_scale" \
+    "$foreground_offset_x" "$foreground_offset_y" <<'SWIFT'
+import CoreGraphics
+import Foundation
+import ImageIO
+import UniformTypeIdentifiers
+
+let arguments = CommandLine.arguments
+let sourceURL = URL(fileURLWithPath: arguments[1]) as CFURL
+let outputURL = URL(fileURLWithPath: arguments[2]) as CFURL
+let scale = Double(arguments[3])!
+let offsetX = Double(arguments[4])!
+let offsetY = Double(arguments[5])!
+guard let source = CGImageSourceCreateWithURL(sourceURL, nil),
+      let image = CGImageSourceCreateImageAtIndex(source, 0, nil),
+      let context = CGContext(
+        data: nil,
+        width: image.width,
+        height: image.height,
+        bitsPerComponent: 8,
+        bytesPerRow: image.width * 4,
+        space: CGColorSpaceCreateDeviceRGB(),
+        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+      ) else {
+    fatalError("Could not transform foreground artwork.")
+}
+context.clear(CGRect(x: 0, y: 0, width: image.width, height: image.height))
+let width = Double(image.width) * scale
+let height = Double(image.height) * scale
+let rect = CGRect(
+    x: (Double(image.width) - width) / 2 + offsetX,
+    y: (Double(image.height) - height) / 2 - offsetY,
+    width: width,
+    height: height
+)
+context.interpolationQuality = .high
+context.draw(image, in: rect)
+guard let transformed = context.makeImage(),
+      let destination = CGImageDestinationCreateWithURL(
+        outputURL,
+        UTType.png.identifier as CFString,
+        1,
+        nil
+      ) else {
+    fatalError("Could not encode transformed foreground artwork.")
+}
+CGImageDestinationAddImage(destination, transformed, nil)
+guard CGImageDestinationFinalize(destination) else {
+    fatalError("Could not write transformed foreground artwork.")
+}
+SWIFT
+fi
 printf '%s\n' \
   '{' \
   '  "groups" : [' \
@@ -203,4 +278,9 @@ printf '%s\n' \
 
 mv "$staged_icon" "$output"
 echo "✓ Created $output_path from separate full-canvas layers"
+if [[ "$foreground_scale" != "1" ||
+  "$foreground_offset_x" != "0" ||
+  "$foreground_offset_y" != "0" ]]; then
+  echo "  Embedded foreground transform: scale $foreground_scale, x $foreground_offset_x px, y $foreground_offset_y px"
+fi
 echo "  Configure it in enmanner/enmanner.json, then run ./.enmanner/scripts/preview-icon."

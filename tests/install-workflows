@@ -20,9 +20,11 @@ grep -Fq "First run integration/scripts/install" \
 vite_target="$test_root/Vite Project"
 generic_target="$test_root/Generic Project"
 workspace_target="$test_root/Workspace Project"
+express_target="$test_root/Express Project"
 root_manifest_target="$test_root/Root Manifest Project"
 adapter_root="$test_root/Adapter Projects"
 mkdir -p "$vite_target" "$generic_target" \
+  "$express_target" \
   "$workspace_target/Backend/.git" "$workspace_target/Frontend/.git" \
   "$root_manifest_target" "$adapter_root"
 cp "$repository_dir/examples/vite-example/package.json" \
@@ -31,6 +33,13 @@ cp "$repository_dir/examples/vite-example/package.json" \
 cp "$repository_dir/tests/fixtures/generic-package.json" \
   "$generic_target/package.json"
 printf '%s\n' '# Generic project instructions' > "$generic_target/CLAUDE.md"
+printf '%s\n' \
+  '{"private":true,"scripts":{"start":"node server.js"},"dependencies":{"express":"^5.0.0"}}' \
+  > "$express_target/package.json"
+printf '%s\n' \
+  "const PORT = process.env.PORT || 3000;" \
+  "const HOST = process.env.HOST || '127.0.0.1';" \
+  "app.listen(PORT, HOST);" > "$express_target/server.js"
 printf '%s\n' '{}' > "$root_manifest_target/enmanner.json"
 
 write_adapter_project() {
@@ -159,7 +168,11 @@ printf '%s\n' "$plan" | jq -e '
   (.git.aheadBehindSource == "localRemoteTrackingRefs") and
   (.git.networkAccessed == false) and
   (.inference.signalsExamined | length > 0) and
+  (.inference.preferredPortDerivation.identifier == "local.enmanner.vite-project") and
+  (.nameCandidates | length >= 1) and
+  ([.requiredInstructions[].path] | index(".enmanner/instructions/integration.md")) and
   ([.nextActionCommands[].id] | index("buildApp")) and
+  ([.nextActionCommands[].id] | index("testApp")) and
   (.fileOperations | type == "array") and
   ([.fileOperations[].path] | index("enmanner/")) and
   ([.fileOperations[].path] | index("enmanner/enmanner.json"))
@@ -173,8 +186,24 @@ workspace_plan="$(
 )"
 printf '%s\n' "$workspace_plan" | jq -e '
   (.git.classification == "workspace-with-nested-repositories") and
-  (.git.nestedRepositories == 2)
+  (.git.nestedRepositories == 2) and
+  (.git.requiresExplicitUnversionedChoice == true)
 ' >/dev/null
+if "$repository_dir/integration/scripts/install" --no-build \
+  "$workspace_target" >"$test_root/workspace-install.out" 2>&1; then
+  echo "Error: installer accepted an unacknowledged nested-repository workspace." >&2
+  exit 1
+fi
+grep -Fq -- "--allow-unversioned" "$test_root/workspace-install.out"
+
+"$repository_dir/integration/scripts/install" --plan --json "$express_target" |
+  jq -e '
+    (.manifestStatus == "configurationRequired") and
+    ([.detectedStacks[]] | index("Express")) and
+    ([.inference.staticEvidence[].check] | index("dynamicPort")) and
+    ([.inference.staticEvidence[].check] | index("loopbackBinding")) and
+    ([.unresolvedChecks[] | select(.id == "dynamicPort")][0].status == "detected")
+  ' >/dev/null
 
 vite_result="$(
   "$repository_dir/integration/scripts/install" \
@@ -305,6 +334,26 @@ SWIFT
   --background enmanner/icon/rgba-background.png \
   --foreground enmanner/icon/icon-foreground.png \
   --output enmanner/icon/Test.icon >"$test_root/create-icon.out"
+foreground_checksum="$(
+  /usr/bin/cksum "$vite_target/enmanner/icon/icon-foreground.png"
+)"
+"$vite_target/.enmanner/scripts/create-icon" \
+  --background enmanner/icon/rgba-background.png \
+  --foreground enmanner/icon/icon-foreground.png \
+  --foreground-scale 0.86 \
+  --foreground-offset-x 12 \
+  --foreground-offset-y 24 \
+  --output enmanner/icon/Transformed.icon \
+  >"$test_root/create-transformed-icon.out"
+test "$foreground_checksum" = "$(
+  /usr/bin/cksum "$vite_target/enmanner/icon/icon-foreground.png"
+)"
+if cmp -s \
+  "$vite_target/enmanner/icon/icon-foreground.png" \
+  "$vite_target/enmanner/icon/Transformed.icon/Assets/foreground.png"; then
+  echo "Error: create-icon ignored the requested foreground transform." >&2
+  exit 1
+fi
 /usr/bin/plutil -insert icon -string "enmanner/icon/Test.icon" \
   "$vite_target/enmanner/enmanner.json"
 if "$vite_target/.enmanner/scripts/preview-icon" \
@@ -380,7 +429,36 @@ jq -e '
 ' "$test_root/doctor.json" >/dev/null
 rm "$vite_target/enmanner/enmanner.json.example"
 "$vite_target/.enmanner/scripts/doctor" --json |
-  jq -e '.valid and .doctor.complete' >/dev/null
+  jq -e '
+    .valid and
+    (.doctor.complete == false) and
+    .doctor.completionEvidence.appBuilt and
+    (.doctor.completionEvidence.nativeLaunchVerified == false) and
+    (.doctor.initialManifestStatus == "inferred")
+  ' >/dev/null
+
+printf '%s\n' \
+  '<!-- enmanner:begin -->' \
+  'Read .enmanner/AGENTS.md.' \
+  '<!-- enmanner:end -->' > "$vite_target/CLAUDE.md"
+"$vite_target/.enmanner/scripts/doctor" --json |
+  jq -e '
+    (.doctor.agentInstructions["CLAUDE.md"] == "managed") and
+    ([.warnings[]] | all(contains("mirror Enmanner guidance") | not))
+  ' >/dev/null
+
+printf '%s\n' 'PORT=3000' 'USER_SETTING=' \
+  > "$vite_target/enmanner/settings.env.example"
+/usr/bin/plutil -insert userConfiguration -json \
+  '{"file":".env","template":"enmanner/settings.env.example","fields":[{"key":"USER_SETTING","label":"User Setting"}]}' \
+  "$vite_target/enmanner/enmanner.json"
+"$vite_target/.enmanner/scripts/doctor" --json |
+  jq -e '
+    ([.warnings[]] | any(
+      contains("settings.env.example assigns PORT") and
+      contains("server.environment")
+    ))
+  ' >/dev/null
 
 test -f "$vite_target/.enmanner/INSTALLATION.json"
 jq -e '

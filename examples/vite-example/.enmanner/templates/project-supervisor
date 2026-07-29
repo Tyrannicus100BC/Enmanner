@@ -28,6 +28,30 @@ require_directory() {
   fi
 }
 
+wait_for_http() {
+  local name="$1"
+  local url="$2"
+  local timeout_seconds="${3:-30}"
+  local deadline
+  deadline=$(($(date +%s) + timeout_seconds))
+  while [[ "$(date +%s)" -lt "$deadline" ]]; do
+    if /usr/bin/curl --silent --fail --max-time 1 "$url" >/dev/null 2>&1; then
+      echo "$name is ready at $url"
+      return
+    fi
+    sleep 0.2
+  done
+  echo "$name did not become ready within $timeout_seconds seconds: $url" >&2
+  return 1
+}
+
+process_is_active() {
+  local pid="$1"
+  local state
+  state="$(/bin/ps -o state= -p "$pid" 2>/dev/null | tr -d '[:space:]')"
+  [[ -n "$state" && "$state" != Z* ]]
+}
+
 # Add project-specific prerequisite checks here. Observe external prerequisites
 # such as Docker Desktop or a shared database; do not start, adopt, or stop them.
 require_command make
@@ -36,11 +60,13 @@ require_directory Backend/backend
 require_directory Frontend/frontend
 
 pids=()
+service_names=()
 stopping=false
 
 stop_children() {
   local index
   local pid
+  local deadline
   if [[ "$stopping" == true ]]; then
     return
   fi
@@ -50,14 +76,28 @@ stop_children() {
   while [[ "$index" -gt 0 ]]; do
     index=$((index - 1))
     pid="${pids[$index]}"
-    if kill -0 "$pid" 2>/dev/null; then
+    if process_is_active "$pid"; then
+      echo "Stopping ${service_names[$index]} (PID $pid)." >&2
       kill -TERM "$pid" 2>/dev/null || true
     fi
+  done
+  deadline=$(($(date +%s) + 3))
+  while [[ "$(date +%s)" -lt "$deadline" ]]; do
+    local active=false
+    for pid in "${pids[@]}"; do
+      process_is_active "$pid" && active=true
+    done
+    [[ "$active" == false ]] && break
+    sleep 0.1
   done
   index="${#pids[@]}"
   while [[ "$index" -gt 0 ]]; do
     index=$((index - 1))
     pid="${pids[$index]}"
+    if process_is_active "$pid"; then
+      echo "Forcing ${service_names[$index]} to stop (PID $pid)." >&2
+      kill -KILL "$pid" 2>/dev/null || true
+    fi
     wait "$pid" 2>/dev/null || true
   done
 }
@@ -69,28 +109,32 @@ trap stop_children TERM INT EXIT
   exec "${backend_command[@]}"
 ) &
 pids+=("$!")
+service_names+=("backend")
 
 # If the frontend requires a ready backend, poll a cheap project-owned health
 # endpoint here before starting it. Keep the wait bounded and emit a useful
 # error with recent service output when it fails.
+# wait_for_http "backend" "http://127.0.0.1:8080/health" 30
 (
   cd Frontend/frontend
   exec "${frontend_command[@]}"
 ) &
 pids+=("$!")
+service_names+=("frontend")
 
 # macOS ships Bash 3.2, which has no `wait -n`. Poll so that any unexpected
 # required-service exit makes the foreground supervisor exit and lets Enmanner
 # terminate the complete inherited process group.
 while true; do
-  for pid in "${pids[@]}"; do
+  for index in "${!pids[@]}"; do
+    pid="${pids[$index]}"
     if ! kill -0 "$pid" 2>/dev/null; then
       if wait "$pid"; then
         status=0
       else
         status=$?
       fi
-      echo "Required service PID $pid exited with status $status." >&2
+      echo "Required service ${service_names[$index]} (PID $pid) exited with status $status." >&2
       exit "$status"
     fi
   done

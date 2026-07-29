@@ -15,6 +15,7 @@ Options:
   --identifier ID        Set the generated bundle identifier
   --allow-legacy-icon    Permit an intentional legacy icon fallback
   --replace-existing-app Replace an app only after explicit collision review
+  --allow-unversioned    Acknowledge an unversioned nested-repository workspace
 EOF
 }
 
@@ -33,6 +34,7 @@ json=false
 repair=false
 allow_legacy_icon=false
 replace_existing_app=false
+allow_unversioned=false
 requested_name=""
 requested_identifier=""
 while [[ "${1:-}" == --* ]]; do
@@ -44,6 +46,7 @@ while [[ "${1:-}" == --* ]]; do
     --repair) repair=true ;;
     --allow-legacy-icon) allow_legacy_icon=true ;;
     --replace-existing-app) replace_existing_app=true ;;
+    --allow-unversioned) allow_unversioned=true ;;
     --name)
       shift
       requested_name="${1:-}"
@@ -133,6 +136,26 @@ if [[ -n "$git_root" ]]; then
 fi
 
 project_name="${requested_name:-$(basename "$target_dir")}"
+directory_name="$(basename "$target_dir")"
+package_name=""
+package_display_name=""
+if [[ -f "$target_dir/package.json" ]]; then
+  package_name="$(
+    /usr/bin/plutil -extract name raw "$target_dir/package.json" 2>/dev/null || true
+  )"
+  if [[ -n "$package_name" ]]; then
+    package_display_name="$(
+      printf '%s' "${package_name##*/}" |
+        tr '_-' '  ' |
+        /usr/bin/awk '{
+          for (field_index = 1; field_index <= NF; field_index++) {
+            $field_index = toupper(substr($field_index, 1, 1)) substr($field_index, 2)
+          }
+          print
+        }'
+    )"
+  fi
+fi
 if [[ -f "$manifest_path" ]]; then
   existing_name="$(/usr/bin/plutil -extract name raw "$manifest_path" 2>/dev/null || true)"
   [[ -z "$requested_name" && -n "$existing_name" ]] && project_name="$existing_name"
@@ -161,6 +184,9 @@ manifest_status="configurationRequired"
 inference_reason="No supported high-confidence startup command was found."
 detected_stacks=()
 detected_stack_count=0
+express_source=""
+express_port_evidence=""
+express_host_evidence=""
 
 add_detected_stack() {
   local stack="$1"
@@ -177,6 +203,29 @@ add_detected_stack() {
 if [[ -f "$target_dir/package.json" ]]; then
   add_detected_stack "Node.js"
   candidate_inspect_path="package.json"
+  if /usr/bin/plutil -extract dependencies.express raw \
+    "$target_dir/package.json" >/dev/null 2>&1 ||
+    /usr/bin/plutil -extract devDependencies.express raw \
+      "$target_dir/package.json" >/dev/null 2>&1; then
+    add_detected_stack "Express"
+    for express_candidate in server.js server.mjs server.cjs index.js app.js; do
+      if [[ -f "$target_dir/$express_candidate" ]]; then
+        express_source="$express_candidate"
+        break
+      fi
+    done
+    if [[ -n "$express_source" ]]; then
+      express_port_evidence="$(
+        /usr/bin/grep -En 'process[.]env[.]PORT|process[.]env\\[['"'"'"]PORT['"'"'"]\\]' \
+          "$target_dir/$express_source" | /usr/bin/head -n 1 || true
+      )"
+      express_host_evidence="$(
+        /usr/bin/grep -En \
+          '127[.]0[.]0[.]1|localhost|process[.]env[.]HOST|process[.]env\\[['"'"'"]HOST['"'"'"]\\]' \
+          "$target_dir/$express_source" | /usr/bin/head -n 1 || true
+      )"
+    fi
+  fi
 
   declared_package_manager="$(
     /usr/bin/plutil -extract packageManager raw \
@@ -455,14 +504,20 @@ if [[ "$plan" == true || "$skip_build" == true ||
   "$icon_configured" != true ]]; then
   will_build=false
 fi
+will_test_app=false
+[[ "$will_build" == true && "$runtime_validation" == true ]] &&
+  will_test_app=true
+native_launch_verified=false
 
 emit_result() {
   local installed="$1"
   local built="$2"
   local action="$3"
   local completion_status="installed"
-  if [[ "$built" == true ]]; then
+  if [[ "$built" == true && "$native_launch_verified" == true ]]; then
     completion_status="complete"
+  elif [[ "$built" == true ]]; then
+    completion_status="nativeLaunchVerificationRequired"
   elif [[ "$manifest_status" == "configurationRequired" ]]; then
     completion_status="configurationRequired"
   elif [[ "$icon_configured" != true ]]; then
@@ -479,8 +534,9 @@ emit_result() {
     printf '"configurationRequired":%s,' \
       "$([[ "$manifest_status" == "configurationRequired" ]] && echo true || echo false)"
     printf '"built":%s,' "$built"
-    printf '"build":{"planned":%s,"iconConfigured":%s,' \
-      "$will_build" "$icon_configured"
+    printf '"build":{"planned":%s,"iconConfigured":%s,"nativeLaunchTestPlanned":%s,"nativeLaunchVerified":%s,' \
+      "$will_build" "$icon_configured" "$will_test_app" \
+      "$native_launch_verified"
     if [[ "$manifest_status" == "configurationRequired" ]]; then
       printf '"blockedBy":"configurationRequired"},'
     elif [[ "$icon_configured" != true ]]; then
@@ -492,9 +548,11 @@ emit_result() {
     else
       printf '"blockedBy":null},'
     fi
-    printf '"git":{"classification":"%s","root":"%s","nestedRepositories":%d,"branch":"%s","dirty":%s,"hasUpstream":%s,"ahead":%d,"behind":%d,"aheadBehindSource":"localRemoteTrackingRefs","networkAccessed":false},' \
+    printf '"git":{"classification":"%s","root":"%s","nestedRepositories":%d,"requiresExplicitUnversionedChoice":%s,"branch":"%s","dirty":%s,"hasUpstream":%s,"ahead":%d,"behind":%d,"aheadBehindSource":"localRemoteTrackingRefs","networkAccessed":false},' \
       "$(json_escape "$git_classification")" "$(json_escape "$git_root")" \
-      "$nested_repositories" "$(json_escape "$git_branch")" "$git_dirty" \
+      "$nested_repositories" \
+      "$([[ "$git_classification" == "workspace-with-nested-repositories" ]] && echo true || echo false)" \
+      "$(json_escape "$git_branch")" "$git_dirty" \
       "$git_has_upstream" "$git_ahead" "$git_behind"
     printf '"detectedStacks":['
     detected_separator=""
@@ -505,13 +563,42 @@ emit_result() {
       done
     fi
     printf '],'
-    printf '"inference":{"packageManager":"%s","packageManagerSignal":"%s","framework":"%s","workingDirectory":"%s","command":%s,"preferredPort":%d,"reason":"%s","signalsExamined":["root package.json packageManager field","root npm, pnpm, Yarn, and Bun lockfiles","root package.json scripts dev/start/serve","root Vite or Next.js dependency","nested package.json files","Docker Compose files","Makefile","go.mod","Cargo.toml","pyproject.toml or requirements.txt"],"inspect":[' \
+    printf '"nameCandidates":['
+    printf '{"value":"%s","source":"directory","confidence":0.6,"selected":%s}' \
+      "$(json_escape "$directory_name")" \
+      "$([[ -z "$requested_name" && "$project_name" == "$directory_name" ]] && echo true || echo false)"
+    if [[ -n "$package_display_name" &&
+      "$package_display_name" != "$directory_name" ]]; then
+      printf ',{"value":"%s","source":"package.json","confidence":0.8,"selected":%s}' \
+        "$(json_escape "$package_display_name")" \
+        "$([[ -z "$requested_name" && "$project_name" == "$package_display_name" ]] && echo true || echo false)"
+    fi
+    if [[ -n "$requested_name" ]]; then
+      printf ',{"value":"%s","source":"explicitOption","confidence":1.0,"selected":true}' \
+        "$(json_escape "$requested_name")"
+    fi
+    printf '],'
+    printf '"inference":{"packageManager":"%s","packageManagerSignal":"%s","framework":"%s","workingDirectory":"%s","command":%s,"preferredPort":%d,"preferredPortDerivation":{"algorithm":"cksum-v1","identifier":"%s","rangeStart":42000,"rangeSize":6000},"reason":"%s","signalsExamined":["root package.json packageManager field","root npm, pnpm, Yarn, and Bun lockfiles","root package.json scripts dev/start/serve","root Vite or Next.js dependency","conservative Express source patterns","nested package.json files","Docker Compose files","Makefile","go.mod","Cargo.toml","pyproject.toml or requirements.txt"],"staticEvidence":[' \
       "$(json_escape "$package_manager")" \
       "$(json_escape "$package_manager_signal")" \
       "$(json_escape "$detected_framework")" \
       "$(json_escape "$candidate_working_directory")" \
       "${candidate_command:-null}" "$preferred_port" \
+      "$(json_escape "$bundle_identifier")" \
       "$(json_escape "$inference_reason")"
+    evidence_separator=""
+    if [[ -n "$express_port_evidence" ]]; then
+      printf '%s{"check":"dynamicPort","status":"detected","source":"%s","evidence":"%s"}' \
+        "$evidence_separator" "$(json_escape "$express_source")" \
+        "$(json_escape "$express_port_evidence")"
+      evidence_separator=","
+    fi
+    if [[ -n "$express_host_evidence" ]]; then
+      printf '%s{"check":"loopbackBinding","status":"detected","source":"%s","evidence":"%s"}' \
+        "$evidence_separator" "$(json_escape "$express_source")" \
+        "$(json_escape "$express_host_evidence")"
+    fi
+    printf '],"inspect":['
     if [[ -n "$candidate_inspect_path" ]]; then
       printf '"%s"' "$(json_escape "$candidate_inspect_path")"
     fi
@@ -563,11 +650,32 @@ emit_result() {
       if [[ -n "$candidate_inspect_path" ]]; then
         inspect_json="[\"$(json_escape "$candidate_inspect_path")\"]"
       fi
-      printf '{"id":"dynamicPort","status":"unknown","requirement":"server honors ENMANNER_PORT","evidence":"startup candidate found but dynamic-port behavior is unverified","inspect":%s,"suggestedChange":"prefer ENMANNER_PORT over framework-specific port variables"},' "$inspect_json"
-      printf '{"id":"loopbackBinding","status":"unknown","requirement":"server binds only to loopback","evidence":"startup candidate does not prove its listener host","inspect":%s,"suggestedChange":"bind the public listener explicitly to 127.0.0.1"},' "$inspect_json"
+      if [[ -n "$express_port_evidence" ]]; then
+        printf '{"id":"dynamicPort","status":"detected","requirement":"server honors ENMANNER_PORT","evidence":"%s","inspect":["%s"],"suggestedChange":"confirm this static evidence with runtime validation"},' \
+          "$(json_escape "$express_port_evidence")" "$(json_escape "$express_source")"
+      else
+        printf '{"id":"dynamicPort","status":"unknown","requirement":"server honors ENMANNER_PORT","evidence":"startup candidate found but dynamic-port behavior is unverified","inspect":%s,"suggestedChange":"prefer ENMANNER_PORT over framework-specific port variables"},' "$inspect_json"
+      fi
+      if [[ -n "$express_host_evidence" ]]; then
+        printf '{"id":"loopbackBinding","status":"detected","requirement":"server binds only to loopback","evidence":"%s","inspect":["%s"],"suggestedChange":"confirm this static evidence with runtime validation"},' \
+          "$(json_escape "$express_host_evidence")" "$(json_escape "$express_source")"
+      else
+        printf '{"id":"loopbackBinding","status":"unknown","requirement":"server binds only to loopback","evidence":"startup candidate does not prove its listener host","inspect":%s,"suggestedChange":"bind the public listener explicitly to 127.0.0.1"},' "$inspect_json"
+      fi
       printf '{"id":"foregroundLifecycle","status":"unknown","requirement":"command remains in the foreground","evidence":"child and daemon behavior requires project review","inspect":%s,"suggestedChange":"use one foreground command or a project-owned supervisor"}' "$inspect_json"
     fi
     printf '],'
+    printf '"requiredInstructions":['
+    printf '{"path":".enmanner/instructions/integration.md","reason":"normative integration sequence"},'
+    printf '{"path":".enmanner/instructions/development-server.md","reason":"startup, networking, readiness, and shutdown are always required"},'
+    if [[ -f "$target_dir/.env" || -f "$target_dir/.env.example" ||
+      -n "$(find "$target_dir" -maxdepth 2 -iname 'docker-compose*.y*ml' -print -quit 2>/dev/null)" ]]; then
+      printf '{"path":".enmanner/instructions/security.md","reason":"dotenv or container configuration was detected"},'
+    fi
+    if [[ -n "$(find "$target_dir" -maxdepth 3 \( -iname '*.sqlite' -o -iname '*.db' -o -iname 'docker-compose*.y*ml' \) -print -quit 2>/dev/null)" ]]; then
+      printf '{"path":".enmanner/instructions/persistence.md","reason":"database or container state was detected"},'
+    fi
+    printf '{"path":".enmanner/instructions/icon.md","reason":"the first generated app requires finished native artwork"}],'
     printf '"nextActions":['
     if [[ "$manifest_status" == "configurationRequired" ]]; then
       printf '"reviewDraftManifest","resolveCompatibilityChecks",'
@@ -578,13 +686,14 @@ emit_result() {
     if [[ "$icon_configured" != true ]]; then
       printf '"createAndConfigureIcon",'
     fi
-    printf '"buildApp"],'
+    printf '"buildApp","testApp"],'
     printf '"nextActionCommands":['
     if [[ "$manifest_status" != "configurationRequired" ]]; then
       printf '{"id":"validateLifecycle","command":["./.enmanner/scripts/validate","--runtime","--json"]},'
     fi
     printf '{"id":"inspectIntegrationState","command":["./.enmanner/scripts/doctor","--json"]},'
-    printf '{"id":"buildApp","command":["./.enmanner/scripts/build-app","--json"]}],'
+    printf '{"id":"buildApp","command":["./.enmanner/scripts/build-app","--json"]},'
+    printf '{"id":"testApp","command":["./.enmanner/scripts/test-app","--json"]}],'
     printf '"warnings":['
     warning_separator=""
     if [[ "$stale_draft" == true ]]; then
@@ -646,6 +755,15 @@ if [[ "$repair" == true ]]; then
   [[ "$json" == true ]] && upgrade_args+=(--json)
   "$source_dir/scripts/upgrade" "${upgrade_args[@]}"
   exit 0
+fi
+
+if [[ "$git_classification" == "workspace-with-nested-repositories" &&
+  "$allow_unversioned" != true ]]; then
+  echo "Error: this target is a workspace containing nested repositories." >&2
+  echo "  Install into a designated repository, or rerun with" >&2
+  echo "  --allow-unversioned after explicitly accepting that the launcher" >&2
+  echo "  configuration will not be versioned at this workspace root." >&2
+  exit 1
 fi
 
 if [[ "$json" != true ]]; then
@@ -819,6 +937,19 @@ else
       "$destination/scripts/build-app" "${build_args[@]}"
     fi
     built=true
+    if [[ "$runtime_validation" == true ]]; then
+      if [[ "$json" == true ]]; then
+        if ! app_test_result="$(
+          "$destination/scripts/test-app" --json
+        )"; then
+          printf '%s\n' "$app_test_result"
+          exit 1
+        fi
+      else
+        "$destination/scripts/test-app"
+      fi
+      native_launch_verified=true
+    fi
   fi
 fi
 

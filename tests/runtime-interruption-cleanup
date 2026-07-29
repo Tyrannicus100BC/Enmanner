@@ -1,0 +1,72 @@
+#!/bin/bash
+set -euo pipefail
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+repository_dir="$(cd "$script_dir/.." && pwd)"
+test_root="$(mktemp -d "${TMPDIR:-/tmp}/Enmanner Interrupt Test.XXXXXX")"
+validator_pid=""
+server_pid=""
+cleanup() {
+  [[ -n "$validator_pid" ]] && kill -KILL "$validator_pid" 2>/dev/null || true
+  [[ -n "$server_pid" ]] && kill -KILL "$server_pid" 2>/dev/null || true
+  rm -rf "$test_root"
+}
+trap cleanup EXIT
+
+project_dir="$test_root/Interrupted Project"
+mkdir -p "$project_dir/.enmanner" "$project_dir/enmanner"
+cp "$repository_dir/tests/fixtures/interrupted-runtime/server.mjs" "$project_dir/"
+cp "$repository_dir/tests/fixtures/interrupted-runtime/enmanner/enmanner.json" \
+  "$project_dir/enmanner/enmanner.json"
+/usr/bin/rsync -a --exclude '.build' \
+  --exclude 'framework/Tests/' \
+  --exclude 'scripts/install' \
+  "$repository_dir/integration/" "$project_dir/.enmanner/"
+
+"$project_dir/.enmanner/scripts/validate" --json >/dev/null
+bin_dir="$(
+  swift build --package-path "$project_dir/.enmanner/framework" \
+    -c release --show-bin-path
+)"
+set +e
+"$bin_dir/enmanner-validator" --project "$project_dir" --runtime --json \
+  >"$test_root/result.json" &
+validator_pid="$!"
+set -e
+
+for _ in {1..100}; do
+  [[ -f "$project_dir/runtime-server.pid" ]] && break
+  kill -0 "$validator_pid" 2>/dev/null || break
+  sleep 0.1
+done
+if [[ ! -f "$project_dir/runtime-server.pid" ]]; then
+  echo "Error: interruption fixture did not start." >&2
+  exit 1
+fi
+server_pid="$(cat "$project_dir/runtime-server.pid")"
+kill -INT "$validator_pid"
+set +e
+wait "$validator_pid"
+status=$?
+set -e
+validator_pid=""
+if [[ $status -eq 0 ]]; then
+  echo "Error: interrupted runtime validation exited successfully." >&2
+  exit 1
+fi
+
+jq -e '
+  (.valid == false) and
+  (.runtime.interrupted == true) and
+  (.runtime.interruptSignal == 2) and
+  (.runtime.supervisorExited == true) and
+  (.runtime.processGroupStopped == true) and
+  (.runtime.readinessUnavailable == true) and
+  (.runtime.portReleased == true)
+' "$test_root/result.json" >/dev/null
+if kill -0 "$server_pid" 2>/dev/null; then
+  echo "Error: interrupted runtime validation left its server running." >&2
+  exit 1
+fi
+server_pid=""
+echo "✓ interrupted runtime validation cleaned up its process group"

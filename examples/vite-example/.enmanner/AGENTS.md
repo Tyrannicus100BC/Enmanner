@@ -5,6 +5,8 @@ truth; the generated `.app` is only a reproducible native front door.
 
 Start with `instructions/integration.md`. It defines the required sequence and
 routes to the focused rules below only when they apply.
+The installer plan's `requiredInstructions` array records this routing with a
+reason for each selected reference.
 
 Every file inside `.enmanner/` is vendored, framework-owned code. Do not add
 project overrides there or edit native internals during an integration. Keep
@@ -46,3 +48,7 @@ project, copy `.enmanner/templates/project-supervisor` to `enmanner/start` and
 adapt it into the project-owned foreground command. Rebuild the `.app` only
 when native configuration or launcher files change; ordinary web source edits
 do not require it.
+
+Use `--json-lines` when an agent needs progress during runtime validation.
+After `build-app`, run `scripts/test-app`; `doctor.complete` requires its
+build-matched native launch and cleanup evidence.

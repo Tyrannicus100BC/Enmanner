@@ -234,6 +234,8 @@ final class SettingsWindowController: NSWindowController {
     private func makeProjectView(
         configuration: EnmannerManifest.UserConfiguration
     ) -> NSView {
+        let horizontalInset: CGFloat = 28
+        let focusRingGutter: CGFloat = 4
         let view = NSView()
         let scrollView = NSScrollView()
         scrollView.translatesAutoresizingMaskIntoConstraints = false
@@ -296,11 +298,11 @@ final class SettingsWindowController: NSWindowController {
         NSLayoutConstraint.activate([
             scrollView.leadingAnchor.constraint(
                 equalTo: view.leadingAnchor,
-                constant: 28
+                constant: horizontalInset - focusRingGutter
             ),
             scrollView.trailingAnchor.constraint(
                 equalTo: view.trailingAnchor,
-                constant: -28
+                constant: -(horizontalInset - focusRingGutter)
             ),
             scrollView.topAnchor.constraint(
                 equalTo: view.topAnchor,
@@ -338,11 +340,11 @@ final class SettingsWindowController: NSWindowController {
 
             stack.leadingAnchor.constraint(
                 equalTo: documentView.leadingAnchor,
-                constant: 0
+                constant: focusRingGutter
             ),
             stack.trailingAnchor.constraint(
                 equalTo: documentView.trailingAnchor,
-                constant: 0
+                constant: -focusRingGutter
             ),
             stack.topAnchor.constraint(
                 equalTo: documentView.topAnchor,
@@ -606,9 +608,64 @@ private final class FlippedView: NSView {
     override var isFlipped: Bool { true }
 }
 
+private final class TrailingInsetSecureTextFieldCell: NSSecureTextFieldCell {
+    private let trailingInset: CGFloat = 32
+
+    override func drawingRect(forBounds rect: NSRect) -> NSRect {
+        insetTextFrame(super.drawingRect(forBounds: rect))
+    }
+
+    override func edit(
+        withFrame rect: NSRect,
+        in controlView: NSView,
+        editor textObject: NSText,
+        delegate object: Any?,
+        event: NSEvent?
+    ) {
+        super.edit(
+            withFrame: insetTextFrame(rect),
+            in: controlView,
+            editor: textObject,
+            delegate: object,
+            event: event
+        )
+    }
+
+    override func select(
+        withFrame rect: NSRect,
+        in controlView: NSView,
+        editor textObject: NSText,
+        delegate object: Any?,
+        start: Int,
+        length: Int
+    ) {
+        super.select(
+            withFrame: insetTextFrame(rect),
+            in: controlView,
+            editor: textObject,
+            delegate: object,
+            start: start,
+            length: length
+        )
+    }
+
+    private func insetTextFrame(_ rect: NSRect) -> NSRect {
+        var result = rect
+        result.size.width = max(0, result.width - trailingInset)
+        return result
+    }
+}
+
+private final class TrailingInsetSecureTextField: NSSecureTextField {
+    override class var cellClass: AnyClass? {
+        get { TrailingInsetSecureTextFieldCell.self }
+        set {}
+    }
+}
+
 @MainActor
 private final class RevealableSecureField: NSView, NSTextFieldDelegate {
-    private let secureField = NSSecureTextField()
+    private let secureField = TrailingInsetSecureTextField()
     private let revealedField = NSTextField()
     private let revealButton = NSButton()
     private var isRevealed = false

@@ -21,6 +21,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var shuttingDown = false
     private var browserReopenNeedsForegroundOnly = true
     private var activationSequence = 0
+    private let testStatusFile = ProcessInfo.processInfo.environment[
+        "ENMANNER_TEST_STATUS_FILE"
+    ]
+    private let suppressBrowserForTesting =
+        ProcessInfo.processInfo.environment[
+            "ENMANNER_TEST_SUPPRESS_BROWSER"
+        ] == "1"
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApplication.shared.setActivationPolicy(.regular)
@@ -28,7 +35,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         // Activation lets macOS resolve access to projects in protected folders
         // such as Desktop before Enmanner reads the manifest. Browser mode still
         // remains windowless because no window controller is created here.
-        NSApplication.shared.activate(ignoringOtherApps: true)
+        if testStatusFile == nil {
+            NSApplication.shared.activate(ignoringOtherApps: true)
+        }
         DispatchQueue.main.async { [weak self] in
             self?.beginLaunch()
         }
@@ -224,13 +233,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 isRecovering = false
                 recoveryAttempts = 0
                 logBuffer.append("Application server is ready.")
+                writeTestStatus(url: url)
                 switch manifest?.window.mode {
                 case .embedded:
                     windowController?.showEmbeddedApplication(at: url)
                 case .browser:
                     windowController?.showBrowserRunning(at: url)
                     windowController?.hideWindow()
-                    NSWorkspace.shared.open(url)
+                    if !suppressBrowserForTesting {
+                        NSWorkspace.shared.open(url)
+                    }
                 case nil:
                     break
                 }
@@ -246,6 +258,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                     )
                 )
             }
+        }
+    }
+
+    private func writeTestStatus(url: URL) {
+        guard let testStatusFile, let chosenPort else { return }
+        let status: [String: Any] = [
+            "ready": true,
+            "selectedPort": Int(chosenPort),
+            "readinessURL": url.absoluteString,
+            "processIdentifier": Int(ProcessInfo.processInfo.processIdentifier)
+        ]
+        guard let data = try? JSONSerialization.data(
+            withJSONObject: status,
+            options: [.sortedKeys]
+        ) else { return }
+        do {
+            try data.write(
+                to: URL(fileURLWithPath: testStatusFile),
+                options: .atomic
+            )
+        } catch {
+            logBuffer.append(
+                "Could not write native launch test status: \(error.localizedDescription)"
+            )
         }
     }
 
