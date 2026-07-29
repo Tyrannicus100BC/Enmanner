@@ -13,9 +13,9 @@ lifecycle behavior earlier, but cannot satisfy completion. Use this order:
    checks.
 4. Install framework files. When configuration is required, review
    `enmanner/enmanner.json.example`; never treat the draft as verified configuration.
-5. Read `development-server.md`, then verify foreground execution,
-   `ENMANNER_PORT`, loopback binding, readiness, shutdown, and preferred-port
-   behavior. Use the project supervisor template for multiple owned processes.
+5. Read `development-server.md`, then verify component ownership, foreground
+   execution, endpoint references, loopback binding, dependency ordering,
+   readiness, shutdown, and preferred-port behavior.
 6. Read `persistence.md` and `security.md` when the project has stateful
    services, containers, secrets, uploads, user data, or machine-local settings.
    When adding `userConfiguration`, curate only values a person should edit or

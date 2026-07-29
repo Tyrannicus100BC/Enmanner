@@ -18,21 +18,28 @@ json_escape() {
 
 allow_legacy_icon=false
 replace_existing_app=false
+development=false
 json=false
 while [[ "${1:-}" == --* ]]; do
   case "$1" in
     --allow-legacy-icon) allow_legacy_icon=true ;;
     --replace-existing-app) replace_existing_app=true ;;
+    --development) development=true ;;
     --json) json=true ;;
     *)
-      echo "Usage: $0 [--allow-legacy-icon] [--replace-existing-app] [--json]" >&2
+      echo "Usage: $0 [--development] [--allow-legacy-icon] [--replace-existing-app] [--json]" >&2
       exit 64
       ;;
   esac
   shift
 done
 if [[ $# -ne 0 ]]; then
-  echo "Usage: $0 [--allow-legacy-icon] [--replace-existing-app] [--json]" >&2
+  echo "Usage: $0 [--development] [--allow-legacy-icon] [--replace-existing-app] [--json]" >&2
+  exit 64
+fi
+if [[ "$development" == true &&
+  ( "$allow_legacy_icon" == true || "$replace_existing_app" == true ) ]]; then
+  echo "Error: --development cannot be combined with final-build options." >&2
   exit 64
 fi
 
@@ -47,6 +54,8 @@ icon_path=""
 icon_packaging=""
 signing_verified=false
 replaced_existing_app=false
+build_kind="final"
+[[ "$development" == true ]] && build_kind="development"
 
 finish() {
   local status=$?
@@ -56,7 +65,8 @@ finish() {
   if [[ "$json" == true ]]; then
     exec 1>&3
     if [[ $status -eq 0 && "$build_succeeded" == true ]]; then
-      printf '{"schemaVersion":1,"valid":true,"appPath":"%s","bundleIdentifier":"%s","icon":{"source":"%s","packaging":"%s","verified":true},"signing":{"verified":%s},"replacement":{"replacedExistingApp":%s,"explicitlyAuthorized":%s},"sizes":{"app":"%s","buildCache":"%s"}}\n' \
+      printf '{"schemaVersion":1,"valid":true,"buildKind":"%s","appPath":"%s","bundleIdentifier":"%s","icon":{"source":"%s","packaging":"%s","verified":true},"signing":{"verified":%s},"replacement":{"replacedExistingApp":%s,"explicitlyAuthorized":%s},"sizes":{"app":"%s","buildCache":"%s"}}\n' \
+        "$build_kind" \
         "$(json_escape "$app_path")" \
         "$(json_escape "$bundle_identifier")" \
         "$(json_escape "$icon_path")" \
@@ -86,7 +96,9 @@ if [[ "$json" == true ]]; then
 fi
 trap finish EXIT
 
-if [[ "$allow_legacy_icon" == true ]]; then
+if [[ "$development" == true ]]; then
+  "$script_dir/validate" --development
+elif [[ "$allow_legacy_icon" == true ]]; then
   "$script_dir/validate" --allow-legacy-icon
 else
   "$script_dir/validate"
@@ -94,10 +106,16 @@ fi
 
 validator_dir="$(swift build --package-path "$framework_dir" -c release --show-bin-path)"
 validator="$validator_dir/enmanner-validator"
-app_name="$("$validator" --project "$project_dir" --print name)"
-bundle_identifier="$("$validator" --project "$project_dir" --print identifier)"
+manifest_app_name="$("$validator" --project "$project_dir" --print name)"
+app_name="$manifest_app_name"
+manifest_bundle_identifier="$("$validator" --project "$project_dir" --print identifier)"
 icon_path="$("$validator" --project "$project_dir" --print icon)"
-if [[ -z "$icon_path" ]]; then
+bundle_identifier="$manifest_bundle_identifier"
+if [[ "$development" == true ]]; then
+  app_name="$app_name Development"
+  bundle_identifier="$bundle_identifier.development"
+  icon_path="framework-generated-development-icon"
+elif [[ -z "$icon_path" ]]; then
   echo "Error: no app icon is configured in enmanner/enmanner.json." >&2
   echo "  Enmanner does not build placeholder launchers. Create and inspect a" >&2
   echo "  distinctive icon using .enmanner/instructions/icon.md, then rebuild." >&2
@@ -145,26 +163,30 @@ if [[ -e "$app_path" && "$replace_existing_app" != true ]]; then
 fi
 [[ -e "$app_path" ]] && replaced_existing_app=true
 
-escaped_app_name="$app_name"
-escaped_app_name="${escaped_app_name//\\/\\\\}"
-escaped_app_name="${escaped_app_name//\[/\\[}"
-escaped_app_name="${escaped_app_name//\]/\\]}"
-escaped_app_name="${escaped_app_name//\*/\\*}"
-escaped_app_name="${escaped_app_name//\?/\\?}"
-escaped_app_name="${escaped_app_name//#/\\#}"
-escaped_app_name="${escaped_app_name//!/\\!}"
-app_ignore="/$escaped_app_name.app/"
+escaped_manifest_app_name="$manifest_app_name"
+escaped_manifest_app_name="${escaped_manifest_app_name//\\/\\\\}"
+escaped_manifest_app_name="${escaped_manifest_app_name//\[/\\[}"
+escaped_manifest_app_name="${escaped_manifest_app_name//\]/\\]}"
+escaped_manifest_app_name="${escaped_manifest_app_name//\*/\\*}"
+escaped_manifest_app_name="${escaped_manifest_app_name//\?/\\?}"
+escaped_manifest_app_name="${escaped_manifest_app_name//#/\\#}"
+escaped_manifest_app_name="${escaped_manifest_app_name//!/\\!}"
+final_app_ignore="/$escaped_manifest_app_name.app/"
+development_app_ignore="/$escaped_manifest_app_name Development.app/"
 gitignore="$project_dir/.gitignore"
 gitignore_update="$(mktemp "${TMPDIR:-/tmp}/enmanner-gitignore.XXXXXX")"
 if grep -Fqx "# enmanner:end" "$gitignore" 2>/dev/null; then
-  /usr/bin/awk -v entry="$app_ignore" '
+  /usr/bin/awk \
+    -v final_entry="$final_app_ignore" \
+    -v development_entry="$development_app_ignore" '
     $0 == "# enmanner:begin" {
       in_enmanner = 1
       print
       next
     }
     $0 == "# enmanner:end" {
-      print entry
+      print final_entry
+      print development_entry
       in_enmanner = 0
       print
       next
@@ -179,7 +201,8 @@ else
     echo "# enmanner:begin"
     echo "/.enmanner/framework/.build/"
     echo "/.enmanner/.build/"
-    echo "$app_ignore"
+    echo "$final_app_ignore"
+    echo "$development_app_ignore"
     echo "# enmanner:end"
   } > "$gitignore_update"
 fi
@@ -227,7 +250,7 @@ framework_version="$(tr -d '[:space:]' < "$integration_dir/VERSION")"
 /usr/bin/plutil -insert NSHighResolutionCapable -bool true "$plist"
 /usr/bin/plutil -insert NSAppTransportSecurity -json \
   '{"NSAllowsLocalNetworking":true}' "$plist"
-folder_usage_description="The app’s project files are stored alongside it and are needed to start its local server."
+folder_usage_description="This folder contains your project, which the app needs to run."
 folder_usage_keys=(
   NSDesktopFolderUsageDescription
   NSDocumentsFolderUsageDescription
@@ -245,11 +268,73 @@ ownership_plist="$contents/Resources/EnmannerOwnership.plist"
 /usr/bin/plutil -insert formatVersion -integer 1 "$ownership_plist"
 /usr/bin/plutil -insert generator -string "Enmanner" "$ownership_plist"
 /usr/bin/plutil -insert bundleIdentifier -string "$bundle_identifier" "$ownership_plist"
+/usr/bin/plutil -insert manifestBundleIdentifier \
+  -string "$manifest_bundle_identifier" "$ownership_plist"
+/usr/bin/plutil -insert buildKind -string "$build_kind" "$ownership_plist"
 
-icon_source="$project_dir/$icon_path"
-icon_extension="${icon_path##*.}"
+if [[ "$development" == true ]]; then
+  icon_packaging="developmentIcns"
+  development_png="$stage_dir/development-icon.png"
+  /usr/bin/swift - "$development_png" <<'SWIFT'
+import AppKit
 
-if [[ "$icon_extension" == "icon" ]]; then
+let output = CommandLine.arguments[1]
+let size = NSSize(width: 1024, height: 1024)
+let image = NSImage(size: size)
+image.lockFocus()
+NSColor(calibratedRed: 0.16, green: 0.17, blue: 0.20, alpha: 1).setFill()
+NSBezierPath(roundedRect: NSRect(origin: .zero, size: size), xRadius: 220, yRadius: 220).fill()
+NSColor(calibratedRed: 1.0, green: 0.55, blue: 0.08, alpha: 1).setFill()
+NSBezierPath(
+    roundedRect: NSRect(x: 92, y: 92, width: 840, height: 840),
+    xRadius: 170,
+    yRadius: 170
+).fill()
+let style = NSMutableParagraphStyle()
+style.alignment = .center
+let attributes: [NSAttributedString.Key: Any] = [
+    .font: NSFont.systemFont(ofSize: 270, weight: .black),
+    .foregroundColor: NSColor(calibratedWhite: 0.10, alpha: 1),
+    .paragraphStyle: style
+]
+("DEV" as NSString).draw(
+    in: NSRect(x: 92, y: 345, width: 840, height: 330),
+    withAttributes: attributes
+)
+image.unlockFocus()
+guard let tiff = image.tiffRepresentation,
+      let bitmap = NSBitmapImageRep(data: tiff),
+      let png = bitmap.representation(using: .png, properties: [:]) else {
+    fatalError("Could not render the Enmanner development icon.")
+}
+try png.write(to: URL(fileURLWithPath: output), options: .atomic)
+SWIFT
+  development_iconset="$stage_dir/Development.iconset"
+  mkdir -p "$development_iconset"
+  while read -r pixels filename; do
+    /usr/bin/sips -z "$pixels" "$pixels" "$development_png" \
+      --out "$development_iconset/$filename" >/dev/null
+  done <<'ICON_SIZES'
+16 icon_16x16.png
+32 icon_16x16@2x.png
+32 icon_32x32.png
+64 icon_32x32@2x.png
+128 icon_128x128.png
+256 icon_128x128@2x.png
+256 icon_256x256.png
+512 icon_256x256@2x.png
+512 icon_512x512.png
+1024 icon_512x512@2x.png
+ICON_SIZES
+  /usr/bin/iconutil -c icns "$development_iconset" \
+    -o "$contents/Resources/Development.icns"
+  /usr/bin/plutil -insert CFBundleIconFile -string "Development" "$plist"
+  echo "✓ Packaged an unmistakable development-only icon"
+else
+  icon_source="$project_dir/$icon_path"
+  icon_extension="${icon_path##*.}"
+
+  if [[ "$icon_extension" == "icon" ]]; then
     icon_packaging="modernIconImageStack"
     if ! command -v xcrun >/dev/null 2>&1 ||
       ! xcrun --find actool >/dev/null 2>&1; then
@@ -301,10 +386,11 @@ if [[ "$icon_extension" == "icon" ]]; then
       exit 1
     fi
     echo "✓ Verified CFBundleIconName and the compiled IconImageStack"
-else
-  icon_packaging="legacyIcns"
-  cp "$icon_source" "$contents/Resources/AppIcon.icns"
-  /usr/bin/plutil -insert CFBundleIconFile -string "AppIcon" "$plist"
+  else
+    icon_packaging="legacyIcns"
+    cp "$icon_source" "$contents/Resources/AppIcon.icns"
+    /usr/bin/plutil -insert CFBundleIconFile -string "AppIcon" "$plist"
+  fi
 fi
 
 if command -v codesign >/dev/null 2>&1; then
@@ -335,6 +421,9 @@ touch "$app_path"
 app_size="$(du -sh "$app_path" | awk '{print $1}')"
 cache_size="$(du -sh "$framework_dir/.build" | awk '{print $1}')"
 echo "✓ Created $app_name.app beside the project source ($app_size)"
+if [[ "$development" == true ]]; then
+  echo "  Development-only: this bundle cannot satisfy doctor.complete."
+fi
 echo "  Enmanner build cache: $cache_size (remove with ./.enmanner/scripts/clean)"
 echo "  Ordinary web changes appear without rebuilding this launcher."
 build_succeeded=true

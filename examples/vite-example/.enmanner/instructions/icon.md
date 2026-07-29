@@ -107,6 +107,19 @@ Set the project-relative `.icon` path in `enmanner/enmanner.json`, for example:
 "icon": "enmanner/icon/AppIcon.icon",
 ```
 
+For a repository shared by Macs with and without full Xcode, commit both
+sources instead:
+
+```json
+"icon": {
+  "modern": "enmanner/icon/AppIcon.icon",
+  "legacy": "enmanner/icon/AppIcon.icns"
+},
+```
+
+Enmanner selects `modern` when `actool` is available and `legacy` otherwise, so
+developers do not need to edit the manifest for their local toolchain.
+
 When full Xcode and `actool` are available, agents MUST produce and configure an
 Icon Composer `.icon` package. Do not configure `.icns` merely because it
 builds successfully, and never generate `.icns` from a flattened rounded-square
@@ -131,7 +144,8 @@ fallback.
 
 The icon task is not complete until all of these pass:
 
-- `enmanner/enmanner.json` references the `.icon` package.
+- `enmanner/enmanner.json` references the `.icon` package, directly or as
+  `icon.modern`.
 - Background artwork fills every corner of its square source canvas.
 - Foreground artwork has real alpha transparency.
 - No source layer contains a baked squircle, border, shadow, or backing plate.
@@ -148,5 +162,8 @@ Inspect the compiled `.app`, not merely the source PNG or Icon Composer preview.
 Do not put assets inside the generated `.app` by hand; Enmanner creates each
 bundle reproducibly from tracked project files.
 
-`build-app` refuses a missing icon. Enmanner intentionally provides no
-placeholder-icon completion path.
+The final `build-app` refuses a missing icon. `build-app --development` may
+produce a separately named, conspicuously badged launcher for native lifecycle
+testing, but that artifact and its separate test receipt can never satisfy
+`doctor.complete`. Enmanner intentionally provides no placeholder-icon
+completion path.

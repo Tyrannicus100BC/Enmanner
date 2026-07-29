@@ -19,7 +19,8 @@ Preserve these invariants:
 - The project repository is the editable source of truth.
 - Installed framework files are ordinary tracked files under `.enmanner/`.
 - Generated `.app` bundles stay small and reproducible.
-- Servers bind to loopback, run in the foreground, and respect `ENMANNER_PORT`.
+- Services bind declared endpoints to loopback, run in the foreground, and
+  respect their allocated endpoint values.
 - Commands are executable-plus-argument arrays, never shell command strings.
 - Configured paths stay inside the project.
 - The launcher owns the child process group and stops it on quit.

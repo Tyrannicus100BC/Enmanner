@@ -1,15 +1,17 @@
 {
   "$schema": "../../.enmanner/enmanner.schema.json",
-  "version": 2,
+  "version": 3,
   "name": "Interrupted Runtime",
   "identifier": "local.enmanner.interrupted-runtime",
-  "server": {
+  "application": {
     "command": ["node", "server.mjs"],
     "workingDirectory": ".",
-    "environment": {},
+    "environment": {
+      "PORT": "${self.endpoints.http.port}"
+    },
     "preferredPort": 46991,
     "readiness": {
-      "url": "http://127.0.0.1:${ENMANNER_PORT}/",
+      "path": "/",
       "timeoutSeconds": 60
     }
   },

@@ -1,6 +1,6 @@
 {
   "$schema": "../.enmanner/enmanner.schema.json",
-  "version": 2,
+  "version": 3,
   "name": "Enmanner Vite Example",
   "identifier": "local.enmanner.vite-example",
   "icon": "enmanner/icon/EnmannerViteExample.icon",
@@ -21,7 +21,7 @@
       }
     ]
   },
-  "server": {
+  "application": {
     "command": [
       "npm",
       "run",
@@ -30,16 +30,16 @@
       "--host",
       "127.0.0.1",
       "--port",
-      "${ENMANNER_PORT}",
+      "${self.endpoints.http.port}",
       "--strictPort"
     ],
     "workingDirectory": ".",
     "environment": {
-      "PORT": "${ENMANNER_PORT}"
+      "PORT": "${self.endpoints.http.port}"
     },
     "preferredPort": 43120,
     "readiness": {
-      "url": "http://127.0.0.1:${ENMANNER_PORT}/",
+      "path": "/",
       "timeoutSeconds": 30
     }
   },

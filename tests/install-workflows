@@ -64,33 +64,33 @@ write_adapter_project() {
     npm)
       lockfile="package-lock.json"
       if [[ "$framework" == "vite" ]]; then
-        expected_command='["npm","run","dev","--","--host","127.0.0.1","--port","${ENMANNER_PORT}","--strictPort"]'
+        expected_command='["npm","run","dev","--","--host","127.0.0.1","--port","${self.endpoints.http.port}","--strictPort"]'
       else
-        expected_command='["npm","run","dev","--","--hostname","127.0.0.1","--port","${ENMANNER_PORT}"]'
+        expected_command='["npm","run","dev","--","--hostname","127.0.0.1","--port","${self.endpoints.http.port}"]'
       fi
       ;;
     pnpm)
       lockfile="pnpm-lock.yaml"
       if [[ "$framework" == "vite" ]]; then
-        expected_command='["pnpm","run","dev","--host","127.0.0.1","--port","${ENMANNER_PORT}","--strictPort"]'
+        expected_command='["pnpm","run","dev","--host","127.0.0.1","--port","${self.endpoints.http.port}","--strictPort"]'
       else
-        expected_command='["pnpm","run","dev","--hostname","127.0.0.1","--port","${ENMANNER_PORT}"]'
+        expected_command='["pnpm","run","dev","--hostname","127.0.0.1","--port","${self.endpoints.http.port}"]'
       fi
       ;;
     yarn)
       lockfile="yarn.lock"
       if [[ "$framework" == "vite" ]]; then
-        expected_command='["yarn","run","dev","--host","127.0.0.1","--port","${ENMANNER_PORT}","--strictPort"]'
+        expected_command='["yarn","run","dev","--host","127.0.0.1","--port","${self.endpoints.http.port}","--strictPort"]'
       else
-        expected_command='["yarn","run","dev","--hostname","127.0.0.1","--port","${ENMANNER_PORT}"]'
+        expected_command='["yarn","run","dev","--hostname","127.0.0.1","--port","${self.endpoints.http.port}"]'
       fi
       ;;
     bun)
       lockfile="bun.lock"
       if [[ "$framework" == "vite" ]]; then
-        expected_command='["bun","run","dev","--host","127.0.0.1","--port","${ENMANNER_PORT}","--strictPort"]'
+        expected_command='["bun","run","dev","--host","127.0.0.1","--port","${self.endpoints.http.port}","--strictPort"]'
       else
-        expected_command='["bun","run","dev","--hostname","127.0.0.1","--port","${ENMANNER_PORT}"]'
+        expected_command='["bun","run","dev","--hostname","127.0.0.1","--port","${self.endpoints.http.port}"]'
       fi
       ;;
   esac
@@ -217,10 +217,10 @@ printf '%s\n' "$vite_result" | jq -e '
   (.built == false)
 ' >/dev/null
 jq -e '
-  (.version == 2) and
+  (.version == 3) and
   (.window.mode == "browser") and
-  (.server.preferredPort >= 42000) and
-  (.server.preferredPort < 48000)
+  (.application.preferredPort >= 42000) and
+  (.application.preferredPort < 48000)
 ' "$vite_target/enmanner/enmanner.json" >/dev/null
 test ! -e "$vite_target/enmanner.json"
 
@@ -298,25 +298,25 @@ test ! -e "$generic_target/enmanner/enmanner.json"
 jq -e '
   (.name == "Generic Nice") and
   (.identifier == "com.example.generic-nice") and
-  (.server.command == ["npm", "run", "start"]) and
-  (.server.preferredPort >= 42000) and
-  (.server.preferredPort < 48000)
+  (.application.command == ["npm", "run", "start"]) and
+  (.application.preferredPort >= 42000) and
+  (.application.preferredPort < 48000)
 ' "$generic_target/enmanner/enmanner.json.example" >/dev/null
 grep -Fqx '# Generic project instructions' "$generic_target/CLAUDE.md"
 
 cp "$generic_target/enmanner/enmanner.json.example" \
   "$generic_target/enmanner/enmanner.json"
-/usr/bin/plutil -remove server.readiness \
+/usr/bin/plutil -remove application.readiness \
   "$generic_target/enmanner/enmanner.json"
 if "$generic_target/.enmanner/scripts/validate" --json \
   >"$test_root/manifest-error.json"; then
-  echo "Error: validator accepted a manifest missing server.readiness." >&2
+  echo "Error: validator accepted a manifest missing application.readiness." >&2
   exit 1
 fi
 jq -e '
   (.valid == false) and
-  (.error.code == "manifestMalformed") and
-  (.error.path == "server.readiness")
+  (.error.code == "manifestInvalid") and
+  (.error.message | contains("application.readiness"))
 ' "$test_root/manifest-error.json" >/dev/null
 
 mkdir -p "$vite_target/enmanner/icon"
@@ -453,7 +453,7 @@ jq -e '
   .valid and
   (.doctor.complete == false) and
   .doctor.installationRecordPresent and
-  (.doctor.installationVersion == "0.5.2") and
+  (.doctor.installationVersion == "0.6.0") and
   (.doctor.installationHistory.initialManifestStatus == "inferred") and
   (.doctor.currentStatus.configuration == "valid") and
   (.doctor.currentStatus.integration == .doctor.integrationStatus) and
@@ -495,16 +495,16 @@ printf '%s\n' 'PORT=3000' 'USER_SETTING=' \
   jq -e '
     ([.warnings[]] | any(
       contains("settings.env.example assigns PORT") and
-      contains("server.environment")
+      contains("component environment")
     ))
   ' >/dev/null
 
 test -f "$vite_target/.enmanner/INSTALLATION.json"
 jq -e '
-  (.version == "0.5.2") and
+  (.version == "0.6.0") and
   (.upstreamURL | type == "string") and
   (.manifestStatus == "inferred") and
-  (.inferredManifestFields | index("server.command")) and
+  (.inferredManifestFields | index("application.command")) and
   ([.files[].path] | any(startswith("framework/Sources/"))) and
   ([.files[].path] | all(
     (startswith("framework/Tests/") or . == "scripts/install") | not
@@ -531,8 +531,8 @@ fi
   jq -e '
     .applicable and
     .applied and
-    (.fromVersion == "0.5.2") and
-    (.toVersion == "0.5.2")
+    (.fromVersion == "0.6.0") and
+    (.toVersion == "0.6.0")
   ' >/dev/null
 test ! -e "$vite_target/.enmanner/framework/Tests"
 test ! -e "$vite_target/.enmanner/scripts/install"

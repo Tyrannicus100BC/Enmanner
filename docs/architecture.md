@@ -36,9 +36,10 @@ embedded.
 - `enmanner-validator` reuses the exact core types for script-facing static and
   runtime validation.
 - `build-app` compiles in release mode, creates a conventional app bundle with
-  `plutil`, compiles a configured Icon Composer `.icon` package with `actool`
-  (or explicitly falls back to a legacy `.icns`), verifies the modern icon
-  metadata and image stack, ad-hoc signs locally, and verifies the signature.
+  `plutil`, selects a configured Icon Composer `.icon` package when `actool` is
+  available or a configured legacy `.icns` fallback when it is not, verifies
+  the modern icon metadata and image stack, ad-hoc signs locally, and verifies
+  the signature.
   It embeds an ownership marker and refuses to replace a same-named app that it
   cannot attribute to the current bundle identifier.
 - `build-app --development` uses the same launcher but creates a separately
@@ -55,45 +56,56 @@ and current WKWebView behavior while retaining several years of Mac coverage.
 ## Startup sequence
 
 1. Resolve the project as the app bundle's parent.
-2. Decode `enmanner/enmanner.json` and reject invalid version, paths,
-   identifiers, public readiness hosts, obvious embedded secrets, or
-   global-install flags.
-3. Try the optional preferred loopback port, otherwise bind a loopback socket
-   to port zero, and retain the selected port number.
-4. Expand only `${ENMANNER_PORT}` and `${ENMANNER_PROJECT_DIR}`.
-5. Resolve a relative executable path from `server.workingDirectory`, an
-   absolute executable directly, or a bare executable name from a GUI-safe PATH
-   made from the inherited value plus standard Apple Silicon and Intel local
-   runtime locations.
-6. Start `Process` in the validated project-relative working directory.
-7. Put the immediate child in its own process group and capture both pipes.
-8. In browser mode, the default, remain windowless while keeping the normal Dock
+2. Decode `enmanner/enmanner.json`, lower inline application shorthand into a
+   normalized component graph, and reject invalid version, paths, identifiers,
+   dependency cycles, hidden endpoint-reference edges, public endpoint hosts,
+   obvious embedded secrets, or global-install flags.
+3. Allocate every named endpoint, using fixed or preferred loopback ports where
+   declared, and retain those values for the launcher session.
+4. Expand only exact component endpoint references and
+   `${project.directory}`.
+5. Traverse the dependency graph. Observe prerequisites, run one-shot tasks,
+   and start foreground services after their dependencies are satisfied.
+6. Resolve relative executables from each component's working directory,
+   absolute executables directly, and bare executable names from a GUI-safe
+   PATH made from the inherited value plus standard Apple Silicon and Intel
+   local runtime locations.
+7. Put each managed service in its own process group, label its captured output,
+   and wait for any configured HTTP, TCP, or command readiness probe.
+8. In browser mode, the default, remain windowless while keeping normal Dock
    presence. Embedded mode displays the native starting state.
-9. Poll HTTP readiness, then load the URL in WKWebView or ask the default browser
-   to open it.
+9. Once the configured application component is ready, load its named HTTP
+   endpoint in WKWebView or ask the default browser to open it.
 
-The port-selection socket is closed before launch. This leaves a small
-allocation race, but `--strictPort` makes the Vite example fail clearly rather
-than silently choosing a mismatched port. A preferred port provides a stable
-browser origin when available; a launcher-owned reservation or proxy would be
+Port-selection sockets are closed before launch. This leaves a small allocation
+race for each allocated endpoint, but `--strictPort` makes the Vite example fail
+clearly rather than silently choosing a mismatched port. Endpoint values remain
+frozen for the launcher session. A launcher-owned reservation or proxy would be
 more complex and is deferred.
 
 ## Process lifecycle
 
-The launcher retains the `Process` and marks intentional shutdown separately
-from unexpected exit. Closing the last window leaves either mode running
-without a window. On Quit (including Command-Q) or retry it sends `SIGTERM` to
-the process group, waits up to two seconds, then sends `SIGKILL` to that group.
-This covers common package-manager descendants without starting through a
-shell. There is still no complete guarantee for children that deliberately
-escape the process group.
+The launcher retains a supervisor for every managed service and marks
+intentional shutdown separately from unexpected exit. Closing the last window
+leaves either mode running without a window. On Quit (including Command-Q) or
+retry it stops services in reverse dependency order. Each supervisor sends
+`SIGTERM` to its process group, waits up to two seconds, then sends `SIGKILL` to
+that group. This covers common package-manager descendants without starting
+through a shell. There is still no complete guarantee for children that
+deliberately escape the process group.
 
-An exit before first readiness produces a failure screen. An exit after the app
-has been ready enters a reconnecting state and performs up to five restarts with
-bounded exponential backoff. Embedded mode displays that state immediately;
-browser mode exposes it if the user reopens the Dock app. Each restart uses the
-same selected port, polls readiness, and reloads the embedded page. Framework
-HMR remains untouched while the server stays up.
+One-shot tasks receive the same independent process-group ownership. A task is
+not accepted as complete if its root command exits while descendants remain in
+that group.
+
+An exit before first readiness produces a component-attributed failure. In the
+first component-graph implementation, an exit after the app has been ready
+enters a reconnecting state and performs up to five whole-runtime restarts with
+bounded exponential backoff. Endpoint allocations remain stable. The graph
+model and independent process groups establish the boundary for later
+component-local recovery without making transient dependency loss
+automatically kill otherwise healthy dependents. Framework HMR remains
+untouched while services stay up.
 
 The bundle also declares that Launch Services should prohibit multiple
 instances. Normal repeated opens therefore activate the existing app instead of
@@ -113,12 +125,12 @@ postconditions. Optional JSON Lines progress reports startup, readiness,
 shutdown, and postcondition phases without changing the single-result JSON
 mode.
 
-After readiness, validation records the launched process tree, stops the
-supervisor, and requires the immediate process to exit, its process group to
-disappear, the readiness endpoint to remain unavailable, and the selected port
-to have no loopback listener. It reports surviving tracked PIDs and the
-Git-status delta as `gitStatusMutations`. The former `workspaceMutations` JSON
-field remains as a deprecated compatibility alias for one release.
+After readiness, validation records every launched process tree, stops the
+runtime, and requires every immediate process and process group to disappear,
+the application endpoint to remain unavailable, and every selected port to
+have no loopback listener. It reports surviving tracked PIDs and the Git-status
+delta as `gitStatusMutations`. The former `workspaceMutations` JSON field
+remains as a deprecated compatibility alias for one release.
 External containers, daemons, and deliberately detached processes remain
 project-owned and are reported as outside the proof boundary.
 
@@ -200,7 +212,10 @@ Apple Command Line Tools provide `swift`, the macOS SDK, `plutil`, and
 configured. Modern Icon Composer `.icon` packages require a current full Xcode
 installation because Enmanner compiles them with `actool`. The result includes an
 asset catalog image stack and `CFBundleIconName`, plus an `.icns` fallback. The
-build verifies both the metadata and `IconImageStack`. When `actool` is present,
+build verifies both the metadata and `IconImageStack`. A manifest may declare
+both formats; the build prefers the modern source when `actool` is present and
+automatically chooses the legacy source on Command Line Tools-only machines.
+When `actool` is present,
 a directly configured legacy `.icns` fails validation unless the caller uses
 the explicit `--allow-legacy-icon` escape hatch; without `actool`, it remains a
 warned compatibility fallback. The script uses an ad-hoc signature because it
@@ -239,8 +254,8 @@ to completion.
 and checksums of framework-owned files. Repair and upgrade operations refuse to
 write when those files have local modifications. Every installed file is
 framework-owned; there is no hidden project override area. The visible
-project-owned `enmanner/` sibling contains configuration, optional supervisors,
-icon packages, and icon source artwork. Application data and unrelated scripts
+project-owned `enmanner/` sibling contains configuration, icon packages, and
+icon source artwork. Application data and unrelated scripts
 remain in their ordinary project paths.
 
 ## Why there is no reverse proxy

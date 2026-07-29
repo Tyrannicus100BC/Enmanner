@@ -1,16 +1,16 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://enmanner.local/schema/v2/enmanner.schema.json",
+  "$id": "https://enmanner.local/schema/v3/enmanner.schema.json",
   "title": "Enmanner project manifest",
   "type": "object",
   "additionalProperties": false,
-  "required": ["version", "name", "identifier", "server", "window"],
+  "required": ["version", "name", "identifier", "application", "window"],
   "properties": {
     "$schema": {
       "type": "string"
     },
     "version": {
-      "const": 2
+      "const": 3
     },
     "name": {
       "type": "string",
@@ -25,8 +25,388 @@
       "pattern": "^[A-Za-z0-9][A-Za-z0-9-]*(\\.[A-Za-z0-9][A-Za-z0-9-]*)+$"
     },
     "icon": {
-      "type": "string",
-      "pattern": "\\.(icns|icon)$"
+      "oneOf": [
+        {
+          "type": "string",
+          "pattern": "\\.(icns|icon)$"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "minProperties": 1,
+          "properties": {
+            "modern": {
+              "type": "string",
+              "pattern": "\\.icon$"
+            },
+            "legacy": {
+              "type": "string",
+              "pattern": "\\.icns$"
+            }
+          }
+        }
+      ]
+    },
+    "application": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/inlineApplication"
+        },
+        {
+          "$ref": "#/$defs/applicationReference"
+        }
+      ]
+    },
+    "components": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9-]{0,62}$"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/component"
+      }
+    },
+    "userConfiguration": {
+      "$ref": "#/$defs/userConfiguration"
+    },
+    "window": {
+      "$ref": "#/$defs/window"
+    }
+  },
+  "$defs": {
+    "command": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "environment": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+      },
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "dependencyList": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9-]{0,62}$"
+      }
+    },
+    "inlineApplication": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["command", "readiness"],
+      "properties": {
+        "command": {
+          "$ref": "#/$defs/command"
+        },
+        "workingDirectory": {
+          "type": "string",
+          "minLength": 1
+        },
+        "environment": {
+          "$ref": "#/$defs/environment"
+        },
+        "dependsOn": {
+          "$ref": "#/$defs/dependencyList"
+        },
+        "preferredPort": {
+          "type": "integer",
+          "minimum": 1024,
+          "maximum": 65535
+        },
+        "readiness": {
+          "$ref": "#/$defs/probe"
+        }
+      }
+    },
+    "applicationReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["component", "endpoint"],
+      "properties": {
+        "component": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{0,62}$"
+        },
+        "endpoint": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{0,62}$"
+        },
+        "path": {
+          "type": "string",
+          "pattern": "^/"
+        }
+      }
+    },
+    "component": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/serviceComponent"
+        },
+        {
+          "$ref": "#/$defs/taskComponent"
+        },
+        {
+          "$ref": "#/$defs/prerequisiteComponent"
+        }
+      ]
+    },
+    "serviceComponent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["command"],
+      "properties": {
+        "kind": {
+          "const": "service"
+        },
+        "command": {
+          "$ref": "#/$defs/command"
+        },
+        "workingDirectory": {
+          "type": "string",
+          "minLength": 1
+        },
+        "environment": {
+          "$ref": "#/$defs/environment"
+        },
+        "dependsOn": {
+          "$ref": "#/$defs/dependencyList"
+        },
+        "endpoints": {
+          "$ref": "#/$defs/endpoints"
+        },
+        "readiness": {
+          "$ref": "#/$defs/probe"
+        }
+      }
+    },
+    "taskComponent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "command"],
+      "properties": {
+        "kind": {
+          "const": "task"
+        },
+        "command": {
+          "$ref": "#/$defs/command"
+        },
+        "workingDirectory": {
+          "type": "string",
+          "minLength": 1
+        },
+        "environment": {
+          "$ref": "#/$defs/environment"
+        },
+        "dependsOn": {
+          "$ref": "#/$defs/dependencyList"
+        }
+      }
+    },
+    "prerequisiteComponent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "check"],
+      "properties": {
+        "kind": {
+          "const": "prerequisite"
+        },
+        "workingDirectory": {
+          "type": "string",
+          "minLength": 1
+        },
+        "environment": {
+          "$ref": "#/$defs/environment"
+        },
+        "dependsOn": {
+          "$ref": "#/$defs/dependencyList"
+        },
+        "endpoints": {
+          "$ref": "#/$defs/prerequisiteEndpoints"
+        },
+        "check": {
+          "$ref": "#/$defs/probe"
+        },
+        "failureMessage": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "endpoints": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9-]{0,62}$"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/endpoint"
+      }
+    },
+    "prerequisiteEndpoints": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9-]{0,62}$"
+      },
+      "additionalProperties": {
+        "allOf": [
+          {
+            "$ref": "#/$defs/endpoint"
+          },
+          {
+            "required": ["port"],
+            "properties": {
+              "port": {
+                "required": ["fixed"]
+              }
+            }
+          }
+        ]
+      }
+    },
+    "endpoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["protocol"],
+      "properties": {
+        "protocol": {
+          "enum": ["http", "https", "tcp"]
+        },
+        "host": {
+          "enum": ["127.0.0.1", "localhost", "::1"]
+        },
+        "port": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "fixed": {
+              "type": "integer",
+              "minimum": 1024,
+              "maximum": 65535
+            },
+            "preferred": {
+              "type": "integer",
+              "minimum": 1024,
+              "maximum": 65535
+            }
+          },
+          "not": {
+            "required": ["fixed", "preferred"]
+          }
+        }
+      }
+    },
+    "probe": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/httpProbe"
+        },
+        {
+          "$ref": "#/$defs/tcpProbe"
+        },
+        {
+          "$ref": "#/$defs/commandProbe"
+        }
+      ]
+    },
+    "httpProbe": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "http"
+        },
+        "endpoint": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{0,62}$"
+        },
+        "path": {
+          "type": "string",
+          "pattern": "^/"
+        },
+        "timeoutSeconds": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 300
+        },
+        "acceptableStatusCodes": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "integer",
+            "minimum": 100,
+            "maximum": 599
+          }
+        },
+        "contentTypeContains": {
+          "type": "string",
+          "minLength": 1
+        },
+        "bodyContains": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "tcpProbe": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "endpoint"],
+      "properties": {
+        "type": {
+          "const": "tcp"
+        },
+        "endpoint": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{0,62}$"
+        },
+        "timeoutSeconds": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 300
+        }
+      }
+    },
+    "commandProbe": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "command"],
+      "properties": {
+        "type": {
+          "const": "command"
+        },
+        "command": {
+          "$ref": "#/$defs/command"
+        },
+        "timeoutSeconds": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 300
+        },
+        "success": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "stdoutEquals": {
+              "type": "string"
+            },
+            "stdoutContains": {
+              "type": "string"
+            }
+          },
+          "not": {
+            "required": ["stdoutEquals", "stdoutContains"]
+          }
+        }
+      }
     },
     "userConfiguration": {
       "type": "object",
@@ -59,13 +439,7 @@
                 "minLength": 1
               },
               "type": {
-                "enum": [
-                  "string",
-                  "secret",
-                  "boolean",
-                  "file",
-                  "directory"
-                ]
+                "enum": ["string", "secret", "boolean", "file", "directory"]
               },
               "required": {
                 "type": "boolean"
@@ -74,71 +448,6 @@
                 "type": "string",
                 "minLength": 1
               }
-            }
-          }
-        }
-      }
-    },
-    "server": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["command", "workingDirectory", "readiness"],
-      "properties": {
-        "command": {
-          "type": "array",
-          "minItems": 1,
-          "items": {
-            "type": "string",
-            "minLength": 1
-          }
-        },
-        "workingDirectory": {
-          "type": "string",
-          "minLength": 1
-        },
-        "environment": {
-          "type": "object",
-          "additionalProperties": {
-            "type": "string"
-          }
-        },
-        "preferredPort": {
-          "type": "integer",
-          "minimum": 1024,
-          "maximum": 65535
-        },
-        "readiness": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["url", "timeoutSeconds"],
-          "properties": {
-            "url": {
-              "type": "string",
-              "description": "Loopback application URL polled for readiness and, in browser mode, opened for the user after it becomes ready. Use a meaningful human-facing page rather than a raw health response.",
-              "pattern": "^https?://(127\\.0\\.0\\.1|localhost|\\[::1\\])"
-            },
-            "timeoutSeconds": {
-              "type": "number",
-              "minimum": 1,
-              "maximum": 300
-            },
-            "acceptableStatusCodes": {
-              "type": "array",
-              "minItems": 1,
-              "uniqueItems": true,
-              "items": {
-                "type": "integer",
-                "minimum": 100,
-                "maximum": 599
-              }
-            },
-            "contentTypeContains": {
-              "type": "string",
-              "minLength": 1
-            },
-            "bodyContains": {
-              "type": "string",
-              "minLength": 1
             }
           }
         }

@@ -31,40 +31,38 @@ final class PathAndEnvironmentTests: XCTestCase {
         )
     }
 
-    func testEnvironmentInterpolationUsesOnlyProvidedVariables() throws {
-        let value = try EnvironmentInterpolator.expand(
-            "http://127.0.0.1:${ENMANNER_PORT}/${ENMANNER_PROJECT_DIR}",
-            variables: [
-                "ENMANNER_PORT": "43120",
-                "ENMANNER_PROJECT_DIR": "project"
-            ]
-        )
-        XCTAssertEqual(value, "http://127.0.0.1:43120/project")
-        XCTAssertThrowsError(
-            try EnvironmentInterpolator.expand(
-                "${HOME}",
-                variables: ["ENMANNER_PORT": "43120"]
-            )
-        )
-    }
-
     func testProcessCommandConstructionDoesNotUseShell() throws {
         let directory = try temporaryDirectory()
         let manifest = EnmannerManifest(
-            version: 2,
+            version: 3,
             name: "Example",
             identifier: "local.enmanner.example",
-            server: .init(
-                command: ["/bin/echo", "port=${ENMANNER_PORT}", "two words"],
-                environment: ["PORT": "${ENMANNER_PORT}"],
-                readiness: .init(url: "http://127.0.0.1:${ENMANNER_PORT}/")
+            application: .init(
+                command: [
+                    "/bin/echo",
+                    "port=${self.endpoints.http.port}",
+                    "two words"
+                ],
+                environment: ["PORT": "${self.endpoints.http.port}"],
+                preferredPort: 43210,
+                readiness: .init(path: "/")
             )
         )
+        let graph = try RuntimeGraph.make(from: manifest)
+        let componentName = graph.applicationComponent
+        let plan = try RuntimePlan.make(
+            manifest: manifest,
+            retainedPorts: [
+                .init(component: componentName, endpoint: "http"): 43210
+            ]
+        )
+        let component = try XCTUnwrap(plan.graph.components[componentName])
 
         let configuration = try ProcessConfigurationBuilder.make(
-            manifest: manifest,
+            componentName: componentName,
+            component: component,
+            plan: plan,
             projectURL: directory,
-            port: 43210,
             baseEnvironment: ["PATH": "/usr/bin:/bin"]
         )
 
@@ -95,20 +93,24 @@ final class PathAndEnvironmentTests: XCTestCase {
             ofItemAtPath: executable.path
         )
         let manifest = EnmannerManifest(
-            version: 2,
+            version: 3,
             name: "Example",
             identifier: "local.enmanner.example",
-            server: .init(
+            application: .init(
                 command: ["./enmanner/start"],
                 workingDirectory: "Project Files",
-                readiness: .init(url: "http://127.0.0.1:${ENMANNER_PORT}/")
+                readiness: .init(path: "/")
             )
         )
+        let plan = try RuntimePlan.make(manifest: manifest)
+        let componentName = plan.graph.applicationComponent
+        let component = try XCTUnwrap(plan.graph.components[componentName])
 
         let configuration = try ProcessConfigurationBuilder.make(
-            manifest: manifest,
+            componentName: componentName,
+            component: component,
+            plan: plan,
             projectURL: directory,
-            port: 43210,
             baseEnvironment: ["PATH": "/usr/bin:/bin"]
         )
 
@@ -118,20 +120,24 @@ final class PathAndEnvironmentTests: XCTestCase {
     func testRelativeExecutableCannotLeaveProject() throws {
         let directory = try temporaryDirectory()
         let manifest = EnmannerManifest(
-            version: 2,
+            version: 3,
             name: "Example",
             identifier: "local.enmanner.example",
-            server: .init(
+            application: .init(
                 command: ["../../bin/sh"],
-                readiness: .init(url: "http://127.0.0.1:${ENMANNER_PORT}/")
+                readiness: .init(path: "/")
             )
         )
+        let plan = try RuntimePlan.make(manifest: manifest)
+        let componentName = plan.graph.applicationComponent
+        let component = try XCTUnwrap(plan.graph.components[componentName])
 
         XCTAssertThrowsError(
             try ProcessConfigurationBuilder.make(
-                manifest: manifest,
+                componentName: componentName,
+                component: component,
+                plan: plan,
                 projectURL: directory,
-                port: 43210,
                 baseEnvironment: ["PATH": "/usr/bin:/bin"]
             )
         )

@@ -1,14 +1,16 @@
 {
   "$schema": "../.enmanner/enmanner.schema.json",
-  "version": 2,
+  "version": 3,
   "name": "Escaping Runtime Fixture",
   "identifier": "local.enmanner.escaping-runtime-fixture",
-  "server": {
+  "application": {
     "command": ["node", "escape-parent.mjs"],
     "workingDirectory": ".",
-    "environment": {},
+    "environment": {
+      "PORT": "${self.endpoints.http.port}"
+    },
     "readiness": {
-      "url": "http://127.0.0.1:${ENMANNER_PORT}/",
+      "path": "/",
       "timeoutSeconds": 10,
       "bodyContains": "escaping fixture"
     }

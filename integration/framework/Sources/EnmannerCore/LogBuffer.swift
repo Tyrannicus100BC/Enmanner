@@ -18,13 +18,18 @@ public final class LogBuffer: @unchecked Sendable {
         self.maximumEntries = maximumEntries
     }
 
-    public func append(_ message: String, stream: Stream = .launcher) {
+    public func append(
+        _ message: String,
+        stream: Stream = .launcher,
+        component: String? = nil
+    ) {
         let cleanMessage = message.trimmingCharacters(in: .newlines)
         guard !cleanMessage.isEmpty else { return }
 
         let timestamp = Self.timestampFormatter.string(from: Date())
-        let entry = "[\(timestamp)] [\(stream.rawValue)] \(cleanMessage)"
-        let messageKey = "\(stream.rawValue)\u{0}\(cleanMessage)"
+        let source = component.map { "[\($0)] " } ?? ""
+        let entry = "[\(timestamp)] \(source)[\(stream.rawValue)] \(cleanMessage)"
+        let messageKey = "\(component ?? "")\u{0}\(stream.rawValue)\u{0}\(cleanMessage)"
         queue.async { [weak self] in
             guard let self else { return }
             if self.lastMessageKey == messageKey, !self.entries.isEmpty {

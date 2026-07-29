@@ -24,7 +24,7 @@ printf '%s\n' "$install_result" | jq -e '
   (.inference.command == [
     "npm", "run", "dev", "--",
     "--hostname", "127.0.0.1",
-    "--port", "${ENMANNER_PORT}"
+    "--port", "${self.endpoints.http.port}"
   ])
 ' >/dev/null
 

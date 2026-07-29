@@ -22,26 +22,30 @@ public struct ProcessConfiguration: Equatable, Sendable {
 
 public enum ProcessConfigurationBuilder {
     public static func make(
-        manifest: EnmannerManifest,
+        componentName: String,
+        component: EnmannerManifest.Component,
+        plan: RuntimePlan,
         projectURL: URL,
-        port: UInt16,
         baseEnvironment: [String: String] = ProcessInfo.processInfo.environment
     ) throws -> ProcessConfiguration {
         let launchEnvironment = environmentForGUIApplication(
             baseEnvironment
         )
-        let variables = [
-            "ENMANNER_PORT": String(port),
-            "ENMANNER_PROJECT_DIR": projectURL.path
-        ]
-        let expandedCommand = try manifest.server.command.map {
-            try EnvironmentInterpolator.expand($0, variables: variables)
+        let expandedCommand = try (component.command ?? []).map {
+            try ManifestInterpolator.expand(
+                $0,
+                componentName: componentName,
+                plan: plan,
+                projectURL: projectURL
+            )
         }
         guard let executable = expandedCommand.first else {
-            throw EnmannerError.invalidManifest(["server.command is empty."])
+            throw EnmannerError.invalidManifest([
+                "component \(componentName) command is empty."
+            ])
         }
         let workingDirectoryURL = try ProjectPaths.resolve(
-            manifest.server.workingDirectory,
+            component.workingDirectory,
             inside: projectURL
         )
         let executableURL = try resolveExecutable(
@@ -51,12 +55,14 @@ public enum ProcessConfigurationBuilder {
             projectURL: projectURL
         )
         var environment = launchEnvironment
-        let configuredEnvironment = try EnvironmentInterpolator.expand(
-            manifest.server.environment,
-            variables: variables
+        let configuredEnvironment = try ManifestInterpolator.expand(
+            component.environment,
+            componentName: componentName,
+            plan: plan,
+            projectURL: projectURL
         )
         environment.merge(configuredEnvironment) { _, configured in configured }
-        environment["ENMANNER_PORT"] = String(port)
+        environment["ENMANNER_COMPONENT"] = componentName
         environment["ENMANNER_PROJECT_DIR"] = projectURL.path
 
         return ProcessConfiguration(
@@ -158,13 +164,16 @@ public final class ProcessSupervisor: @unchecked Sendable {
 
     private let queue = DispatchQueue(label: "local.enmanner.process-supervisor")
     private var process: Process?
+    private var processGroupIdentifier: Int32?
     private var expectedExitProcessIdentifiers: Set<Int32> = []
     private let logBuffer: LogBuffer
+    private let componentName: String
 
     public var onExit: (@Sendable (Exit) -> Void)?
 
-    public init(logBuffer: LogBuffer) {
+    public init(logBuffer: LogBuffer, componentName: String = "application") {
         self.logBuffer = logBuffer
+        self.componentName = componentName
     }
 
     public var isRunning: Bool {
@@ -178,9 +187,16 @@ public final class ProcessSupervisor: @unchecked Sendable {
         }
     }
 
+    public var hasLiveProcessGroup: Bool {
+        queue.sync {
+            processGroupIdentifier.map(Self.processGroupExists) ?? false
+        }
+    }
+
     public func start(_ configuration: ProcessConfiguration) throws {
         try queue.sync {
-            guard process?.isRunning != true else {
+            guard process?.isRunning != true,
+                  processGroupIdentifier.map(Self.processGroupExists) != true else {
                 throw EnmannerError.processAlreadyRunning
             }
 
@@ -205,10 +221,15 @@ public final class ProcessSupervisor: @unchecked Sendable {
                     if self.process === completed {
                         self.process = nil
                     }
+                    if !Self.processGroupExists(pid) &&
+                        self.processGroupIdentifier == pid {
+                        self.processGroupIdentifier = nil
+                    }
                     return expected
                 }
                 self.logBuffer.append(
-                    "Server exited with status \(completed.terminationStatus)."
+                    "Process exited with status \(completed.terminationStatus).",
+                    component: self.componentName
                 )
                 self.onExit?(
                     Exit(status: completed.terminationStatus, expected: expected)
@@ -219,10 +240,12 @@ public final class ProcessSupervisor: @unchecked Sendable {
                 try process.run()
                 Darwin.setpgid(process.processIdentifier, process.processIdentifier)
                 self.process = process
+                processGroupIdentifier = process.processIdentifier
                 logBuffer.append(
-                    "Started server process \(process.processIdentifier): " +
+                    "Started process \(process.processIdentifier): " +
                     ([configuration.executableURL.path] + configuration.arguments)
-                        .joined(separator: " ")
+                        .joined(separator: " "),
+                    component: componentName
                 )
             } catch {
                 outputPipe.fileHandleForReading.readabilityHandler = nil
@@ -233,29 +256,49 @@ public final class ProcessSupervisor: @unchecked Sendable {
     }
 
     public func stop(gracePeriod: TimeInterval = 2) {
-        let processToStop: Process? = queue.sync {
-            guard let process, process.isRunning else { return nil }
-            expectedExitProcessIdentifiers.insert(
-                process.processIdentifier
-            )
-            return process
+        let processToStop: (process: Process?, group: Int32)? = queue.sync {
+            guard let group = processGroupIdentifier,
+                  Self.processGroupExists(group) else {
+                processGroupIdentifier = nil
+                return nil
+            }
+            if let process, process.isRunning {
+                expectedExitProcessIdentifiers.insert(
+                    process.processIdentifier
+                )
+                return (process, group)
+            }
+            return (nil, group)
         }
-        guard let processToStop, processToStop.isRunning else { return }
+        guard let processToStop else { return }
 
-        let pid = processToStop.processIdentifier
-        logBuffer.append("Stopping server process \(pid).")
+        let pid = processToStop.group
+        logBuffer.append(
+            "Stopping process \(pid).",
+            component: componentName
+        )
         Darwin.kill(-pid, SIGTERM)
 
         let deadline = Date().addingTimeInterval(gracePeriod)
-        while (processToStop.isRunning || Self.processGroupExists(pid)) &&
+        while ((processToStop.process?.isRunning ?? false) ||
+                Self.processGroupExists(pid)) &&
                 Date() < deadline {
             Thread.sleep(forTimeInterval: 0.05)
         }
-        if processToStop.isRunning || Self.processGroupExists(pid) {
-            logBuffer.append("Server did not stop gracefully; forcing shutdown.")
+        if (processToStop.process?.isRunning ?? false) ||
+            Self.processGroupExists(pid) {
+            logBuffer.append(
+                "Process did not stop gracefully; forcing shutdown.",
+                component: componentName
+            )
             Darwin.kill(-pid, SIGKILL)
-            if processToStop.isRunning {
-                processToStop.waitUntilExit()
+            if processToStop.process?.isRunning == true {
+                processToStop.process?.waitUntilExit()
+            }
+        }
+        queue.sync {
+            if processGroupIdentifier == pid {
+                processGroupIdentifier = nil
             }
         }
     }
@@ -268,14 +311,19 @@ public final class ProcessSupervisor: @unchecked Sendable {
     }
 
     private func attach(pipe: Pipe, stream: LogBuffer.Stream) {
-        pipe.fileHandleForReading.readabilityHandler = { [weak logBuffer] handle in
+        pipe.fileHandleForReading.readabilityHandler = {
+            [weak logBuffer, weak self] handle in
             let data = handle.availableData
             guard !data.isEmpty,
                   let text = String(data: data, encoding: .utf8) else {
                 return
             }
             for line in text.split(whereSeparator: \.isNewline) {
-                logBuffer?.append(String(line), stream: stream)
+                logBuffer?.append(
+                    String(line),
+                    stream: stream,
+                    component: self?.componentName
+                )
             }
         }
     }

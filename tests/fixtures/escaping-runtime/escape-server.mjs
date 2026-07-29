@@ -1,7 +1,7 @@
 import { writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 
-const port = Number(process.env.ENMANNER_PORT);
+const port = Number(process.env.PORT);
 writeFileSync("runtime-child.pid", String(process.pid));
 
 const server = createServer((_request, response) => {

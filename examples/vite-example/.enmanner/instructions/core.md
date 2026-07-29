@@ -2,11 +2,17 @@
 
 ## MUST
 
-- Keep one deterministic, noninteractive startup command in `enmanner/enmanner.json`.
-- Keep the server process in the foreground so Enmanner can supervise it.
-- Bind the server to loopback by default and respect `ENMANNER_PORT`.
-- Keep a cheap readiness URL available.
-- Make browser clients recover after a server restart.
+- Keep deterministic, noninteractive component commands in
+  `enmanner/enmanner.json`.
+- Keep every managed service in the foreground so Enmanner can supervise its
+  process group.
+- Bind declared endpoints to loopback and use their allocated endpoint values.
+- Declare dependencies explicitly, including every cross-component endpoint
+  reference.
+- Give the user-facing application component meaningful startup readiness.
+- Treat shared or already-running infrastructure as observed prerequisites,
+  never adopted services.
+- Make browser clients recover after a managed-service restart.
 - Keep runtime data outside generated build output.
 - Keep secrets out of source, Git, logs, and `enmanner/enmanner.json`.
 - Keep project dependencies inside this repository; do not install them
@@ -17,6 +23,7 @@
 ## SHOULD
 
 - Make startup idempotent and shutdown graceful.
+- Use one-shot task components for migrations that must precede services.
 - Preserve framework-native hot reload when the project already supports it.
 - Add a restart watcher only when it is safe and appropriate for the project.
 - Show useful user-facing errors.
@@ -24,14 +31,12 @@
 - Keep generated files reproducible and disposable.
 - Let the coding agent create quiet Git checkpoints before risky changes and
   after working milestones. Never overwrite uncommitted user work.
-- Give the app a distinctive icon. An existing app icon is not necessarily
-  valid modern source artwork: reject assets with a baked container treatment.
-  Reconstruct layered artwork or use image generation when needed, and follow
-  the hard preflight and acceptance gates in `icon.md`.
+- Give the app a distinctive icon. Follow the preflight and acceptance gates in
+  `icon.md`.
 
 ## MAY
 
-- Use the embedded WKWebView only after affirmatively testing its compatibility;
+- Use the embedded WKWebView only after affirmatively testing compatibility;
   the default-browser presentation is the safe default.
 - Add project-specific native window dimensions.
 - Extend the app with project-local tools that do not change the compatibility

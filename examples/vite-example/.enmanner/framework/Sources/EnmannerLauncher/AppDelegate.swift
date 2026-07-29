@@ -4,9 +4,8 @@ import EnmannerCore
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private let logBuffer = LogBuffer()
-    private let readinessChecker = ReadinessChecker()
     private let settings = AppSettings()
-    private lazy var supervisor = ProcessSupervisor(logBuffer: logBuffer)
+    private lazy var supervisor = RuntimeSupervisor(logBuffer: logBuffer)
     private var windowController: MainWindowController?
     private var settingsWindowController: SettingsWindowController?
     private var logWindowController: LogWindowController?
@@ -14,7 +13,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var projectURL: URL?
     private var applicationURL: URL?
     private var readinessTask: Task<Void, Never>?
-    private var chosenPort: UInt16?
+    private var currentLaunch: RuntimeSupervisor.Launch?
     private var reachedReadyState = false
     private var isRecovering = false
     private var recoveryAttempts = 0
@@ -126,7 +125,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         configureMainMenu(appName: manifest.name)
         supervisor.onExit = { [weak self] exit in
             DispatchQueue.main.async {
-                self?.serverDidExit(exit)
+                self?.componentDidExit(exit)
             }
         }
         logBuffer.append("Resolved project at \(projectURL.path).")
@@ -163,7 +162,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         return true
     }
 
-    private func startServer(recovering: Bool) {
+    private func startServer(
+        recovering: Bool,
+        reallocateEndpoints: Bool = false
+    ) {
         guard let manifest, let projectURL else { return }
         readinessTask?.cancel()
         isRecovering = recovering
@@ -173,100 +175,55 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             windowController?.showStarting()
         }
 
-        do {
-            let isFirstAllocation = chosenPort == nil
-            let port = try chosenPort ?? PortAllocator.allocateLoopbackPort(
-                preferredPort: manifest.server.preferredPort
-            )
-            chosenPort = port
-            if isFirstAllocation,
-               let preferredPort = manifest.server.preferredPort,
-               preferredPort != port {
-                logBuffer.append(
-                    "Preferred port \(preferredPort) is unavailable; using \(port)."
-                )
-            }
-            let variables = [
-                "ENMANNER_PORT": String(port),
-                "ENMANNER_PROJECT_DIR": projectURL.path
-            ]
-            let urlString = try EnvironmentInterpolator.expand(
-                manifest.server.readiness.url,
-                variables: variables
-            )
-            guard let url = URL(string: urlString) else {
-                throw EnmannerError.invalidManifest(["server.readiness.url is invalid."])
-            }
-            applicationURL = url
-            let configuration = try ProcessConfigurationBuilder.make(
-                manifest: manifest,
-                projectURL: projectURL,
-                port: port
-            )
-            try supervisor.start(configuration)
-            logBuffer.append("Waiting for readiness at \(url.absoluteString).")
-            waitForReadiness(
-                url: url,
-                readiness: manifest.server.readiness
-            )
-        } catch {
-            showFailure(error: error)
-        }
-    }
-
-    private func waitForReadiness(
-        url: URL,
-        readiness: EnmannerManifest.Readiness
-    ) {
         readinessTask = Task { [weak self] in
             guard let self else { return }
-            let ready = await readinessChecker.waitUntilReady(
-                url: url,
-                timeout: readiness.timeoutSeconds,
-                acceptableStatusCodes: readiness.acceptableStatusCodes,
-                contentTypeContains: readiness.contentTypeContains,
-                bodyContains: readiness.bodyContains
-            )
-            guard !Task.isCancelled else { return }
-            if ready {
+            do {
+                let launch = try await supervisor.start(
+                    manifest: manifest,
+                    projectURL: projectURL,
+                    reallocateEndpoints: reallocateEndpoints
+                )
+                guard !Task.isCancelled else { return }
+                currentLaunch = launch
+                applicationURL = launch.applicationURL
                 reachedReadyState = true
                 isRecovering = false
                 recoveryAttempts = 0
-                logBuffer.append("Application server is ready.")
-                writeTestStatus(url: url)
-                switch manifest?.window.mode {
+                logBuffer.append("Application is ready.")
+                writeTestStatus(launch: launch)
+                switch manifest.window.mode {
                 case .embedded:
-                    windowController?.showEmbeddedApplication(at: url)
+                    windowController?.showEmbeddedApplication(
+                        at: launch.applicationURL
+                    )
                 case .browser:
-                    windowController?.showBrowserRunning(at: url)
+                    windowController?.showBrowserRunning(
+                        at: launch.applicationURL
+                    )
                     windowController?.hideWindow()
                     if !suppressBrowserForTesting {
-                        NSWorkspace.shared.open(url)
+                        NSWorkspace.shared.open(launch.applicationURL)
                     }
-                case nil:
-                    break
                 }
-            } else if supervisor.isRunning {
-                logBuffer.append(
-                    "Readiness timed out after \(Int(readiness.timeoutSeconds)) seconds."
-                )
-                supervisor.stop()
-                showFailure(
-                    error: EnmannerError.processLaunchFailed(
-                        "The server did not become ready within " +
-                        "\(Int(readiness.timeoutSeconds)) seconds."
-                    )
-                )
+            } catch {
+                guard !Task.isCancelled else { return }
+                showFailure(error: error)
             }
         }
     }
 
-    private func writeTestStatus(url: URL) {
-        guard let testStatusFile, let chosenPort else { return }
+    private func writeTestStatus(launch: RuntimeSupervisor.Launch) {
+        guard let testStatusFile else { return }
+        let selectedPorts = Dictionary(
+            uniqueKeysWithValues: launch.selectedPorts.map { key, value in
+                ("\(key.component).\(key.endpoint)", Int(value))
+            }
+        )
         let status: [String: Any] = [
             "ready": true,
-            "selectedPort": Int(chosenPort),
-            "readinessURL": url.absoluteString,
+            "selectedPort": Int(launch.applicationPort),
+            "selectedPorts": selectedPorts,
+            "readinessURL": launch.applicationURL.absoluteString,
             "processIdentifier": Int(ProcessInfo.processInfo.processIdentifier)
         ]
         guard let data = try? JSONSerialization.data(
@@ -285,7 +242,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
     }
 
-    private func serverDidExit(_ exit: ProcessSupervisor.Exit) {
+    private func componentDidExit(_ exit: RuntimeSupervisor.ComponentExit) {
         guard !shuttingDown, !exit.expected else { return }
         readinessTask?.cancel()
 
@@ -294,9 +251,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             isRecovering = true
             let delay = min(pow(2.0, Double(recoveryAttempts - 1)) * 0.6, 5)
             logBuffer.append(
-                "Server stopped unexpectedly; recovery attempt \(recoveryAttempts) starts in \(String(format: "%.1f", delay)) seconds."
+                "Component \(exit.component) stopped unexpectedly; recovery attempt \(recoveryAttempts) starts in \(String(format: "%.1f", delay)) seconds."
             )
             windowController?.showReconnecting()
+            supervisor.stop()
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
                 guard let self, !self.shuttingDown else { return }
                 self.startServer(recovering: true)
@@ -304,7 +262,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         } else {
             showFailure(
                 error: EnmannerError.processLaunchFailed(
-                    "The server process exited before it became ready."
+                    "Component \(exit.component) exited unexpectedly."
                 ),
                 exitStatus: exit.status
             )
@@ -336,9 +294,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         isRecovering = false
         recoveryAttempts = 0
         if reallocatingPort {
-            chosenPort = nil
+            currentLaunch = nil
         }
-        startServer(recovering: false)
+        startServer(
+            recovering: false,
+            reallocateEndpoints: reallocatingPort
+        )
     }
 
     private func showFailure(error: Error, exitStatus: Int32? = nil) {
@@ -349,7 +310,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         let controller = ensureWindowController()
         controller?.showFailure(
             message: error.localizedDescription,
-            command: manifest?.server.command ?? [],
+            command: manifest.flatMap {
+                try? RuntimeGraph.make(from: $0).applicationCommand
+            } ?? [],
             exitStatus: exitStatus,
             includesRecentOutput: settings.includesRecentOutputInErrors
         )
@@ -359,12 +322,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private func presentPreparationFailure(_ error: Error) {
         NSApplication.shared.activate(ignoringOtherApps: true)
         let fallbackManifest = EnmannerManifest(
-            version: 2,
+            version: 3,
             name: "Enmanner",
             identifier: "local.enmanner.launcher",
-            server: .init(
-                command: [],
-                readiness: .init(url: "http://127.0.0.1/")
+            application: .init(
+                command: ["/usr/bin/false"],
+                readiness: .init(path: "/")
             )
         )
         configureMainMenu(appName: fallbackManifest.name)

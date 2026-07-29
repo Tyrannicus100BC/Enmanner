@@ -4,11 +4,9 @@
 
 - Test a wider set of frontend and full-stack development servers.
 - Improve duplicate-launch coordination and escaped-child detection.
-- Design declarative multi-process support with dependency ordering,
-  per-service readiness and labelled logs, named or allocated ports,
-  required-service failure policy, ownership of pre-existing services, and
-  reverse-order shutdown. Treat external prerequisites such as Docker Desktop
-  separately from launcher-owned services.
+- Extend the component graph with concurrent startup of independent branches,
+  continuous prerequisite and opt-in health observation, component-local
+  recovery, and native per-component status/log filtering.
 - Add an explicit project-local runtime-data convention and backup helpers.
 - Add dependency-only preflight and isolated runtime-validation modes for
   stateful services.

@@ -15,10 +15,10 @@ is provisional evidence and can never satisfy completion.
 4. Install the framework. If the result is `configurationRequired`, review
    `enmanner/enmanner.json.example`, resolve every reported compatibility check, and
    promote a verified configuration to `enmanner/enmanner.json`.
-5. Verify the command is an argument array, stays in the foreground, honors
-   `ENMANNER_PORT`, and binds to loopback. In browser mode the readiness URL is
-   also opened for the user, so it must be a meaningful human-facing page
-   rather than a raw health response.
+5. Verify every managed command is an argument array, stays in the foreground,
+   uses its declared endpoint port, and binds to loopback. The application
+   endpoint is also opened for the user, so it must be a meaningful
+   human-facing page rather than a raw health response.
 6. Configure a preferred port in browser mode. Inferred manifests already have
    a deterministic choice with fallback.
 7. If people must configure machine-local values, add `userConfiguration`.
@@ -40,6 +40,8 @@ is provisional evidence and can never satisfy completion.
 10. Inspect existing brand assets. Create layered source artwork under
    `enmanner/icon/` when necessary, package a modern `.icon` there, add its
    project-relative path to `enmanner/enmanner.json`, then run `preview-icon`.
+   For teams mixing full-Xcode and Command Line Tools-only Macs, also commit a
+   legacy `.icns` and configure the pair as `icon.modern` and `icon.legacy`.
    Open the generated contact sheet and confirm that every Default, Dark,
    Clear, and Tinted rendition is balanced and uncropped. Review structured
    source-layer measurements as warnings, not substitutes for visual judgment.
@@ -50,7 +52,7 @@ is provisional evidence and can never satisfy completion.
    products. Do not call the integration complete before step 11. Development
    build or test receipts do not count as final-build evidence.
 
-For one frontend command, configure it directly. For several project-owned
-processes, copy and adapt the project supervisor template. Treat Docker Desktop
-and already-running shared services as prerequisites rather than adopted
-children.
+Use inline `application` configuration for one frontend command. For several
+project-owned processes, declare `service` and `task` components with explicit
+dependencies. Treat Docker Desktop and already-running shared services as
+observed `prerequisite` components rather than adopted children.

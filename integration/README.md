@@ -18,9 +18,8 @@ The supported project-facing surface is:
 - `scripts/create-icon` — create a layered icon package from project artwork;
 - `scripts/preview-icon` — render all supported icon appearances for review;
 - `scripts/test-app` — verify final or explicitly selected development app
-  launch, readiness, normal quit, and server cleanup with separate receipts;
-- `templates/` — files to copy into the visible project before customization.
+  launch, readiness, normal quit, and runtime cleanup with separate receipts.
 
-`framework/` is the native implementation. Do not place project supervisors,
-icons, data, scripts, or overrides inside `.enmanner/`; keep Enmanner-specific
-project files in the visible `../enmanner/` sibling.
+`framework/` is the native implementation. Do not place icons, data, scripts,
+or overrides inside `.enmanner/`; keep Enmanner-specific project files in the
+visible `../enmanner/` sibling.

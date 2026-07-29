@@ -1,7 +1,7 @@
 import http from "node:http";
 import fs from "node:fs";
 
-const port = Number(process.env.ENMANNER_PORT);
+const port = Number(process.env.PORT);
 const server = http.createServer((_request, response) => {
   response.writeHead(503, { "content-type": "text/plain" });
   response.end("starting");

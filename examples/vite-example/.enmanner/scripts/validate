@@ -8,6 +8,7 @@ framework_dir="$integration_dir/framework"
 runtime_flag=""
 doctor_flag=false
 allow_legacy_icon=false
+development=false
 json=false
 json_lines=false
 
@@ -16,17 +17,18 @@ while [[ "${1:-}" == --* ]]; do
     --runtime) runtime_flag="--runtime" ;;
     --doctor) doctor_flag=true ;;
     --allow-legacy-icon) allow_legacy_icon=true ;;
+    --development) development=true ;;
     --json) json=true ;;
     --json-lines) json_lines=true ;;
     *)
-      echo "Usage: $0 [--runtime] [--json|--json-lines] [--allow-legacy-icon]" >&2
+      echo "Usage: $0 [--runtime] [--development] [--json|--json-lines] [--allow-legacy-icon]" >&2
       exit 64
       ;;
   esac
   shift
 done
 if [[ $# -ne 0 || ( "$json" == true && "$json_lines" == true ) ]]; then
-  echo "Usage: $0 [--runtime] [--json|--json-lines] [--allow-legacy-icon]" >&2
+  echo "Usage: $0 [--runtime] [--development] [--json|--json-lines] [--allow-legacy-icon]" >&2
   exit 64
 fi
 
@@ -58,11 +60,8 @@ else
 fi
 bin_dir="$(swift build --package-path "$framework_dir" -c release --show-bin-path)"
 
-icon_path="$(
-  /usr/bin/plutil -extract icon raw "$project_dir/enmanner/enmanner.json" \
-    2>/dev/null || true
-)"
-if [[ "$icon_path" == *.icns ]]; then
+icon_path="$("$bin_dir/enmanner-validator" --project "$project_dir" --print icon)"
+if [[ "$icon_path" == *.icns && "$development" != true ]]; then
   if command -v xcrun >/dev/null 2>&1 &&
     xcrun --find actool >/dev/null 2>&1; then
     if [[ "$allow_legacy_icon" != true ]]; then

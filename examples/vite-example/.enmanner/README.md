@@ -7,8 +7,8 @@ repair or upgrade workflow.
 The supported project-facing surface is:
 
 - `../enmanner/enmanner.json` — project-owned configuration;
-- `scripts/build-app` — validate and build the native application, with
-  optional structured `--json` evidence;
+- `scripts/build-app` — validate and build the final native application, or a
+  separately identified development-only lifecycle bundle;
 - `scripts/validate` — static or opted-in runtime validation, with optional
   newline-delimited progress;
 - `scripts/doctor` — validation plus installation, manifest-draft, icon,
@@ -17,10 +17,9 @@ The supported project-facing surface is:
 - `scripts/clean` — remove local Swift build products;
 - `scripts/create-icon` — create a layered icon package from project artwork;
 - `scripts/preview-icon` — render all supported icon appearances for review;
-- `scripts/test-app` — verify native app launch, readiness, normal quit, and
-  server cleanup;
-- `templates/` — files to copy into the visible project before customization.
+- `scripts/test-app` — verify final or explicitly selected development app
+  launch, readiness, normal quit, and runtime cleanup with separate receipts.
 
-`framework/` is the native implementation. Do not place project supervisors,
-icons, data, scripts, or overrides inside `.enmanner/`; keep Enmanner-specific
-project files in the visible `../enmanner/` sibling.
+`framework/` is the native implementation. Do not place icons, data, scripts,
+or overrides inside `.enmanner/`; keep Enmanner-specific project files in the
+visible `../enmanner/` sibling.

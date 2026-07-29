@@ -1,16 +1,291 @@
 # Manifest
 
 `enmanner/enmanner.json` is project-owned, versioned configuration.
-`.enmanner/enmanner.schema.json` provides editor and agent validation.
-The containing directory is always spelled exactly `enmanner/`; repository
-styling conventions do not change this machine-facing path.
+`.enmanner/enmanner.schema.json` provides editor and agent validation. The
+containing directory is always spelled exactly `enmanner/`.
+
+Manifest version 3 models the application as a graph of named runtime
+components. A concise inline form covers the common single-process application
+without exposing graph configuration:
 
 ```json
 {
   "$schema": "../.enmanner/enmanner.schema.json",
-  "version": 2,
+  "version": 3,
   "name": "Household Finances",
   "identifier": "local.enmanner.household-finances",
+  "application": {
+    "command": [
+      "npm",
+      "run",
+      "dev",
+      "--",
+      "--host",
+      "127.0.0.1",
+      "--port",
+      "${self.endpoints.http.port}",
+      "--strictPort"
+    ],
+    "workingDirectory": ".",
+    "environment": {
+      "PORT": "${self.endpoints.http.port}"
+    },
+    "preferredPort": 43120,
+    "readiness": {
+      "path": "/",
+      "timeoutSeconds": 30
+    }
+  },
+  "window": {
+    "mode": "browser",
+    "width": 1200,
+    "height": 800,
+    "resizable": true
+  }
+}
+```
+
+The loader lowers this shorthand into the same component graph used by a
+multi-process application. There is one lifecycle implementation.
+
+## Component graphs
+
+Use `components` when the application owns multiple processes, startup tasks,
+or observed external prerequisites:
+
+```json
+{
+  "version": 3,
+  "name": "Studio",
+  "identifier": "local.enmanner.studio",
+  "components": {
+    "postgres": {
+      "kind": "prerequisite",
+      "check": {
+        "type": "command",
+        "command": [
+          "docker",
+          "inspect",
+          "studio_postgres",
+          "--format",
+          "{{.State.Health.Status}}"
+        ],
+        "success": {
+          "stdoutEquals": "healthy"
+        },
+        "timeoutSeconds": 5
+      },
+      "failureMessage": "Start the local PostgreSQL container first."
+    },
+    "migrate": {
+      "kind": "task",
+      "dependsOn": ["postgres"],
+      "command": ["./bin/studio", "db:migrate"],
+      "workingDirectory": "Backend"
+    },
+    "api": {
+      "kind": "service",
+      "dependsOn": ["migrate"],
+      "command": ["./bin/studio", "serve"],
+      "workingDirectory": "Backend",
+      "environment": {
+        "PORT": "${self.endpoints.http.port}"
+      },
+      "endpoints": {
+        "http": {
+          "protocol": "http",
+          "port": {}
+        }
+      },
+      "readiness": {
+        "type": "http",
+        "endpoint": "http",
+        "path": "/api/v1/health",
+        "timeoutSeconds": 60
+      }
+    },
+    "frontend": {
+      "kind": "service",
+      "dependsOn": ["api"],
+      "command": [
+        "npm",
+        "run",
+        "dev",
+        "--",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "${self.endpoints.http.port}",
+        "--strictPort"
+      ],
+      "workingDirectory": "Frontend",
+      "environment": {
+        "API_URL": "${components.api.endpoints.http.url}"
+      },
+      "endpoints": {
+        "http": {
+          "protocol": "http",
+          "port": {
+            "preferred": 45123
+          }
+        }
+      },
+      "readiness": {
+        "type": "http",
+        "endpoint": "http",
+        "path": "/",
+        "timeoutSeconds": 120
+      }
+    }
+  },
+  "application": {
+    "component": "frontend",
+    "endpoint": "http",
+    "path": "/"
+  },
+  "window": {
+    "mode": "browser",
+    "width": 1440,
+    "height": 900,
+    "resizable": true
+  }
+}
+```
+
+Component names use lowercase letters, digits, and hyphens. `dependsOn`
+provides startup ordering:
+
+- A service dependency must be running and, when configured, ready.
+- A task dependency must exit successfully.
+- A prerequisite dependency must pass its check.
+
+Dependencies are explicit. A component that references another component's
+endpoint must also name it in `dependsOn`. Unknown components, unknown
+endpoints, hidden reference edges, and cycles fail static validation.
+
+Independent branches may be represented in the same graph. The initial version
+starts ready components in deterministic topological order. On Quit, managed
+services stop in reverse topological order. Each service owns a separate
+process group.
+
+## Component kinds
+
+`service` is the default. It runs one foreground executable-plus-argument array
+for the application lifetime. A service without `readiness` is considered
+running as soon as process creation succeeds; configure readiness whenever a
+dependent needs a stronger startup guarantee.
+
+`task` runs once per Enmanner launch after its dependencies are satisfied. It
+must exit with status zero before dependents start. Database migrations are a
+typical task.
+
+`prerequisite` observes something Enmanner does not own. It has `check` rather
+than `command`; Enmanner never starts, adopts, restarts, or stops it. Docker
+Desktop, shared databases, and already-running infrastructure belong here.
+
+The first component-graph runtime uses checks as startup gates. Continuous
+health and degraded-state reconciliation remain separate future policy rather
+than being inferred from startup readiness.
+
+## Endpoints and references
+
+An endpoint has a `protocol` (`http`, `https`, or `tcp`), a loopback `host`
+(default `127.0.0.1`), and a port:
+
+```json
+{
+  "protocol": "http",
+  "host": "127.0.0.1",
+  "port": {
+    "preferred": 45123
+  }
+}
+```
+
+- An empty `port` object requests an allocated loopback port.
+- `preferred` requests a stable port with allocated fallback.
+- `fixed` requires that exact port.
+- `fixed` and `preferred` are mutually exclusive.
+
+Endpoints on a `prerequisite` must use `fixed`, because Enmanner observes that
+listener rather than choosing the port or starting its owner.
+
+Endpoint values are frozen for one launcher session. Enmanner constructs URLs,
+including IPv6 formatting, and supports only these exact references:
+
+- `${self.endpoints.http.host}`
+- `${self.endpoints.http.port}`
+- `${self.endpoints.http.url}`
+- `${components.api.endpoints.http.host}`
+- `${components.api.endpoints.http.port}`
+- `${components.api.endpoints.http.url}`
+- `${project.directory}`
+
+There is no expression language or shell expansion. Unknown references fail.
+
+## Probes
+
+HTTP and TCP probes reference an endpoint on their component. HTTP probes may
+also declare `path`, `acceptableStatusCodes`, `contentTypeContains`, and
+`bodyContains`.
+
+A command probe runs an executable-plus-argument array directly with a strict
+timeout. Exit status zero succeeds unless `success.stdoutEquals` or
+`success.stdoutContains` adds a bounded output assertion. Command probes do not
+invoke a shell.
+
+`readiness` is a startup gate for managed services. `check` is the corresponding
+startup gate for prerequisites. A process exiting remains the default ongoing
+failure signal; readiness is not silently converted into continuous health
+monitoring.
+
+## Commands and paths
+
+Commands are arrays. Enmanner executes the first item directly and never invokes
+a shell. Relative executable paths resolve from the component's
+`workingDirectory`. Bare names use Enmanner's GUI-safe `PATH`; absolute
+executables are supported.
+
+Configured working directories and relative executables must remain inside the
+project. Every managed service must remain in the foreground, bind declared
+network listeners to loopback, and keep descendants in its owned process group.
+
+## App icons
+
+Projects shared by Macs with different Apple toolchains can configure both icon
+formats:
+
+```json
+{
+  "icon": {
+    "modern": "enmanner/icon/AppIcon.icon",
+    "legacy": "enmanner/icon/AppIcon.icns"
+  }
+}
+```
+
+When Xcode's `actool` is available, `build-app` selects and compiles `modern`.
+On a Command Line Tools-only Mac, it selects `legacy`. Both paths are
+project-relative, must stay under the project-owned `enmanner/` directory, and
+must exist. A single string remains supported for existing manifests:
+
+```json
+{
+  "icon": "enmanner/icon/AppIcon.icon"
+}
+```
+
+A modern-only configuration still requires full Xcode. A legacy-only
+configuration retains the existing `--allow-legacy-icon` safeguard on a Mac
+where modern tooling is available.
+
+## User configuration
+
+Optional `userConfiguration` exposes a curated set of dotenv values in the
+native Settings window:
+
+```json
+{
   "userConfiguration": {
     "file": ".env",
     "template": ".env.example",
@@ -27,148 +302,33 @@ styling conventions do not change this machine-facing path.
         "type": "secret"
       }
     ]
-  },
-  "server": {
-    "command": [
-      "npm",
-      "run",
-      "dev",
-      "--",
-      "--host",
-      "127.0.0.1",
-      "--port",
-      "${ENMANNER_PORT}",
-      "--strictPort"
-    ],
-    "workingDirectory": ".",
-    "environment": {
-      "PORT": "${ENMANNER_PORT}"
-    },
-    "preferredPort": 43120,
-    "readiness": {
-      "url": "http://127.0.0.1:${ENMANNER_PORT}/",
-      "timeoutSeconds": 30
-    }
-  },
-  "window": {
-    "mode": "browser",
-    "width": 1200,
-    "height": 800,
-    "resizable": true
   }
 }
 ```
 
-`version` is currently `2`. `name` becomes the `.app` display name and may not
-contain slash or colon. `identifier` is a reverse-DNS bundle identifier.
+`file` defaults to `.env` and must be a Git-ignored, project-owned file outside
+`.enmanner/`. An optional template supplies initial content. Enmanner never
+infers fields from it.
 
-`server.command` is an argument array. Enmanner executes the first item directly;
-it does not invoke a shell. A first item containing a relative path, such as
-`./enmanner/start`, is resolved from `server.workingDirectory` and must stay
-inside the project. Bare executable names use Enmanner's GUI-safe `PATH`;
-absolute executables are also supported. `workingDirectory` and optional `icon`
-remain relative to the project root—not the manifest directory—and may not
-escape through `..` or symlinks.
+Field types are `string`, `secret`, `boolean`, `file`, and `directory`. Saving
+preserves comments, ordering, and undeclared entries, then restarts the runtime.
+Secret controls affect native presentation only; values remain ordinary dotenv
+values and never enter the manifest, app bundle, logs, or diagnostics.
 
-`server.environment` may be omitted when no additional variables are needed; it
-decodes as an empty object. Validation errors include the exact field path, and
-JSON diagnostics use stable `code`, `path`, and `message` fields.
+## Application presentation
 
-Optional `userConfiguration` exposes an explicit, curated set of dotenv values
-in the native Settings window. `file` defaults to `.env` and must be a
-project-relative, project-owned file outside `.enmanner/`. An optional
-`template`, commonly `.env.example`, supplies initial content when the
-destination does not exist. The launcher materializes that template before
-starting the server; installation does not create machine-local configuration.
-Without a template, an explicitly configured missing destination is created as
-an empty owner-only file. Enmanner never infers fields from the template.
-Validation warns when the template assigns a key also supplied by
-`server.environment`, because project dotenv loaders can override launcher-owned
-values such as `PORT` or `HOST`. Prefer a curated template such as
-`enmanner/settings.env.example` containing only settings a person should edit.
+The referenced application endpoint must use HTTP or HTTPS. Enmanner appends
+the configured application path, waits for the component's startup readiness,
+then loads that URL in embedded mode or opens it in browser mode.
 
-Each field has an environment-variable `key`, human-readable `label`, optional
-`description`, optional `required` flag, and one of these types. Labels should
-use consistent human-facing Title Case independent of dotenv spelling, while
-preserving canonical brands and acronyms. Descriptions are compact subtitles,
-not documentation: they should add information beyond the label, preferably in
-45 characters or fewer and never more than 60. Omit a description that would
-only restate the label. Descriptions wrap within a two-line limit.
+Browser mode is the conservative default. It remains windowless while healthy
+and keeps the runtime owned by the Dock application. Embedded mode owns a
+WKWebView. Dimensions and resizability affect native windows and require an app
+rebuild.
 
-- `string` — ordinary text, and the default when `type` is omitted
-- `secret` — masked text that is still stored in the configured dotenv file
-- `boolean` — a checkbox stored as `true` or `false`
-- `file` — text with a native file picker
-- `directory` — text with a native directory picker
+## Icon
 
-Saving writes only declared keys, preserves comments, ordering, and undeclared
-entries, then restarts the supervised server so normal dotenv loaders see the
-new values. If required fields are blank at launch, Enmanner opens Project
-Settings and waits to start the server. Secret controls are masked by default
-and include an explicit reveal button for quick verification. New dotenv files
-use owner-only permissions. A configured dotenv
-file may not be tracked by Git. Duplicate declared keys, malformed quoting,
-multiline values, and tracked destinations fail instead of risking a destructive
-rewrite. `secret` controls only native presentation: values are never placed in
-`enmanner/enmanner.json`, logs, diagnostics, or the `.app`, but remain ordinary dotenv
-values for project commands and tests.
-
-The `icon` path must stay inside the project-owned `enmanner/` directory. For
-current macOS icon behavior, it must point to an Icon Composer `.icon` package
-whenever Xcode's `actool` is available. Enmanner compiles it, adds
-`Assets.car` and `CFBundleIconName`, verifies that the catalog contains an
-`IconImageStack`, and retains the compiled `.icns` as an older-system fallback.
-A directly configured `.icns` is accepted automatically only when `actool` is
-unavailable; otherwise validation requires an explicit `--allow-legacy-icon`
-escape hatch and warns that Tahoe can place it in a compatibility enclosure.
-See `.enmanner/instructions/icon.md` in an installed project for source-artwork
-and visual acceptance requirements.
-
-Enmanner controls two substitutions:
-
-- `${ENMANNER_PORT}` — an allocated loopback port
-- `${ENMANNER_PROJECT_DIR}` — the resolved project directory
-
-Unknown substitutions fail validation. Do not store secrets in `environment`.
-
-Optional `server.preferredPort` asks Enmanner to reuse a stable loopback port across
-launches, preserving origin-scoped browser state such as `localStorage`. If the
-preferred port is unavailable, Enmanner allocates another port and exposes the
-actual choice through `${ENMANNER_PORT}`. Ports below 1024 are rejected.
-Installer-inferred manifests receive a deterministic preferred port by default.
-
-`readiness.url` must use HTTP(S) on `127.0.0.1`, `localhost`, or `::1`.
-Successful and redirect responses count as ready by default. `timeoutSeconds`
-is the overall startup deadline. Optional `acceptableStatusCodes`,
-`contentTypeContains`, and `bodyContains` fields make readiness assert something
-more specific than a listening HTTP server. `bodyContains` examines the raw
-HTTP response body; it does not execute JavaScript or inspect the
-browser-rendered DOM. Client-rendered text belongs in application acceptance
-tests, not this cheap readiness check. The deadline is capped at 300
-seconds deliberately: cloning, first-time dependency installation, large seeds,
-and other long initialization belong in an explicit setup step rather than
-normal app startup.
-
-In browser mode, this same URL is opened in the user's default browser after it
-passes readiness. Configure a meaningful human-facing application page, not a
-raw JSON or text health endpoint. Enmanner intentionally uses one URL for both
-purposes in the current manifest version.
-
-Enmanner edits the dotenv file but does not itself parse that file into the
-server environment. The project command remains responsible for its established
-dotenv-loading behavior.
-
-Runtime validation starts and stops the configured command. For applications
-with databases, containers, or other stateful services, review ownership,
-mounts, backups, and controlled stop/start persistence before running it.
-
-`window.mode` is `browser` or `embedded`. Browser mode is the conservative
-default: it launches windowlessly, remains in the Dock, and opens
-the readiness URL in the user's default browser once the server is ready. A
-Dock click from another app foregrounds the launcher, while another click when
-it is already active reopens the browser. Quit or Command-Q stops the server in
-either mode. Embedded mode owns a native WKWebView window and should be selected
-only after the application passes the compatibility checklist. Startup failures
-still open the status window automatically.
-Dimensions and resizability apply to native windows and require an app rebuild
-after changes.
+`icon` remains a project-relative path inside `enmanner/`. Prefer an Icon
+Composer `.icon` package when `actool` is available. A legacy `.icns` remains an
+explicit compatibility fallback as described by the icon integration
+instructions.

@@ -1,50 +1,46 @@
-# Development server
+# Runtime components
 
 ## MUST
 
-- Put the executable and every argument in `server.command` as separate JSON
-  array entries. Do not rely on shell parsing.
-- Treat requested startup commands as intent. Verify every executable, argument,
-  working directory, and build target against the current project source before
-  writing `enmanner/enmanner.json`.
-- Keep `server.workingDirectory` project-relative.
-- Resolve relative executable paths such as `./enmanner/start` from
-  `server.workingDirectory`; keep them inside the project.
-- Accept the port supplied in `ENMANNER_PORT`.
+- Put each executable and argument in a JSON command array. Do not rely on shell
+  parsing.
+- Treat requested startup commands as intent. Verify every executable,
+  argument, working directory, and build target against current project source.
+- Keep every component working directory and relative executable inside the
+  project.
+- Use `${self.endpoints.<name>.port}` when a service must bind an allocated
+  endpoint.
 - Listen on `127.0.0.1` or another loopback address, never all interfaces by
   default.
-- Remain in the foreground. Do not daemonize, launch through Terminal, or leave
-  an unsupervised child process behind.
-- Return a successful HTTP status from the readiness URL only when the app can
-  serve its interface.
-- Treat `bodyContains` as a raw HTTP-response assertion. Do not use text that
-  exists only after client-side JavaScript renders the page.
-- In a multi-component project, expose one project-owned foreground supervisor.
-  Start and stop only project-owned resources; treat shared or already-running
-  services as prerequisites that Enmanner observes but does not adopt.
+- Keep managed services in the foreground. Do not daemonize, launch through
+  Terminal, or leave unsupervised descendants.
+- Declare `dependsOn` for startup ordering and for every cross-component
+  endpoint reference.
+- Use `service` for long-running owned processes, `task` for one-shot startup
+  commands, and `prerequisite` for infrastructure Enmanner observes but does
+  not own.
+- Return a successful HTTP readiness response only when the component can
+  provide the capability its dependents need.
+- Treat `bodyContains` as a raw HTTP-response assertion; do not use text that
+  exists only after client-side JavaScript renders.
 
 ## SHOULD
 
-- Use a startup command already present in the project's normal dependency
-  system, such as an npm script. Package-manager commands such as
-  `npm run start` are valid foreground commands; do not unwrap them into their
-  apparent underlying command because that can skip lifecycle hooks,
-  environment setup, and package-manager semantics.
-- Configure `server.preferredPort` in browser mode so origin-scoped state stays
-  stable when possible. Installer-inferred manifests do this automatically.
-  Continue to use `${ENMANNER_PORT}` because Enmanner falls back if that port is busy.
+- Use commands already present in the project's dependency system. Do not
+  unwrap package-manager commands in ways that skip lifecycle hooks.
+- Give the application endpoint a preferred port in browser mode so
+  origin-scoped state stays stable when possible.
 - Before starting a stateful application, confirm that a separately
-  terminal-started copy is not already using the same project data. Launch
-  Services prevents a second copy of the generated `.app`, but cannot identify
-  every independently started project server.
-- Exit cleanly after `SIGTERM` and close database/file handles.
-- Make repeated start/stop cycles safe.
+  terminal-started copy is not already using the same project data.
+- Exit cleanly after `SIGTERM` and close database and file handles.
+- Make repeated start and stop cycles safe.
+- Add readiness whenever another component depends on more than successful
+  process creation.
 
-Enmanner allocates a free port, expands only its documented variables, starts the
-command directly, captures both output streams, waits for readiness, and owns
-the process group until the native app quits.
+Enmanner allocates named endpoints, expands only documented endpoint and project
+references, traverses the dependency graph, captures labelled output, and owns
+each managed service's process group until the native app quits.
 
-Copy `.enmanner/templates/project-supervisor` to `enmanner/start` as the
-starting point for a multi-component project. Runtime validation checks the
-process group, readiness URL, selected port, tracked descendants, and Git-status
-delta after shutdown.
+Runtime validation checks all launched process trees, the application endpoint,
+every selected port, tracked descendants, non-loopback listeners, and the
+Git-status delta after shutdown.

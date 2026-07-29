@@ -60,10 +60,7 @@ else
 fi
 bin_dir="$(swift build --package-path "$framework_dir" -c release --show-bin-path)"
 
-icon_path="$(
-  /usr/bin/plutil -extract icon raw "$project_dir/enmanner/enmanner.json" \
-    2>/dev/null || true
-)"
+icon_path="$("$bin_dir/enmanner-validator" --project "$project_dir" --print icon)"
 if [[ "$icon_path" == *.icns && "$development" != true ]]; then
   if command -v xcrun >/dev/null 2>&1 &&
     xcrun --find actool >/dev/null 2>&1; then

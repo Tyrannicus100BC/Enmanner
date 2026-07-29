@@ -94,8 +94,7 @@ ENMANNER_TEST_SUPPRESS_BROWSER=1 \
 launcher_pid="$!"
 
 timeout_seconds="$(
-  /usr/bin/plutil -extract server.readiness.timeoutSeconds raw \
-    "$project_dir/enmanner/enmanner.json" 2>/dev/null || echo 30
+  "$validator" --project "$project_dir" --print readiness-timeout
 )"
 deadline="$(
   /usr/bin/awk -v now="$(date +%s)" -v timeout="$timeout_seconds" \

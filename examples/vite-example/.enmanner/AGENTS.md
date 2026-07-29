@@ -10,8 +10,8 @@ reason for each selected reference.
 
 Every file inside `.enmanner/` is vendored, framework-owned code. Do not add
 project overrides there or edit native internals during an integration. Keep
-the manifest, supervisor, icon package, and icon source artwork in the visible,
-project-owned `enmanner/` sibling.
+the manifest, icon package, and icon source artwork in the visible, project-owned
+`enmanner/` sibling.
 Spell both `enmanner/` and `.enmanner/` exactly in lowercase. Do not adapt their
 casing to the repository's naming style.
 
@@ -37,18 +37,21 @@ because it already exists. Follow the hard preflight and acceptance gates in
 reconstruct it or use your image-generation capability. When `actool` is
 available, a `.icon` package is required.
 
-Validate lifecycle behavior before beginning icon work, but do not build or
-report the app complete until the icon passes its acceptance gate. Use
-`scripts/preview-icon` to render Default, Dark, Clear, and Tinted appearances.
+Validate lifecycle behavior before beginning icon work. When necessary, use
+`scripts/build-app --development` and `scripts/test-app --development` to test
+the native launcher with its separate identity and conspicuous DEV icon. Do
+not report the app complete until the finished icon passes its acceptance gate.
+Use `scripts/preview-icon` to render Default, Dark, Clear, and Tinted appearances.
 
 Treat **MUST** as required, **SHOULD** as the safe default, and **MAY** as
-optional. Run `./.enmanner/scripts/validate --runtime` after changing server
+optional. Run `./.enmanner/scripts/validate --runtime` after changing runtime
 behavior; use `--json` for structured diagnostics. For a multi-component
-project, copy `.enmanner/templates/project-supervisor` to `enmanner/start` and
-adapt it into the project-owned foreground command. Rebuild the `.app` only
+project, declare services, tasks, prerequisites, endpoints, and dependencies in
+`enmanner/enmanner.json`. Rebuild the `.app` only
 when native configuration or launcher files change; ordinary web source edits
 do not require it.
 
 Use `--json-lines` when an agent needs progress during runtime validation.
-After `build-app`, run `scripts/test-app`; `doctor.complete` requires its
-build-matched native launch and cleanup evidence.
+After the final `build-app`, run `scripts/test-app`; `doctor.complete` requires
+its build-matched final native launch and cleanup evidence. Development test
+evidence is reported separately and never satisfies completion.

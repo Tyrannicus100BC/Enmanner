@@ -70,6 +70,85 @@ final class ReadinessAndProcessTests: XCTestCase {
         XCTAssertFalse(supervisor.isRunning)
         XCTAssertNotEqual(Darwin.kill(-processIdentifier, 0), 0)
     }
+
+    func testRuntimeSupervisorStartsGraphStopsServicesAndRunsTasksOnce() async throws {
+        let directory = try temporaryDirectory()
+        let taskOutput = directory.appendingPathComponent("task-complete")
+        let manifest = EnmannerManifest(
+            version: 3,
+            name: "Runtime Graph",
+            identifier: "local.enmanner.runtime-graph",
+            application: .init(component: "frontend", endpoint: "http"),
+            components: [
+                "database": .init(
+                    kind: .prerequisite,
+                    check: .init(
+                        type: .command,
+                        endpoint: nil,
+                        command: ["/usr/bin/true"],
+                        timeoutSeconds: 2
+                    )
+                ),
+                "migrate": .init(
+                    kind: .task,
+                    command: ["/usr/bin/touch", taskOutput.path],
+                    dependsOn: ["database"]
+                ),
+                "backend": .init(
+                    command: ["/bin/sleep", "30"],
+                    dependsOn: ["migrate"],
+                    endpoints: [
+                        "http": .init(protocol: .http)
+                    ]
+                ),
+                "frontend": .init(
+                    command: ["/bin/sleep", "30"],
+                    environment: [
+                        "BACKEND_URL":
+                            "${components.backend.endpoints.http.url}"
+                    ],
+                    dependsOn: ["backend"],
+                    endpoints: [
+                        "http": .init(protocol: .http)
+                    ]
+                )
+            ]
+        )
+        XCTAssertEqual(
+            ManifestValidator.validate(manifest, projectURL: directory),
+            []
+        )
+        let supervisor = RuntimeSupervisor(logBuffer: LogBuffer())
+
+        let launch = try await supervisor.start(
+            manifest: manifest,
+            projectURL: directory
+        )
+        let processIdentifiers = supervisor.processIdentifiers
+
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: taskOutput.path)
+        )
+        XCTAssertEqual(Set(processIdentifiers.keys), ["backend", "frontend"])
+        XCTAssertEqual(launch.applicationURL.host, "127.0.0.1")
+
+        supervisor.stop(gracePeriod: 0.2)
+
+        XCTAssertFalse(supervisor.isRunning)
+        for processIdentifier in processIdentifiers.values {
+            XCTAssertNotEqual(Darwin.kill(-processIdentifier, 0), 0)
+        }
+
+        try FileManager.default.removeItem(at: taskOutput)
+        _ = try await supervisor.start(
+            manifest: manifest,
+            projectURL: directory
+        )
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: taskOutput.path)
+        )
+        supervisor.stop(gracePeriod: 0.2)
+    }
 }
 
 private actor AttemptCounter {

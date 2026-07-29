@@ -82,10 +82,13 @@ No paid Apple Developer Program account, Homebrew package, global npm package,
 `sudo`, or shell-profile change is required. The app is ad-hoc signed locally
 when `codesign` is available. Modern Icon Composer `.icon` packages additionally
 require a current full Xcode installation so Enmanner can compile them with
-`actool`. When that tool is available, Enmanner rejects a directly configured
-legacy `.icns` by default to prevent the Tahoe compatibility enclosure ("icon
-jail"). Legacy icons remain a warned fallback on Command Line Tools-only
-machines, with `--allow-legacy-icon` available for an intentional exception.
+`actool`. Shared projects may configure both `icon.modern` and `icon.legacy`;
+the build selects the modern source when `actool` is available and the legacy
+fallback otherwise. When that tool is available, Enmanner rejects a directly
+configured legacy `.icns` by default to prevent the Tahoe compatibility
+enclosure ("icon jail"). Legacy icons remain a warned fallback on Command Line
+Tools-only machines, with `--allow-legacy-icon` available for an intentional
+exception.
 
 ## Try the included Vite example
 
@@ -208,10 +211,10 @@ configure and validate lifecycle behavior, optionally prove it through the
 development-only native bundle, create and preview the icon, then build and
 test the finished app.
 
-For applications with several long-running components, Enmanner continues to
-own one foreground command. Adapt the published
-[project supervisor template](docs/project-supervisor.md) so service ownership
-and signal handling remain explicit.
+For applications with several runtime components, declare services, one-shot
+tasks, observed prerequisites, named endpoints, and explicit dependencies in
+the manifest. The single-process `application` shorthand lowers into that same
+component graph.
 
 Before choosing embedded presentation for a browser-capability-heavy project,
 use the [WKWebView compatibility checklist](docs/embedded-webview-checklist.md).

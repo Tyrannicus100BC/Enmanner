@@ -7,7 +7,7 @@ public actor ReadinessChecker {
 
     public init(probe: Probe? = nil) {
         self.probe = probe ?? { url in
-            await Self.httpProbe(url: url)
+            await Self.checkHTTP(url: url)
         }
     }
 
@@ -27,7 +27,7 @@ public actor ReadinessChecker {
                 bodyContains == nil {
                 ready = await probe(url)
             } else {
-                ready = await Self.httpProbe(
+                ready = await Self.checkHTTP(
                     url: url,
                     acceptableStatusCodes: acceptableStatusCodes,
                     contentTypeContains: contentTypeContains,
@@ -50,7 +50,7 @@ public actor ReadinessChecker {
         let deadline = Date().addingTimeInterval(timeout)
         var consecutiveFailures = 0
         while !Task.isCancelled && Date() < deadline {
-            if await Self.httpProbe(url: url) {
+            if await Self.checkHTTP(url: url) {
                 consecutiveFailures = 0
             } else {
                 consecutiveFailures += 1
@@ -63,7 +63,7 @@ public actor ReadinessChecker {
         return false
     }
 
-    private static func httpProbe(
+    public static func checkHTTP(
         url: URL,
         acceptableStatusCodes: [Int]? = nil,
         contentTypeContains: String? = nil,

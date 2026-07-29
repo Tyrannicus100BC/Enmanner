@@ -350,28 +350,28 @@ if [[ -f "$target_dir/package.json" ]]; then
     "$script_matches_adapter" == true ]]; then
     case "$package_manager:$detected_framework" in
       npm:vite)
-        candidate_command='["npm", "run", "dev", "--", "--host", "127.0.0.1", "--port", "${ENMANNER_PORT}", "--strictPort"]'
+        candidate_command='["npm", "run", "dev", "--", "--host", "127.0.0.1", "--port", "${self.endpoints.http.port}", "--strictPort"]'
         ;;
       pnpm:vite)
-        candidate_command='["pnpm", "run", "dev", "--host", "127.0.0.1", "--port", "${ENMANNER_PORT}", "--strictPort"]'
+        candidate_command='["pnpm", "run", "dev", "--host", "127.0.0.1", "--port", "${self.endpoints.http.port}", "--strictPort"]'
         ;;
       yarn:vite)
-        candidate_command='["yarn", "run", "dev", "--host", "127.0.0.1", "--port", "${ENMANNER_PORT}", "--strictPort"]'
+        candidate_command='["yarn", "run", "dev", "--host", "127.0.0.1", "--port", "${self.endpoints.http.port}", "--strictPort"]'
         ;;
       bun:vite)
-        candidate_command='["bun", "run", "dev", "--host", "127.0.0.1", "--port", "${ENMANNER_PORT}", "--strictPort"]'
+        candidate_command='["bun", "run", "dev", "--host", "127.0.0.1", "--port", "${self.endpoints.http.port}", "--strictPort"]'
         ;;
       npm:next)
-        candidate_command='["npm", "run", "dev", "--", "--hostname", "127.0.0.1", "--port", "${ENMANNER_PORT}"]'
+        candidate_command='["npm", "run", "dev", "--", "--hostname", "127.0.0.1", "--port", "${self.endpoints.http.port}"]'
         ;;
       pnpm:next)
-        candidate_command='["pnpm", "run", "dev", "--hostname", "127.0.0.1", "--port", "${ENMANNER_PORT}"]'
+        candidate_command='["pnpm", "run", "dev", "--hostname", "127.0.0.1", "--port", "${self.endpoints.http.port}"]'
         ;;
       yarn:next)
-        candidate_command='["yarn", "run", "dev", "--hostname", "127.0.0.1", "--port", "${ENMANNER_PORT}"]'
+        candidate_command='["yarn", "run", "dev", "--hostname", "127.0.0.1", "--port", "${self.endpoints.http.port}"]'
         ;;
       bun:next)
-        candidate_command='["bun", "run", "dev", "--hostname", "127.0.0.1", "--port", "${ENMANNER_PORT}"]'
+        candidate_command='["bun", "run", "dev", "--hostname", "127.0.0.1", "--port", "${self.endpoints.http.port}"]'
         ;;
     esac
     if [[ -n "$candidate_command" ]]; then
@@ -464,7 +464,12 @@ escaped_app_name="${escaped_app_name//!/\\!}"
 app_ignore="/$escaped_app_name.app/"
 icon_configured=false
 if [[ -f "$manifest_path" ]]; then
-  existing_icon="$(/usr/bin/plutil -extract icon raw "$manifest_path" 2>/dev/null || true)"
+  existing_icon="$(
+    /usr/bin/plutil -extract icon.modern raw "$manifest_path" 2>/dev/null ||
+      /usr/bin/plutil -extract icon.legacy raw "$manifest_path" 2>/dev/null ||
+      /usr/bin/plutil -extract icon raw "$manifest_path" 2>/dev/null ||
+      true
+  )"
   [[ -n "$existing_icon" ]] && icon_configured=true
 fi
 
@@ -655,10 +660,10 @@ emit_result() {
         inspect_json="[\"$(json_escape "$candidate_inspect_path")\"]"
       fi
       if [[ -n "$express_port_evidence" ]]; then
-        printf '{"id":"dynamicPort","status":"detected","requirement":"server honors ENMANNER_PORT","evidence":"%s","inspect":["%s"],"suggestedChange":"confirm this static evidence with runtime validation"},' \
+        printf '{"id":"dynamicPort","status":"detected","requirement":"application uses its allocated endpoint port","evidence":"%s","inspect":["%s"],"suggestedChange":"confirm this static evidence with runtime validation"},' \
           "$(json_escape "$express_port_evidence")" "$(json_escape "$express_source")"
       else
-        printf '{"id":"dynamicPort","status":"unknown","requirement":"server honors ENMANNER_PORT","evidence":"startup candidate found but dynamic-port behavior is unverified","inspect":%s,"suggestedChange":"prefer ENMANNER_PORT over framework-specific port variables"},' "$inspect_json"
+        printf '{"id":"dynamicPort","status":"unknown","requirement":"application uses its allocated endpoint port","evidence":"startup candidate found but dynamic-port behavior is unverified","inspect":%s,"suggestedChange":"use ${self.endpoints.http.port} in the application command"},' "$inspect_json"
       fi
       if [[ -n "$express_host_evidence" ]]; then
         printf '{"id":"loopbackBinding","status":"detected","requirement":"server binds only to loopback","evidence":"%s","inspect":["%s"],"suggestedChange":"confirm this static evidence with runtime validation"},' \
@@ -666,7 +671,7 @@ emit_result() {
       else
         printf '{"id":"loopbackBinding","status":"unknown","requirement":"server binds only to loopback","evidence":"startup candidate does not prove its listener host","inspect":%s,"suggestedChange":"bind the public listener explicitly to 127.0.0.1"},' "$inspect_json"
       fi
-      printf '{"id":"foregroundLifecycle","status":"unknown","requirement":"command remains in the foreground","evidence":"child and daemon behavior requires project review","inspect":%s,"suggestedChange":"use one foreground command or a project-owned supervisor"}' "$inspect_json"
+      printf '{"id":"foregroundLifecycle","status":"unknown","requirement":"managed services remain in the foreground","evidence":"child and daemon behavior requires project review","inspect":%s,"suggestedChange":"declare each owned process as a service component"}' "$inspect_json"
     fi
     printf '],'
     printf '"requiredInstructions":['
@@ -808,16 +813,16 @@ if [[ ! -e "$manifest_path" && "$manifest_status" == "inferred" ]]; then
   {
     echo '{'
     echo '  "$schema": "../.enmanner/enmanner.schema.json",'
-    echo '  "version": 2,'
+    echo '  "version": 3,'
     printf '  "name": "%s",\n' "$(json_escape "$project_name")"
     printf '  "identifier": "%s",\n' "$(json_escape "$bundle_identifier")"
-    echo '  "server": {'
+    echo '  "application": {'
     echo "    \"command\": $candidate_command,"
     echo '    "workingDirectory": ".",'
-    echo '    "environment": {"PORT": "${ENMANNER_PORT}"},'
+    echo '    "environment": {"PORT": "${self.endpoints.http.port}"},'
     printf '    "preferredPort": %d,\n' "$preferred_port"
     echo '    "readiness": {'
-    echo '      "url": "http://127.0.0.1:${ENMANNER_PORT}/",'
+    echo '      "path": "/",'
     echo '      "timeoutSeconds": 30'
     echo '    }'
     echo '  },'
@@ -838,17 +843,17 @@ if [[ ! -e "$manifest_path" &&
   {
     echo '{'
     echo '  "$schema": "../.enmanner/enmanner.schema.json",'
-    echo '  "version": 2,'
+    echo '  "version": 3,'
     printf '  "name": "%s",\n' "$(json_escape "$project_name")"
     printf '  "identifier": "%s",\n' "$(json_escape "$bundle_identifier")"
-    echo '  "server": {'
+    echo '  "application": {'
     printf '    "command": %s,\n' "$draft_command"
     printf '    "workingDirectory": "%s",\n' \
       "$(json_escape "$candidate_working_directory")"
     echo '    "environment": {},'
     printf '    "preferredPort": %d,\n' "$preferred_port"
     echo '    "readiness": {'
-    echo '      "url": "http://127.0.0.1:${ENMANNER_PORT}/",'
+    echo '      "path": "/",'
     echo '      "timeoutSeconds": 30'
     echo '    }'
     echo '  },'

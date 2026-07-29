@@ -64,7 +64,7 @@ fi
 /usr/bin/plutil -insert manifestStatus -string "$manifest_status" "$temporary"
 if [[ "$manifest_status" == "inferred" ]]; then
   /usr/bin/plutil -insert inferredManifestFields -json \
-    '["name","identifier","server.command","server.workingDirectory","server.environment","server.readiness"]' \
+    '["name","identifier","application.command","application.workingDirectory","application.environment","application.readiness"]' \
     "$temporary"
 else
   /usr/bin/plutil -insert inferredManifestFields -json '[]' "$temporary"

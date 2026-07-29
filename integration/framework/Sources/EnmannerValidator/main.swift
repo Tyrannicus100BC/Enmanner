@@ -2,25 +2,6 @@ import Darwin
 import Foundation
 import EnmannerCore
 
-private actor RuntimeExitWaiter {
-    private var exit: ProcessSupervisor.Exit?
-    private var continuation: CheckedContinuation<ProcessSupervisor.Exit, Never>?
-
-    func record(_ exit: ProcessSupervisor.Exit) {
-        if let continuation {
-            self.continuation = nil
-            continuation.resume(returning: exit)
-        } else {
-            self.exit = exit
-        }
-    }
-
-    func wait() async -> ProcessSupervisor.Exit {
-        if let exit { return exit }
-        return await withCheckedContinuation { continuation = $0 }
-    }
-}
-
 private actor RuntimeInterruptWaiter {
     private var signal: Int32?
     private var cancelled = false
@@ -62,21 +43,16 @@ private actor RuntimeInterruptWaiter {
 }
 
 private enum RuntimeValidationOutcome {
-    case readiness(Bool)
-    case exited(ProcessSupervisor.Exit)
+    case launched(RuntimeSupervisor.Launch)
     case interrupted(Int32)
     case cancelledSignalWait
 }
 
-private struct RuntimeObservation {
-    let outcome: RuntimeValidationOutcome
-    let trackedProcesses: [Int32: String]
-    let nonLoopbackListeners: [String]
-}
-
 private struct RuntimeReport: Codable {
     let selectedPort: UInt16
+    let selectedPorts: [String: UInt16]
     let readinessURL: String
+    let componentProcessIdentifiers: [String: Int32]
     let readinessPassed: Bool
     let supervisorExited: Bool
     let processGroupStopped: Bool
@@ -236,12 +212,29 @@ struct EnmannerValidatorCommand {
         guard issues.isEmpty else {
             throw EnmannerError.invalidManifest(issues)
         }
+        let modernIconToolingAvailable = !processOutput(
+            executable: "/usr/bin/xcrun",
+            arguments: ["--find", "actool"]
+        ).isEmpty
 
         if let printField {
             switch printField {
             case "name": print(manifest.name)
             case "identifier": print(manifest.identifier)
-            case "icon": print(manifest.icon ?? "")
+            case "icon":
+                print(
+                    manifest.icon?.selectedPath(
+                        modernToolingAvailable: modernIconToolingAvailable
+                    ) ?? ""
+                )
+            case "icon-modern": print(manifest.icon?.modern ?? "")
+            case "icon-legacy": print(manifest.icon?.legacy ?? "")
+            case "readiness-timeout":
+                let graph = try RuntimeGraph.make(from: manifest)
+                print(
+                    graph.components[graph.applicationComponent]?
+                        .readiness?.timeoutSeconds ?? 30
+                )
             default:
                 throw EnmannerError.invalidManifest(
                     ["Unknown build field \(printField)."]
@@ -250,13 +243,19 @@ struct EnmannerValidatorCommand {
             return
         }
 
-        let diagnosticPort = try PortAllocator.allocateLoopbackPort(
-            preferredPort: manifest.server.preferredPort
-        )
+        let diagnosticPlan = try RuntimePlan.make(manifest: manifest)
+        guard let applicationComponent = diagnosticPlan.graph.components[
+            diagnosticPlan.graph.applicationComponent
+        ] else {
+            throw EnmannerError.invalidManifest([
+                "application component could not be resolved."
+            ])
+        }
         let configuration = try ProcessConfigurationBuilder.make(
-            manifest: manifest,
+            componentName: diagnosticPlan.graph.applicationComponent,
+            component: applicationComponent,
+            plan: diagnosticPlan,
             projectURL: projectURL,
-            port: diagnosticPort
         )
         let runtimeReport = runtime
             ? try await validateRuntime(
@@ -268,7 +267,7 @@ struct EnmannerValidatorCommand {
         let doctorReport = doctor
             ? inspectProject(manifest: manifest, projectURL: projectURL)
             : nil
-        var warnings = manifest.server.preferredPort == nil &&
+        var warnings = diagnosticPlan.graph.applicationPreferredPort == nil &&
             manifest.window.mode == .browser
             ? ["browser mode has no preferred port; origin-scoped state may move between launches"]
             : []
@@ -299,10 +298,7 @@ struct EnmannerValidatorCommand {
                 executable: "/usr/bin/xcrun",
                 arguments: ["swift", "--version"]
             ).trimmingCharacters(in: .whitespacesAndNewlines),
-            modernIconToolingAvailable: !processOutput(
-                executable: "/usr/bin/xcrun",
-                arguments: ["--find", "actool"]
-            ).isEmpty,
+            modernIconToolingAvailable: modernIconToolingAvailable,
             warnings: warnings,
             runtime: runtimeReport,
             doctor: doctorReport
@@ -353,7 +349,14 @@ struct EnmannerValidatorCommand {
         let installationURL = projectURL
             .appendingPathComponent(".enmanner/INSTALLATION.json")
         let installation = jsonObject(at: installationURL)
-        let iconURL = manifest.icon.map {
+        let modernIconToolingAvailable = !processOutput(
+            executable: "/usr/bin/xcrun",
+            arguments: ["--find", "actool"]
+        ).isEmpty
+        let selectedIconPath = manifest.icon?.selectedPath(
+            modernToolingAvailable: modernIconToolingAvailable
+        )
+        let iconURL = selectedIconPath.map {
             projectURL.appendingPathComponent($0)
         }
         let appURL = projectURL.appendingPathComponent("\(manifest.name).app")
@@ -546,7 +549,7 @@ struct EnmannerValidatorCommand {
             installationManifestStatus: installation?["manifestStatus"] as? String,
             staleDraftManifest: staleDraftManifest,
             iconConfigured: manifest.icon != nil,
-            iconPath: manifest.icon,
+            iconPath: selectedIconPath,
             iconSourceExists: iconSourceExists,
             appPath: appURL.path,
             appExists: appExists,
@@ -652,15 +655,19 @@ struct EnmannerValidatorCommand {
                 projectURL: projectURL,
                 configuration: userConfiguration
             ).templateAssignedKeys()
+            let graph = try RuntimeGraph.make(from: manifest)
+            let configuredKeys = Set(
+                graph.environments.flatMap { $0.keys }
+            )
             return templateKeys
-                .intersection(manifest.server.environment.keys)
+                .intersection(configuredKeys)
                 .sorted()
                 .map { key in
-                    "\(userConfiguration.template!) assigns \(key), which is also set by server.environment; verify the project's dotenv precedence or use a curated launcher template"
+                    "\(userConfiguration.template!) assigns \(key), which is also set by a component environment; verify the project's dotenv precedence or use a curated launcher template"
                 }
         } catch {
             return [
-                "could not inspect \(userConfiguration.template!) for server.environment conflicts: \(error.localizedDescription)"
+                "could not inspect \(userConfiguration.template!) for component environment conflicts: \(error.localizedDescription)"
             ]
         }
     }
@@ -672,39 +679,14 @@ struct EnmannerValidatorCommand {
     ) async throws -> RuntimeReport {
         let beforeStatus = gitStatus(projectURL: projectURL)
         let logBuffer = LogBuffer(maximumEntries: 100)
-        let supervisor = ProcessSupervisor(logBuffer: logBuffer)
-        let port = try PortAllocator.allocateLoopbackPort(
-            preferredPort: manifest.server.preferredPort
-        )
-        let configuration = try ProcessConfigurationBuilder.make(
-            manifest: manifest,
-            projectURL: projectURL,
-            port: port
-        )
+        let supervisor = RuntimeSupervisor(logBuffer: logBuffer)
         if jsonLines {
             printJSONLine(
                 event: "starting",
-                fields: [
-                    "component": "server",
-                    "selectedPort": Int(port)
-                ]
-            )
-        }
-        let variables = [
-            "ENMANNER_PORT": String(port),
-            "ENMANNER_PROJECT_DIR": projectURL.path
-        ]
-        let urlString = try EnvironmentInterpolator.expand(
-            manifest.server.readiness.url,
-            variables: variables
-        )
-        guard let url = URL(string: urlString) else {
-            throw EnmannerError.invalidManifest(
-                ["Readiness URL could not be expanded."]
+                fields: ["component": "runtime"]
             )
         }
 
-        let exitWaiter = RuntimeExitWaiter()
         let interruptWaiter = RuntimeInterruptWaiter()
         Darwin.signal(SIGINT, SIG_IGN)
         Darwin.signal(SIGTERM, SIG_IGN)
@@ -730,67 +712,31 @@ struct EnmannerValidatorCommand {
             Darwin.signal(SIGINT, SIG_DFL)
             Darwin.signal(SIGTERM, SIG_DFL)
         }
-        supervisor.onExit = { exit in
-            Task { await exitWaiter.record(exit) }
-        }
-        try supervisor.start(configuration)
-        guard let processIdentifier = supervisor.processIdentifier else {
-            throw EnmannerError.processLaunchFailed(
-                "The launched process did not remain running."
-            )
-        }
-        if jsonLines {
-            printJSONLine(
-                event: "waitingForReadiness",
-                fields: [
-                    "url": url.absoluteString,
-                    "timeoutSeconds": manifest.server.readiness.timeoutSeconds
-                ]
-            )
-        }
 
-        let observation = await withTaskGroup(
+        let outcome = try await withThrowingTaskGroup(
             of: RuntimeValidationOutcome.self
         ) { group in
             group.addTask {
-                let readiness = manifest.server.readiness
-                let ready = await ReadinessChecker().waitUntilReady(
-                    url: url,
-                    timeout: readiness.timeoutSeconds,
-                    acceptableStatusCodes: readiness.acceptableStatusCodes,
-                    contentTypeContains: readiness.contentTypeContains,
-                    bodyContains: readiness.bodyContains
+                .launched(
+                    try await supervisor.start(
+                        manifest: manifest,
+                        projectURL: projectURL
+                    )
                 )
-                return .readiness(ready)
             }
-            group.addTask { .exited(await exitWaiter.wait()) }
             group.addTask {
                 if let signal = await interruptWaiter.wait() {
                     return .interrupted(signal)
                 }
                 return .cancelledSignalWait
             }
-            let first = await group.next()!
-            let tracked = processTree(rootPID: processIdentifier)
-            let publicListeners = self.nonLoopbackListeners(
-                processIdentifiers: Array(tracked.keys)
-            )
+            let first = try await group.next()!
             if jsonLines {
                 switch first {
-                case .readiness(true):
+                case .launched(let launch):
                     printJSONLine(
                         event: "readinessPassed",
-                        fields: ["url": url.absoluteString]
-                    )
-                case .readiness(false):
-                    printJSONLine(
-                        event: "readinessTimedOut",
-                        fields: ["url": url.absoluteString]
-                    )
-                case .exited(let exit):
-                    printJSONLine(
-                        event: "serverExited",
-                        fields: ["status": Int(exit.status)]
+                        fields: ["url": launch.applicationURL.absoluteString]
                     )
                 case .interrupted(let signal):
                     printJSONLine(
@@ -800,31 +746,35 @@ struct EnmannerValidatorCommand {
                 case .cancelledSignalWait:
                     break
                 }
-                printJSONLine(event: "stopping", fields: ["component": "server"])
             }
-            supervisor.stop()
             group.cancelAll()
-            return RuntimeObservation(
-                outcome: first,
-                trackedProcesses: tracked,
-                nonLoopbackListeners: publicListeners
+            return first
+        }
+
+        guard let plan = supervisor.plan else {
+            supervisor.stop()
+            throw EnmannerError.processLaunchFailed(
+                "Runtime ended before endpoint allocation completed."
             )
         }
+        let url = plan.applicationURL
+        let port = plan.applicationPort
+        let rootProcesses = supervisor.processIdentifiers
+        var trackedProcesses: [Int32: String] = [:]
+        for processIdentifier in rootProcesses.values {
+            trackedProcesses.merge(
+                processTree(rootPID: processIdentifier)
+            ) { existing, _ in existing }
+        }
+        let nonLoopback = nonLoopbackListeners(
+            processIdentifiers: Array(trackedProcesses.keys)
+        )
 
         let readinessPassed: Bool
         let interrupted: Bool
         let interruptSignal: Int32?
-        switch observation.outcome {
-        case .readiness(false):
-            throw EnmannerError.processLaunchFailed(
-                "Runtime check timed out.\nRecent output:\n\(logBuffer.snapshot())"
-            )
-        case .exited(let exit):
-            throw EnmannerError.processLaunchFailed(
-                "Server exited before becoming ready (status \(exit.status)).\n" +
-                "Recent output:\n\(logBuffer.snapshot())"
-            )
-        case .readiness(true):
+        switch outcome {
+        case .launched:
             readinessPassed = true
             interrupted = false
             interruptSignal = nil
@@ -838,19 +788,28 @@ struct EnmannerValidatorCommand {
             )
         }
 
+        if jsonLines {
+            printJSONLine(event: "stopping", fields: ["component": "runtime"])
+        }
+        supervisor.stop()
         let supervisorExited = !supervisor.isRunning
-        let processGroupStopped = await waitForProcessGroupToStop(
-            processIdentifier,
-            timeout: 3
-        )
+        var processGroupsStopped = true
+        for processIdentifier in rootProcesses.values {
+            if !(await waitForProcessGroupToStop(
+                processIdentifier,
+                timeout: 3
+            )) {
+                processGroupsStopped = false
+            }
+        }
         let readinessUnavailable = await ReadinessChecker().waitUntilUnavailable(
             url: url,
             timeout: 4
         )
-        let portReleased = !PortAllocator.isLoopbackPortListening(port)
-        let remainingProcesses = survivingProcesses(
-            observation.trackedProcesses
-        )
+        let portReleased = plan.ports.values.allSatisfy {
+            !PortAllocator.isLoopbackPortListening($0)
+        }
+        let remainingProcesses = survivingProcesses(trackedProcesses)
         let afterStatus = gitStatus(projectURL: projectURL)
         let mutations = Array(afterStatus.subtracting(beforeStatus)).sorted()
         if jsonLines {
@@ -858,7 +817,7 @@ struct EnmannerValidatorCommand {
                 event: "shutdownChecked",
                 fields: [
                     "supervisorExited": supervisorExited,
-                    "processGroupStopped": processGroupStopped,
+                    "processGroupStopped": processGroupsStopped,
                     "readinessUnavailable": readinessUnavailable,
                     "portReleased": portReleased
                 ]
@@ -867,13 +826,19 @@ struct EnmannerValidatorCommand {
 
         return RuntimeReport(
             selectedPort: port,
+            selectedPorts: Dictionary(
+                uniqueKeysWithValues: plan.ports.map { key, value in
+                    ("\(key.component).\(key.endpoint)", value)
+                }
+            ),
             readinessURL: url.absoluteString,
+            componentProcessIdentifiers: rootProcesses,
             readinessPassed: readinessPassed,
             supervisorExited: supervisorExited,
-            processGroupStopped: processGroupStopped,
+            processGroupStopped: processGroupsStopped,
             readinessUnavailable: readinessUnavailable,
             portReleased: portReleased,
-            nonLoopbackListeners: observation.nonLoopbackListeners,
+            nonLoopbackListeners: nonLoopback,
             remainingProcesses: remainingProcesses,
             gitStatusMutations: mutations,
             workspaceMutations: mutations,
@@ -892,6 +857,13 @@ struct EnmannerValidatorCommand {
         print("\(mark(report.processGroupStopped)) process group stopped")
         print("\(mark(report.readinessUnavailable)) readiness became unavailable")
         print("\(mark(report.portReleased)) selected port \(report.selectedPort) was released")
+        if report.selectedPorts.count > 1 {
+            for (endpoint, port) in report.selectedPorts.sorted(
+                by: { $0.key < $1.key }
+            ) {
+                print("  \(endpoint): \(port)")
+            }
+        }
         if !report.nonLoopbackListeners.isEmpty {
             print("✗ launched process tree exposed non-loopback listeners:")
             report.nonLoopbackListeners.forEach { print("  \($0)") }

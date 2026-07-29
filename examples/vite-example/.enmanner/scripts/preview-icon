@@ -40,7 +40,11 @@ integration_dir="$(cd "$script_dir/.." && pwd)"
 project_dir="$(cd "$integration_dir/.." && pwd)"
 manifest="$project_dir/enmanner/enmanner.json"
 
-icon_path="$(/usr/bin/plutil -extract icon raw "$manifest" 2>/dev/null || true)"
+icon_path="$(
+  /usr/bin/plutil -extract icon.modern raw "$manifest" 2>/dev/null ||
+    /usr/bin/plutil -extract icon raw "$manifest" 2>/dev/null ||
+    true
+)"
 if [[ "$icon_path" != *.icon ]]; then
   echo "Error: icon previews require a configured Icon Composer .icon package." >&2
   echo "  Add the package's project-relative path to enmanner/enmanner.json first." >&2

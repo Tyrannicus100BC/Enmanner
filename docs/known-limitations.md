@@ -4,15 +4,21 @@
 - The launcher assumes the project's required runtime is already installed. It
   augments the sparse GUI PATH with `/opt/homebrew/bin` and `/usr/local/bin`,
   but version-manager-only runtimes may need an explicit executable path.
-- One launcher owns one server command. Multi-service projects use the published
-  project-owned foreground supervisor template.
-- Enmanner cannot infer ownership of stateful infrastructure managed by a custom
-  supervisor. Runtime validation must be reviewed before use.
+- The component graph starts services in deterministic topological order; it
+  does not yet start independent ready branches concurrently.
+- Unexpected managed-service exit currently restarts the complete runtime with
+  stable endpoint allocations. Component-local recovery and continuous
+  degraded-state monitoring remain future work.
+- Prerequisite checks and service readiness are startup gates, not continuous
+  health monitors.
+- A successful startup task is retained for the launcher session. Task results
+  are not yet invalidated by dependency generations.
 - Process-group termination cannot guarantee cleanup of children that
   deliberately detach into another session.
 - Free-port selection has a short close-before-launch race.
-- Browser origins change between launches unless `server.preferredPort` remains
-  available. There is no stable-origin proxy or atomic multi-port allocation.
+- Browser origins change between launches unless the application endpoint's
+  preferred port remains available. There is no stable-origin proxy or atomic
+  multi-port allocation.
 - Runtime logs are bounded and memory-only.
 - Project Settings supports single-line dotenv assignments. Duplicate declared
   keys, malformed quoting, and multiline values require manual cleanup rather
