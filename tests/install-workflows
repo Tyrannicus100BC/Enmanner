@@ -1,0 +1,82 @@
+#!/bin/bash
+set -euo pipefail
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+repository_dir="$(cd "$script_dir/.." && pwd)"
+test_root="$(mktemp -d "${TMPDIR:-/tmp}/Enmanner Install Tests.XXXXXX")"
+cleanup() {
+  rm -rf "$test_root"
+}
+trap cleanup EXIT
+
+vite_target="$test_root/Vite Project"
+generic_target="$test_root/Generic Project"
+mkdir -p "$vite_target" "$generic_target"
+cp "$repository_dir/examples/vite-example/package.json" \
+  "$repository_dir/examples/vite-example/package-lock.json" \
+  "$vite_target/"
+cp "$repository_dir/tests/fixtures/generic-package.json" \
+  "$generic_target/package.json"
+
+plan="$(
+  "$repository_dir/integration/scripts/install" \
+    --plan --json "$vite_target"
+)"
+printf '%s\n' "$plan" | jq -e '
+  (.action == "plan") and
+  (.manifestStatus == "inferred") and
+  (.installed == false)
+' >/dev/null
+test ! -e "$vite_target/.enmanner"
+
+vite_result="$(
+  "$repository_dir/integration/scripts/install" \
+    --no-build --json "$vite_target"
+)"
+printf '%s\n' "$vite_result" | jq -e '
+  .installed and
+  (.manifestStatus == "inferred") and
+  (.built == false)
+' >/dev/null
+
+generic_result="$(
+  "$repository_dir/integration/scripts/install" \
+    --json "$generic_target"
+)"
+printf '%s\n' "$generic_result" | jq -e '
+  .installed and
+  .configurationRequired and
+  (.built == false)
+' >/dev/null
+test ! -e "$generic_target/enmanner.json"
+
+test -f "$vite_target/.enmanner/INSTALLATION.json"
+jq -e '
+  (.version == "0.2.0") and
+  (.manifestStatus == "inferred") and
+  (.inferredManifestFields | index("server.command")) and
+  (.files | length > 0)
+' "$vite_target/.enmanner/INSTALLATION.json" >/dev/null
+grep -Fqx '/Vite Project.app/' "$vite_target/.gitignore"
+if grep -Eq '^data/|^\.env|^\*\.app/' "$vite_target/.gitignore"; then
+  echo "Error: installer added an ignore rule outside Enmanner ownership." >&2
+  exit 1
+fi
+
+"$vite_target/.enmanner/scripts/upgrade" \
+  --check --from "$repository_dir" --json |
+  jq -e '.applicable and (.applied == false)' >/dev/null
+
+cp "$repository_dir/LICENSE" "$vite_target/.enmanner/VERSION"
+if "$vite_target/.enmanner/scripts/upgrade" \
+  --apply --from "$repository_dir" --json >"$test_root/conflict.json" 2>/dev/null; then
+  echo "Error: upgrade overwrote a locally modified framework file." >&2
+  exit 1
+fi
+jq -e '
+  (.applicable == false) and
+  (.applied == false) and
+  (.conflicts | length == 1)
+' "$test_root/conflict.json" >/dev/null
+
+echo "✓ install planning, conservative inference, scoped ignores, provenance, and conflict handling passed"

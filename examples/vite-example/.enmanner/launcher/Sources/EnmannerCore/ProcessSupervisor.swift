@@ -159,6 +159,13 @@ public final class ProcessSupervisor: @unchecked Sendable {
         queue.sync { process?.isRunning == true }
     }
 
+    public var processIdentifier: Int32? {
+        queue.sync {
+            guard let process, process.isRunning else { return nil }
+            return process.processIdentifier
+        }
+    }
+
     public func start(_ configuration: ProcessConfiguration) throws {
         try queue.sync {
             guard process?.isRunning != true else {

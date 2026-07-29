@@ -4,8 +4,6 @@
 
 - Test a wider set of frontend and full-stack development servers.
 - Improve duplicate-launch coordination and escaped-child detection.
-- Publish a tested project-level supervisor template for database + backend +
-  frontend projects while the manifest still owns one foreground command.
 - Design declarative multi-process support with dependency ordering,
   per-service readiness and labelled logs, named or allocated ports,
   required-service failure policy, ownership of pre-existing services, and
@@ -14,16 +12,13 @@
 - Add an explicit project-local runtime-data convention and backup helpers.
 - Add dependency-only preflight and isolated runtime-validation modes for
   stateful services.
-- Add machine-readable doctor, status, launch-report, and bounded diagnostic
-  log interfaces without creating a large hidden workspace.
-- Define multi-repository workspace placement and explicitly unversioned
-  launcher-project conventions.
+- Add machine-readable launcher status and bounded diagnostic log interfaces
+  without creating a large hidden workspace.
 - Add Keychain-backed secret injection without writing values to the manifest.
 - Automate more of the layered Icon Composer artwork workflow.
 - Improve accessibility, menu commands, native update states, and diagnostics.
-- Define a safe, conflict-aware upgrade flow for framework-owned `.enmanner/` files.
-  Include version checks, managed-file provenance, and a supported location for
-  project-owned supervisor customizations.
+- Expand conflict-aware upgrades with explicit manifest migrations when a future
+  manifest version requires them.
 
 ## Later capabilities
 

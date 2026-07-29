@@ -49,7 +49,10 @@ No paid Apple Developer Program account, Homebrew package, global npm package,
 `sudo`, or shell-profile change is required. The app is ad-hoc signed locally
 when `codesign` is available. Modern Icon Composer `.icon` packages additionally
 require a current full Xcode installation so Enmanner can compile them with
-`actool`; legacy `.icns` icons remain supported with Command Line Tools alone.
+`actool`. When that tool is available, Enmanner rejects a directly configured
+legacy `.icns` by default to prevent the Tahoe compatibility enclosure ("icon
+jail"). Legacy icons remain a warned fallback on Command Line Tools-only
+machines, with `--allow-legacy-icon` available for an intentional exception.
 
 ## Try the included Vite example
 
@@ -83,18 +86,58 @@ does not copy Enmanner's Git history or create a nested repository.
 ./integration/scripts/install "/path/to/Your Project"
 ```
 
-For a Vite project, the installer infers a safe loopback startup command,
-creates `enmanner.json`, appends small managed sections to `.gitignore` and
-`AGENTS.md`, performs static validation, and builds the `.app`. Pass `--runtime`
-to opt into a real start/stop cycle after reviewing state ownership. For other
-stacks it creates an explicit generic command for the coding agent to verify
-against the current source and adapt. Existing `enmanner.json` and root agent
-instructions are preserved.
+Preview an installation before changing the project:
 
-The installer warns when the target is not inside a Git repository. A workspace
-containing sibling repositories needs an explicit choice: create a small
-launcher repository at the workspace root, install in a designated existing
-repository, or knowingly keep the launcher configuration unversioned.
+```bash
+./integration/scripts/install --plan "/path/to/Your Project"
+./integration/scripts/install --plan --json "/path/to/Your Project"
+```
+
+For a root npm/Vite project, the installer can infer a safe loopback startup
+command, create `enmanner.json`, append narrowly-owned managed sections to
+`.gitignore` and `AGENTS.md`, perform static validation, and build the `.app`.
+For other stacks it reports candidate package scripts but stops with
+`configurationRequired`; it never builds a knowingly provisional manifest.
+Use `--name` and `--identifier` to override inferred presentation values.
+Pass `--runtime` to opt into a real start/stop cycle after reviewing state
+ownership.
+
+The plan classifies repository roots, repository subdirectories, unversioned
+folders, and workspaces containing nested repositories. A workspace containing
+sibling repositories needs an explicit choice: create a small launcher
+repository at the workspace root, install in a designated existing repository,
+or knowingly keep the launcher configuration unversioned.
+
+Installed framework provenance lives in `.enmanner/INSTALLATION.json`. Check or
+apply an update from an Enmanner checkout with:
+
+```bash
+./.enmanner/scripts/upgrade --check --from /path/to/Enmanner
+./.enmanner/scripts/upgrade --apply --from /path/to/Enmanner
+```
+
+The upgrade refuses all changes if a framework-owned file was locally modified.
+The provenance also records exact file checksums, the upstream commit and dirty
+state, whether the manifest was inferred, and which fields came from that
+inference. A published aggregate baseline allows an untouched 0.1.0
+installation to enter the provenance-managed workflow safely.
+Project-owned supervisor code belongs outside `.enmanner/`, or under the
+reserved `.enmanner/project/` override directory. `install --repair` uses the
+same conflict-aware mechanism.
+
+Use `./.enmanner/scripts/doctor --json` for resolved executable, arguments,
+working directory, effective GUI `PATH`, toolchain, icon capability, and
+optional runtime evidence. Enmanner does not load `.env`; the project command
+may do so explicitly. Remove local Swift products with
+`./.enmanner/scripts/clean`; builds report both app and cache size.
+
+For applications with several long-running components, Enmanner continues to
+own one foreground command. Adapt the published
+[project supervisor template](docs/project-supervisor.md) so service ownership
+and signal handling remain explicit.
+
+Before choosing embedded presentation for a browser-capability-heavy project,
+use the [WKWebView compatibility checklist](docs/embedded-webview-checklist.md).
 
 Ask the coding agent to inspect the generated manifest rather than editing
 low-level settings yourself. The format is documented in

@@ -6,15 +6,30 @@ integration_dir="$(cd "$script_dir/.." && pwd)"
 project_dir="$(cd "$integration_dir/.." && pwd)"
 launcher_dir="$integration_dir/launcher"
 runtime_flag=""
+allow_legacy_icon=false
+json=false
 
-if [[ "${1:-}" == "--runtime" ]]; then
-  runtime_flag="--runtime"
+while [[ "${1:-}" == --* ]]; do
+  case "$1" in
+    --runtime) runtime_flag="--runtime" ;;
+    --allow-legacy-icon) allow_legacy_icon=true ;;
+    --json) json=true ;;
+    *)
+      echo "Usage: $0 [--runtime] [--json] [--allow-legacy-icon]" >&2
+      exit 64
+      ;;
+  esac
+  shift
+done
+if [[ $# -ne 0 ]]; then
+  echo "Usage: $0 [--runtime] [--json] [--allow-legacy-icon]" >&2
+  exit 64
+fi
+
+if [[ -n "$runtime_flag" && "$json" != true ]]; then
   echo "Warning: runtime validation starts and stops the configured application." >&2
   echo "  It may mutate databases, containers, volumes, caches, or other local state." >&2
   echo "  Review state ownership and persistence before using it." >&2
-elif [[ -n "${1:-}" ]]; then
-  echo "Usage: $0 [--runtime]" >&2
-  exit 64
 fi
 
 if ! command -v swift >/dev/null 2>&1; then
@@ -22,9 +37,37 @@ if ! command -v swift >/dev/null 2>&1; then
   exit 1
 fi
 
-echo "Validating Enmanner configuration…"
-swift build --package-path "$launcher_dir" -c debug --product EnmannerLauncher
-swift build --package-path "$launcher_dir" -c debug --product enmanner-validator
-bin_dir="$(swift build --package-path "$launcher_dir" -c debug --show-bin-path)"
-"$bin_dir/enmanner-validator" --project "$project_dir" ${runtime_flag:+"$runtime_flag"}
-echo "✓ launcher compiles with the active Apple toolchain"
+[[ "$json" == true ]] || echo "Validating Enmanner configuration…"
+if [[ "$json" == true ]]; then
+  swift build --package-path "$launcher_dir" -c release \
+    --product enmanner-validator >/dev/null
+else
+  swift build --package-path "$launcher_dir" -c release \
+    --product enmanner-validator
+fi
+bin_dir="$(swift build --package-path "$launcher_dir" -c release --show-bin-path)"
+
+icon_path="$("$bin_dir/enmanner-validator" --project "$project_dir" --print icon)"
+if [[ "$icon_path" == *.icns ]]; then
+  if command -v xcrun >/dev/null 2>&1 &&
+    xcrun --find actool >/dev/null 2>&1; then
+    if [[ "$allow_legacy_icon" != true ]]; then
+      echo "Error: $icon_path is a legacy .icns while modern icon tooling is available." >&2
+      echo "  A standalone .icns can trigger the Tahoe compatibility enclosure (icon jail)." >&2
+      echo "  Configure an Icon Composer .icon package, or rerun with" >&2
+      echo "  --allow-legacy-icon only for an intentional compatibility fallback." >&2
+      exit 1
+    fi
+    echo "Warning: allowing legacy .icns packaging by explicit request." >&2
+    echo "  The app may appear inside the Tahoe compatibility enclosure (icon jail)." >&2
+  else
+    echo "Warning: using legacy .icns because Xcode actool is unavailable." >&2
+    echo "  This is a compatibility fallback, not a native modern icon." >&2
+  fi
+fi
+
+validator_args=(--project "$project_dir")
+[[ -n "$runtime_flag" ]] && validator_args+=("$runtime_flag")
+[[ "$json" == true ]] && validator_args+=(--json)
+"$bin_dir/enmanner-validator" "${validator_args[@]}"
+[[ "$json" == true ]] || echo "✓ validator compiles with the active Apple toolchain"

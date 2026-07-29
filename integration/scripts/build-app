@@ -6,15 +6,60 @@ integration_dir="$(cd "$script_dir/.." && pwd)"
 project_dir="$(cd "$integration_dir/.." && pwd)"
 launcher_dir="$integration_dir/launcher"
 
-"$script_dir/validate"
+allow_legacy_icon=false
+if [[ "${1:-}" == "--allow-legacy-icon" ]]; then
+  allow_legacy_icon=true
+  shift
+fi
+if [[ $# -ne 0 ]]; then
+  echo "Usage: $0 [--allow-legacy-icon]" >&2
+  exit 64
+fi
 
-validator_dir="$(swift build --package-path "$launcher_dir" -c debug --show-bin-path)"
+if [[ "$allow_legacy_icon" == true ]]; then
+  "$script_dir/validate" --allow-legacy-icon
+else
+  "$script_dir/validate"
+fi
+
+validator_dir="$(swift build --package-path "$launcher_dir" -c release --show-bin-path)"
 validator="$validator_dir/enmanner-validator"
 app_name="$("$validator" --project "$project_dir" --print name)"
 bundle_identifier="$("$validator" --project "$project_dir" --print identifier)"
 icon_path="$("$validator" --project "$project_dir" --print icon)"
 app_path="$project_dir/$app_name.app"
 launcher_path="$app_path/Contents/MacOS/EnmannerLauncher"
+
+escaped_app_name="$app_name"
+escaped_app_name="${escaped_app_name//\\/\\\\}"
+escaped_app_name="${escaped_app_name//\[/\\[}"
+escaped_app_name="${escaped_app_name//\]/\\]}"
+escaped_app_name="${escaped_app_name//\*/\\*}"
+escaped_app_name="${escaped_app_name//\?/\\?}"
+escaped_app_name="${escaped_app_name//#/\\#}"
+escaped_app_name="${escaped_app_name//!/\\!}"
+app_ignore="/$escaped_app_name.app/"
+gitignore="$project_dir/.gitignore"
+if ! grep -Fqx "$app_ignore" "$gitignore" 2>/dev/null; then
+  gitignore_update="$(mktemp "${TMPDIR:-/tmp}/enmanner-gitignore.XXXXXX")"
+  if grep -Fqx "# enmanner:end" "$gitignore" 2>/dev/null; then
+    /usr/bin/awk -v entry="$app_ignore" '
+      $0 == "# enmanner:end" { print entry }
+      { print }
+    ' "$gitignore" > "$gitignore_update"
+  else
+    {
+      [[ -f "$gitignore" ]] && cat "$gitignore"
+      echo
+      echo "# enmanner:begin"
+      echo "$app_ignore"
+      echo "/.enmanner/launcher/.build/"
+      echo "/.enmanner/.build/"
+      echo "# enmanner:end"
+    } > "$gitignore_update"
+  fi
+  mv "$gitignore_update" "$gitignore"
+fi
 
 while read -r running_pid running_command; do
   if [[ "$running_command" == "$launcher_path" ]]; then
@@ -85,12 +130,33 @@ if [[ -n "$icon_path" ]]; then
       --notices \
       --output-format human-readable-text
 
+    if [[ ! -f "$icon_output/Assets.car" ]]; then
+      echo "Error: actool did not produce Assets.car for $icon_path." >&2
+      exit 1
+    fi
     cp "$icon_output/Assets.car" "$contents/Resources/Assets.car"
     if [[ -f "$icon_output/$icon_name.icns" ]]; then
       cp "$icon_output/$icon_name.icns" "$contents/Resources/$icon_name.icns"
     fi
     /usr/bin/plutil -insert CFBundleIconFile -string "$icon_name" "$plist"
     /usr/bin/plutil -insert CFBundleIconName -string "$icon_name" "$plist"
+
+    compiled_icon_name="$(/usr/bin/plutil -extract CFBundleIconName raw "$plist")"
+    if [[ "$compiled_icon_name" != "$icon_name" ]]; then
+      echo "Error: the compiled app is missing the expected CFBundleIconName." >&2
+      exit 1
+    fi
+    asset_info="$stage_dir/icon-assets.json"
+    if ! xcrun assetutil --info "$contents/Resources/Assets.car" > "$asset_info"; then
+      echo "Error: assetutil could not inspect the compiled icon catalog." >&2
+      exit 1
+    fi
+    if ! /usr/bin/grep -Eq \
+      '"AssetType"[[:space:]]*:[[:space:]]*"IconImageStack"' "$asset_info"; then
+      echo "Error: Assets.car does not contain a modern IconImageStack." >&2
+      exit 1
+    fi
+    echo "✓ Verified CFBundleIconName and the compiled IconImageStack"
   else
     cp "$icon_source" "$contents/Resources/AppIcon.icns"
     /usr/bin/plutil -insert CFBundleIconFile -string "AppIcon" "$plist"
@@ -116,6 +182,14 @@ if ! mv "$staged_app" "$app_path"; then
   exit 1
 fi
 
+launch_services_register="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
+if [[ -x "$launch_services_register" ]]; then
+  "$launch_services_register" -f "$app_path" >/dev/null 2>&1 || true
+fi
+touch "$app_path"
+
 app_size="$(du -sh "$app_path" | awk '{print $1}')"
+cache_size="$(du -sh "$launcher_dir/.build" | awk '{print $1}')"
 echo "✓ Created $app_name.app beside the project source ($app_size)"
+echo "  Enmanner build cache: $cache_size (remove with ./.enmanner/scripts/clean)"
 echo "  Ordinary web changes appear without rebuilding this launcher."

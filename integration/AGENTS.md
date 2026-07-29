@@ -19,10 +19,15 @@ behavior, native presentation, or collaboration, read the focused rules in
 
 A finished Enmanner app should have a distinctive icon. Do not leave the launcher
 with a generic or missing icon merely because the repository has no ready-made
-asset. Follow `instructions/icon.md`; when no appropriate existing asset is
-available, use your image-generation capability to create one.
+asset. A flattened legacy app icon is not valid modern source artwork merely
+because it already exists. Follow the hard preflight and acceptance gates in
+`instructions/icon.md`; when no appropriate layered asset is available,
+reconstruct it or use your image-generation capability. When `actool` is
+available, a `.icon` package is required.
 
 Treat **MUST** as required, **SHOULD** as the safe default, and **MAY** as
 optional. Run `./.enmanner/scripts/validate --runtime` after changing server
-behavior. Rebuild the `.app` only when native configuration or launcher files
-change; ordinary web source edits do not require it.
+behavior; use `--json` for structured diagnostics. For a multi-component
+project, adapt `.enmanner/templates/project-supervisor` into a project-owned
+foreground script. Rebuild the `.app` only when native configuration or
+launcher files change; ordinary web source edits do not require it.

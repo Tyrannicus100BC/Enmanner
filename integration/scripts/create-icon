@@ -1,0 +1,169 @@
+#!/bin/bash
+set -euo pipefail
+
+usage() {
+  echo "Usage: $0 --background path.png --foreground path.png --output AppIcon.icon" >&2
+  echo "  All paths are project-relative; output must end in .icon." >&2
+}
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+project_dir="$(cd "$script_dir/../.." && pwd -P)"
+background_path=""
+foreground_path=""
+output_path=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --background|--foreground|--output)
+      if [[ $# -lt 2 ]]; then
+        usage
+        exit 64
+      fi
+      case "$1" in
+        --background) background_path="$2" ;;
+        --foreground) foreground_path="$2" ;;
+        --output) output_path="$2" ;;
+      esac
+      shift 2
+      ;;
+    *)
+      usage
+      exit 64
+      ;;
+  esac
+done
+
+if [[ -z "$background_path" || -z "$foreground_path" || -z "$output_path" ]]; then
+  usage
+  exit 64
+fi
+
+for relative_path in "$background_path" "$foreground_path" "$output_path"; do
+  if [[ "$relative_path" == /* ||
+    "$relative_path" == ".." ||
+    "$relative_path" == ../* ||
+    "$relative_path" == */../* ||
+    "$relative_path" == */.. ]]; then
+    echo "Error: icon paths must stay inside the project: $relative_path" >&2
+    exit 1
+  fi
+done
+if [[ "$output_path" != *.icon ]]; then
+  echo "Error: --output must end in .icon." >&2
+  exit 64
+fi
+
+background_source="$project_dir/$background_path"
+foreground_source="$project_dir/$foreground_path"
+output="$project_dir/$output_path"
+if [[ ! -f "$background_source" || ! -f "$foreground_source" ]]; then
+  echo "Error: both source layers must be existing PNG files." >&2
+  exit 1
+fi
+if [[ -L "$background_source" || -L "$foreground_source" ]]; then
+  echo "Error: icon source layers must not be symbolic links." >&2
+  exit 1
+fi
+if [[ "${background_source##*.}" != "png" || "${foreground_source##*.}" != "png" ]]; then
+  echo "Error: both source layers must use the .png extension." >&2
+  exit 1
+fi
+if [[ -e "$output" ]]; then
+  echo "Error: refusing to overwrite existing icon package: $output_path" >&2
+  exit 1
+fi
+
+inspect_png() {
+  local source="$1"
+  local role="$2"
+  local width
+  local height
+  width="$(/usr/bin/sips -g pixelWidth "$source" | /usr/bin/awk '/pixelWidth:/ {print $2}')"
+  height="$(/usr/bin/sips -g pixelHeight "$source" | /usr/bin/awk '/pixelHeight:/ {print $2}')"
+  if [[ -z "$width" || "$width" != "$height" || "$width" -lt 1024 ]]; then
+    echo "Error: $role artwork must be a square PNG at least 1024×1024." >&2
+    exit 1
+  fi
+}
+
+inspect_png "$background_source" "background"
+inspect_png "$foreground_source" "foreground"
+
+background_alpha="$(/usr/bin/sips -g hasAlpha "$background_source" |
+  /usr/bin/awk '/hasAlpha:/ {print $2}')"
+foreground_alpha="$(/usr/bin/sips -g hasAlpha "$foreground_source" |
+  /usr/bin/awk '/hasAlpha:/ {print $2}')"
+if [[ "$background_alpha" == "yes" ]]; then
+  echo "Error: background artwork must be opaque and full-bleed." >&2
+  echo "  Transparent corners usually mean a legacy container is baked into the source." >&2
+  exit 1
+fi
+if [[ "$foreground_alpha" != "yes" ]]; then
+  echo "Error: foreground artwork must have real alpha transparency." >&2
+  exit 1
+fi
+
+for source in "$background_source" "$foreground_source"; do
+  source_parent="$(cd "$(dirname "$source")" && pwd -P)"
+  case "$source_parent" in
+    "$project_dir"|"$project_dir"/*) ;;
+    *)
+      echo "Error: icon source layers must stay inside the project." >&2
+      exit 1
+      ;;
+  esac
+done
+
+output_parent="$(dirname "$output")"
+existing_parent="$output_parent"
+while [[ ! -e "$existing_parent" ]]; do
+  existing_parent="$(dirname "$existing_parent")"
+done
+if [[ ! -d "$existing_parent" ]]; then
+  echo "Error: the output parent path is not a directory." >&2
+  exit 1
+fi
+resolved_parent="$(cd "$existing_parent" && pwd -P)"
+case "$resolved_parent" in
+  "$project_dir"|"$project_dir"/*) ;;
+  *)
+    echo "Error: icon output must stay inside the project." >&2
+    exit 1
+    ;;
+esac
+mkdir -p "$output_parent"
+stage_dir="$(mktemp -d "${TMPDIR:-/tmp}/enmanner-icon.XXXXXX")"
+cleanup() {
+  rm -rf "$stage_dir"
+}
+trap cleanup EXIT
+
+staged_icon="$stage_dir/AppIcon.icon"
+mkdir -p "$staged_icon/Assets"
+cp "$background_source" "$staged_icon/Assets/background.png"
+cp "$foreground_source" "$staged_icon/Assets/foreground.png"
+printf '%s\n' \
+  '{' \
+  '  "groups" : [' \
+  '    {' \
+  '      "layers" : [' \
+  '        {' \
+  '          "image-name" : "foreground.png",' \
+  '          "name" : "Foreground"' \
+  '        },' \
+  '        {' \
+  '          "image-name" : "background.png",' \
+  '          "name" : "Background"' \
+  '        }' \
+  '      ]' \
+  '    }' \
+  '  ],' \
+  '  "supported-platforms" : {' \
+  '    "circles" : ["watchOS"],' \
+  '    "squares" : "shared"' \
+  '  }' \
+  '}' > "$staged_icon/icon.json"
+
+mv "$staged_icon" "$output"
+echo "✓ Created $output_path from separate full-canvas layers"
+echo "  Open it in Icon Composer and inspect Default, Dark, Clear, and Tinted."

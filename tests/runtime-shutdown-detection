@@ -1,0 +1,44 @@
+#!/bin/bash
+set -euo pipefail
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+repository_dir="$(cd "$script_dir/.." && pwd)"
+test_root="$(mktemp -d "${TMPDIR:-/tmp}/Enmanner Runtime Test.XXXXXX")"
+child_pid=""
+cleanup() {
+  if [[ -n "$child_pid" ]] && kill -0 "$child_pid" 2>/dev/null; then
+    kill -TERM "$child_pid" 2>/dev/null || true
+  fi
+  rm -rf "$test_root"
+}
+trap cleanup EXIT
+
+project_dir="$test_root/Escaping Project"
+mkdir -p "$project_dir/.enmanner"
+cp "$repository_dir/tests/fixtures/escaping-runtime/"* "$project_dir/"
+/usr/bin/rsync -a --exclude '.build' \
+  "$repository_dir/integration/" "$project_dir/.enmanner/"
+
+set +e
+"$project_dir/.enmanner/scripts/validate" --runtime --json \
+  >"$test_root/result.json"
+status=$?
+set -e
+if [[ $status -eq 0 ]]; then
+  echo "Error: runtime validation accepted a detached surviving server." >&2
+  exit 1
+fi
+
+child_pid="$(cat "$project_dir/runtime-child.pid")"
+jq -e '
+  (.valid == false) and
+  (.runtime.readinessPassed == true) and
+  (.runtime.nonLoopbackListeners | length > 0) and
+  (
+    (.runtime.readinessUnavailable == false) or
+    (.runtime.portReleased == false) or
+    (.runtime.remainingProcesses | length > 0)
+  )
+' "$test_root/result.json" >/dev/null
+
+echo "✓ runtime validation rejects an escaped server that remains observable"

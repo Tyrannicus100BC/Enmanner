@@ -23,10 +23,14 @@
 - Keep generated files reproducible and disposable.
 - Let the coding agent create quiet Git checkpoints before risky changes and
   after working milestones. Never overwrite uncommitted user work.
+- Give the app a distinctive icon. An existing app icon is not necessarily
+  valid modern source artwork: reject assets with a baked container treatment.
+  Reconstruct layered artwork or use image generation when needed, and follow
+  the hard preflight and acceptance gates in `icon.md`.
 
 ## MAY
 
 - Use an external browser instead of the embedded window.
-- Add an icon and project-specific native window dimensions.
+- Add project-specific native window dimensions.
 - Extend the app with project-local tools that do not change the compatibility
   contract.

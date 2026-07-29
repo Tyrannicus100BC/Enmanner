@@ -9,6 +9,8 @@ public final class LogBuffer: @unchecked Sendable {
 
     private let queue = DispatchQueue(label: "local.enmanner.log-buffer")
     private var entries: [String] = []
+    private var lastMessageKey: String?
+    private var repeatedCount = 0
     private let maximumEntries: Int
     public var onChange: (@Sendable (String) -> Void)?
 
@@ -22,9 +24,18 @@ public final class LogBuffer: @unchecked Sendable {
 
         let timestamp = Self.timestampFormatter.string(from: Date())
         let entry = "[\(timestamp)] [\(stream.rawValue)] \(cleanMessage)"
+        let messageKey = "\(stream.rawValue)\u{0}\(cleanMessage)"
         queue.async { [weak self] in
             guard let self else { return }
-            self.entries.append(entry)
+            if self.lastMessageKey == messageKey, !self.entries.isEmpty {
+                self.repeatedCount += 1
+                self.entries[self.entries.count - 1] =
+                    "\(entry) (repeated \(self.repeatedCount)×)"
+            } else {
+                self.lastMessageKey = messageKey
+                self.repeatedCount = 1
+                self.entries.append(entry)
+            }
             if self.entries.count > self.maximumEntries {
                 self.entries.removeFirst(self.entries.count - self.maximumEntries)
             }

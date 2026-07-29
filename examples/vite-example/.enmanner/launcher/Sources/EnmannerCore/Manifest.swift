@@ -6,7 +6,7 @@ public struct EnmannerManifest: Codable, Equatable, Sendable {
     public let identifier: String
     public let server: Server
     public let window: Window
-    public let development: Development
+    public let development: Development?
     public let icon: String?
 
     public init(
@@ -15,7 +15,7 @@ public struct EnmannerManifest: Codable, Equatable, Sendable {
         identifier: String,
         server: Server,
         window: Window = Window(),
-        development: Development = Development(),
+        development: Development? = nil,
         icon: String? = nil
     ) {
         self.version = version
@@ -52,10 +52,22 @@ public struct EnmannerManifest: Codable, Equatable, Sendable {
     public struct Readiness: Codable, Equatable, Sendable {
         public let url: String
         public let timeoutSeconds: Double
+        public let acceptableStatusCodes: [Int]?
+        public let contentTypeContains: String?
+        public let bodyContains: String?
 
-        public init(url: String, timeoutSeconds: Double = 30) {
+        public init(
+            url: String,
+            timeoutSeconds: Double = 30,
+            acceptableStatusCodes: [Int]? = nil,
+            contentTypeContains: String? = nil,
+            bodyContains: String? = nil
+        ) {
             self.url = url
             self.timeoutSeconds = timeoutSeconds
+            self.acceptableStatusCodes = acceptableStatusCodes
+            self.contentTypeContains = contentTypeContains
+            self.bodyContains = bodyContains
         }
     }
 
@@ -162,6 +174,19 @@ public enum ManifestValidator {
         if manifest.server.readiness.timeoutSeconds <= 0 ||
             manifest.server.readiness.timeoutSeconds > 300 {
             issues.append("server.readiness.timeoutSeconds must be between 1 and 300.")
+        }
+        if let statusCodes = manifest.server.readiness.acceptableStatusCodes,
+           statusCodes.isEmpty ||
+            statusCodes.contains(where: { !(100...599).contains($0) }) {
+            issues.append(
+                "server.readiness.acceptableStatusCodes must contain HTTP status codes from 100 through 599."
+            )
+        }
+        if manifest.server.readiness.contentTypeContains == "" {
+            issues.append("server.readiness.contentTypeContains must not be empty.")
+        }
+        if manifest.server.readiness.bodyContains == "" {
+            issues.append("server.readiness.bodyContains must not be empty.")
         }
         if let preferredPort = manifest.server.preferredPort,
            preferredPort < 1024 {

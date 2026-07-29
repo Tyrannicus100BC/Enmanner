@@ -1,12 +1,28 @@
 # App icon
 
-A Enmanner launcher SHOULD have a distinctive, project-appropriate icon. Treat the
+An Enmanner launcher SHOULD have a distinctive, project-appropriate icon. Treat the
 icon as part of finishing the app, not as an optional extra.
 
 Beautiful source artwork and correct macOS bundle packaging are separate
-requirements. A transparent bitmap or standalone `.icns` is not sufficient for
-a modern macOS icon: current macOS can place legacy icons inside a compatibility
-plate. Prefer an Icon Composer `.icon` package compiled by Enmanner with `actool`.
+requirements. An existing app icon is not necessarily valid icon source
+artwork. On macOS Tahoe and later, the system can place a legacy `.icns` inside
+a compatibility enclosure ("icon jail"). A standalone `.icns` is therefore not
+an acceptable finished configuration when Xcode's `actool` is available.
+
+## Preflight: inspect the source asset
+
+Before packaging an existing icon, determine whether it already contains macOS
+container treatment. Do not use the asset directly when it contains:
+
+- a squircle, circle, or rounded-square silhouette
+- transparent rounded corners
+- an inset border or rim
+- an outer drop shadow
+- a background plate surrounding the brand mark
+
+A flattened legacy app icon is a visual reference, not modern source artwork.
+Extract or reconstruct its background and foreground as separate full-canvas
+layers.
 
 ## Create layered artwork
 
@@ -27,6 +43,20 @@ plate. Prefer an Icon Composer `.icon` package compiled by Enmanner with `actool
    Preserve the high-resolution source artwork and the `.icon` package in
    normal tracked project directories.
 
+For a simple two-layer icon, Enmanner can create the initial package without
+manual Icon Composer setup:
+
+```bash
+./.enmanner/scripts/create-icon \
+  --background assets/icon-background.png \
+  --foreground assets/icon-foreground.png \
+  --output assets/AppIcon.icon
+```
+
+The generator requires square PNG layers of at least 1024×1024, an opaque
+background, and an alpha-bearing foreground. Open the result in Icon Composer
+for visual adjustment and appearance review.
+
 ## Package the modern icon
 
 Set the project-relative `.icon` path in `enmanner.json`, for example:
@@ -34,6 +64,11 @@ Set the project-relative `.icon` path in `enmanner.json`, for example:
 ```json
 "icon": "assets/AppIcon.icon",
 ```
+
+When full Xcode and `actool` are available, agents MUST produce and configure an
+Icon Composer `.icon` package. Do not configure `.icns` merely because it
+builds successfully, and never generate `.icns` from a flattened rounded-square
+PNG when modern tooling is available.
 
 Enmanner uses Xcode's `actool` to compile the package. A successful modern icon
 build contains:
@@ -43,15 +78,29 @@ build contains:
 - a generated `.icns` resource and `CFBundleIconFile` for older macOS fallback
 
 Creating `.icon` packages requires Icon Composer, and compiling them requires a
-current full Xcode installation with `actool`. A standalone `.icns` remains
-supported as a legacy fallback when that toolchain is unavailable, but agents
-must not mistake it for modern packaging.
+current full Xcode installation with `actool`. A standalone `.icns` is allowed
+only as a compatibility fallback when `actool` is unavailable. If an
+exceptional workflow intentionally needs legacy packaging on a machine that has
+`actool`, `validate` and `build-app` require the explicit
+`--allow-legacy-icon` escape hatch, and the final report must identify the
+fallback.
 
-Run `./.enmanner/scripts/validate`, rebuild with `./.enmanner/scripts/build-app`, and
-inspect the compiled `.app`, not merely the source PNG or Icon Composer preview.
-Use `xcrun assetutil --info` on `Contents/Resources/Assets.car` and confirm it
-contains an `IconImageStack`. Use `plutil -extract CFBundleIconName raw` on
-`Contents/Info.plist` and confirm it names the icon. Finally, confirm the actual
-Dock/Finder icon looks correct in the relevant appearances. Do not put assets
-inside the generated `.app` by hand; Enmanner creates each bundle reproducibly from
-the tracked project files.
+## Acceptance gate
+
+The icon task is not complete until all of these pass:
+
+- `enmanner.json` references the `.icon` package.
+- Background artwork fills every corner of its square source canvas.
+- Foreground artwork has real alpha transparency.
+- No source layer contains a baked squircle, border, shadow, or backing plate.
+- `./.enmanner/scripts/validate` passes.
+- `./.enmanner/scripts/build-app` confirms `CFBundleIconName` and an
+  `IconImageStack` in `Assets.car`.
+- Default, Dark, Clear, and Tinted renditions have been rendered or visually
+  inspected.
+- The actual Dock/Finder icon has one system-supplied outer container, never a
+  smaller rounded icon inside it.
+
+Inspect the compiled `.app`, not merely the source PNG or Icon Composer preview.
+Do not put assets inside the generated `.app` by hand; Enmanner creates each
+bundle reproducibly from tracked project files.

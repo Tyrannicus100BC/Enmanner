@@ -17,8 +17,9 @@
   an unsupervised child process behind.
 - Return a successful HTTP status from the readiness URL only when the app can
   serve its interface.
-- In a project-level multi-process supervisor, track which services were already
-  running and stop only services the supervisor actually started.
+- In a multi-component project, expose one project-owned foreground supervisor.
+  Start and stop only project-owned resources; treat shared or already-running
+  services as prerequisites that Enmanner observes but does not adopt.
 
 ## SHOULD
 
@@ -32,3 +33,7 @@
 Enmanner allocates a free port, expands only its documented variables, starts the
 command directly, captures both output streams, waits for readiness, and owns
 the process group until the native app quits.
+
+Use `.enmanner/templates/project-supervisor` as the starting point for a
+multi-component project. Runtime validation checks the process group, readiness
+URL, selected port, tracked descendants, and Git-status delta after shutdown.

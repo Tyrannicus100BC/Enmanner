@@ -162,19 +162,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             logBuffer.append("Waiting for readiness at \(url.absoluteString).")
             waitForReadiness(
                 url: url,
-                timeout: manifest.server.readiness.timeoutSeconds
+                readiness: manifest.server.readiness
             )
         } catch {
             showFailure(error: error)
         }
     }
 
-    private func waitForReadiness(url: URL, timeout: TimeInterval) {
+    private func waitForReadiness(
+        url: URL,
+        readiness: EnmannerManifest.Readiness
+    ) {
         readinessTask = Task { [weak self] in
             guard let self else { return }
             let ready = await readinessChecker.waitUntilReady(
                 url: url,
-                timeout: timeout
+                timeout: readiness.timeoutSeconds,
+                acceptableStatusCodes: readiness.acceptableStatusCodes,
+                contentTypeContains: readiness.contentTypeContains,
+                bodyContains: readiness.bodyContains
             )
             guard !Task.isCancelled else { return }
             if ready {
@@ -193,11 +199,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                     break
                 }
             } else if supervisor.isRunning {
-                logBuffer.append("Readiness timed out after \(Int(timeout)) seconds.")
+                logBuffer.append(
+                    "Readiness timed out after \(Int(readiness.timeoutSeconds)) seconds."
+                )
                 supervisor.stop()
                 showFailure(
                     error: EnmannerError.processLaunchFailed(
-                        "The server did not become ready within \(Int(timeout)) seconds."
+                        "The server did not become ready within " +
+                        "\(Int(readiness.timeoutSeconds)) seconds."
                     )
                 )
             }

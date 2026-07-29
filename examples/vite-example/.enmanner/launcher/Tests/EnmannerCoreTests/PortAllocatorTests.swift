@@ -22,6 +22,15 @@ final class PortAllocatorTests: XCTestCase {
 
         XCTAssertNotEqual(allocated, socket.port)
     }
+
+    func testDetectsOnlyListeningLoopbackPort() throws {
+        let socket = try BoundLoopbackSocket()
+
+        XCTAssertEqual(Darwin.listen(socket.descriptor, 1), 0)
+        XCTAssertTrue(PortAllocator.isLoopbackPortListening(socket.port))
+        socket.close()
+        XCTAssertFalse(PortAllocator.isLoopbackPortListening(socket.port))
+    }
 }
 
 private final class BoundLoopbackSocket {

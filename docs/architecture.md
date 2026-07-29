@@ -35,7 +35,8 @@ embedded.
   runtime validation.
 - `build-app` compiles in release mode, creates a conventional app bundle with
   `plutil`, compiles a configured Icon Composer `.icon` package with `actool`
-  (or copies a legacy `.icns`), and ad-hoc signs locally.
+  (or explicitly falls back to a legacy `.icns`), verifies the modern icon
+  metadata and image stack, and ad-hoc signs locally.
 
 SwiftPM has no non-Apple dependencies. The package targets macOS 13, a practical
 baseline for structured concurrency and current WKWebView behavior while
@@ -96,6 +97,14 @@ output instead of consuming the rest of the readiness timeout. It is an
 explicitly state-changing operation: Enmanner cannot infer whether a project
 command mutates databases, containers, volumes, or caches.
 
+After readiness, validation records the launched process tree, stops the
+supervisor, and requires the immediate process to exit, its process group to
+disappear, the readiness endpoint to remain unavailable, and the selected port
+to have no loopback listener. It reports surviving tracked PIDs and the
+Git-status delta.
+External containers, daemons, and deliberately detached processes remain
+project-owned and are reported as outside the proof boundary.
+
 ## Browser lifecycle and navigation
 
 Embedded mode uses a persistent WKWebView with the default website data store.
@@ -155,13 +164,27 @@ Apple Command Line Tools provide `swift`, the macOS SDK, `plutil`, and
 configured. Modern Icon Composer `.icon` packages require a current full Xcode
 installation because Enmanner compiles them with `actool`. The result includes an
 asset catalog image stack and `CFBundleIconName`, plus an `.icns` fallback. The
-script uses an ad-hoc signature because it is useful for stable local bundle
-identity and needs no account. Gatekeeper behavior across OS releases and moved
-bundles still needs testing on a broader Mac matrix.
+build verifies both the metadata and `IconImageStack`. When `actool` is present,
+a directly configured legacy `.icns` fails validation unless the caller uses
+the explicit `--allow-legacy-icon` escape hatch; without `actool`, it remains a
+warned compatibility fallback. The script uses an ad-hoc signature because it
+is useful for stable local bundle identity and needs no account. Gatekeeper
+behavior across OS releases and moved bundles still needs testing on a broader
+Mac matrix.
 
 Ordinary web edits do not alter the bundle. Display name, identifier, icon,
 window configuration, launcher source, or native metadata changes do require a
 rebuild.
+
+## Installation ownership and upgrades
+
+The installer first builds a non-mutating plan. Only high-confidence adapters
+may generate a complete manifest; ambiguous projects receive framework files
+and a structured `configurationRequired` result without an app build.
+`.enmanner/INSTALLATION.json` records the installed version, upstream commit,
+and checksums of framework-owned files. Repair and upgrade operations refuse to
+write when those files have local modifications. Project-owned supervisor code
+stays outside the framework tree or in its explicitly reserved override area.
 
 ## Why there is no reverse proxy
 

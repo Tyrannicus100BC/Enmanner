@@ -1,0 +1,65 @@
+#!/bin/bash
+set -euo pipefail
+
+# Copy this file into the project (for example as ./start), then replace these
+# example argument arrays with project commands. Do not convert them to strings
+# or invoke them through eval.
+backend_command=(make run-local)
+frontend_command=(
+  npm run dev --
+  --host 127.0.0.1
+  --port "${ENMANNER_PORT:?ENMANNER_PORT is required}"
+  --strictPort
+)
+
+pids=()
+stopping=false
+
+stop_children() {
+  local pid
+  if [[ "$stopping" == true ]]; then
+    return
+  fi
+  stopping=true
+  trap - TERM INT EXIT
+  for pid in ${pids[*]:-}; do
+    if kill -0 "$pid" 2>/dev/null; then
+      kill -TERM "$pid" 2>/dev/null || true
+    fi
+  done
+  for pid in ${pids[*]:-}; do
+    wait "$pid" 2>/dev/null || true
+  done
+}
+
+trap stop_children TERM INT EXIT
+
+(
+  cd Backend/backend
+  exec "${backend_command[@]}"
+) &
+pids+=("$!")
+
+(
+  cd Frontend/frontend
+  exec "${frontend_command[@]}"
+) &
+pids+=("$!")
+
+# macOS ships Bash 3.2, which has no `wait -n`. Poll so that any unexpected
+# required-service exit makes the foreground supervisor exit and lets Enmanner
+# terminate the complete inherited process group.
+while true; do
+  for pid in "${pids[@]}"; do
+    if ! kill -0 "$pid" 2>/dev/null; then
+      if wait "$pid"; then
+        status=0
+      else
+        status=$?
+      fi
+      echo "Required service PID $pid exited with status $status." >&2
+      exit "$status"
+    fi
+  done
+  sleep 0.2
+done

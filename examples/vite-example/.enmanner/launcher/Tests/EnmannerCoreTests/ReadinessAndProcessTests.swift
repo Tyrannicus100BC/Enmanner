@@ -2,6 +2,21 @@ import XCTest
 @testable import EnmannerCore
 
 final class ReadinessAndProcessTests: XCTestCase {
+    func testLogBufferCollapsesConsecutiveRepeatedLines() {
+        let logs = LogBuffer()
+        logs.append("noisy line", stream: .stdout)
+        logs.append("noisy line", stream: .stdout)
+        logs.append("noisy line", stream: .stdout)
+
+        let snapshot = logs.snapshot()
+
+        XCTAssertEqual(
+            snapshot.components(separatedBy: "noisy line").count - 1,
+            1
+        )
+        XCTAssertTrue(snapshot.contains("repeated 3×"))
+    }
+
     func testReadinessPollingStopsAfterSuccess() async {
         let attempts = AttemptCounter()
         let checker = ReadinessChecker { _ in

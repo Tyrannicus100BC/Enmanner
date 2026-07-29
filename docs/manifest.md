@@ -36,9 +36,6 @@ provides editor and agent validation.
     "width": 1200,
     "height": 800,
     "resizable": true
-  },
-  "development": {
-    "reload": "auto"
   }
 }
 ```
@@ -53,12 +50,15 @@ project. Bare executable names use Enmanner's GUI-safe `PATH`; absolute executab
 are also supported. `workingDirectory` and optional `icon` are project-relative
 and may not escape through `..` or symlinks.
 
-For current macOS icon behavior, `icon` should point to an Icon Composer
-`.icon` package. Enmanner compiles it with Xcode's `actool`, adds `Assets.car` and
-`CFBundleIconName`, and retains the compiled `.icns` as an older-system
-fallback. A directly configured `.icns` is also accepted as legacy-only
-packaging. See `.enmanner/instructions/icon.md` in an installed project for artwork
-and verification requirements.
+For current macOS icon behavior, `icon` must point to an Icon Composer `.icon`
+package whenever Xcode's `actool` is available. Enmanner compiles it, adds
+`Assets.car` and `CFBundleIconName`, verifies that the catalog contains an
+`IconImageStack`, and retains the compiled `.icns` as an older-system fallback.
+A directly configured `.icns` is accepted automatically only when `actool` is
+unavailable; otherwise validation requires an explicit `--allow-legacy-icon`
+escape hatch and warns that Tahoe can place it in a compatibility enclosure.
+See `.enmanner/instructions/icon.md` in an installed project for source-artwork
+and visual acceptance requirements.
 
 Enmanner controls two substitutions:
 
@@ -73,8 +73,10 @@ preferred port is unavailable, Enmanner allocates another port and exposes the
 actual choice through `${ENMANNER_PORT}`. Ports below 1024 are rejected.
 
 `readiness.url` must use HTTP(S) on `127.0.0.1`, `localhost`, or `::1`.
-Successful and redirect responses count as ready. `timeoutSeconds` is the
-overall startup deadline.
+Successful and redirect responses count as ready by default. `timeoutSeconds`
+is the overall startup deadline. Optional `acceptableStatusCodes`,
+`contentTypeContains`, and `bodyContains` fields make readiness assert something
+more specific than a listening HTTP server.
 
 Runtime validation starts and stops the configured command. For applications
 with databases, containers, or other stateful services, review ownership,
@@ -90,6 +92,7 @@ either mode. Startup failures still open the status window automatically.
 Dimensions and resizability apply to native windows and require an app rebuild
 after changes.
 
-`development.reload` records whether automatic recovery is expected. The MVP
-supports `auto` and `manual`; it always preserves framework HMR, while launcher
-restart behavior is currently automatic after the first successful readiness.
+Legacy v1 manifests may contain `development.reload`. It never controlled
+launcher behavior and is now deprecated and ignored. Framework HMR remains
+project-managed while Enmanner always performs bounded recovery after a
+previously-ready server exits.

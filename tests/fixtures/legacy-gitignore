@@ -1,0 +1,14 @@
+# Project rule
+node_modules/
+
+# Enmanner generated files
+*.app/
+.enmanner/launcher/.build/
+.enmanner/.build/
+.env
+.env.*
+!.env.example
+data/
+
+# Later project rule
+coverage/

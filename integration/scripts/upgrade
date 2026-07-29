@@ -1,0 +1,227 @@
+#!/bin/bash
+set -euo pipefail
+
+usage() {
+  echo "Usage: $0 (--check | --apply) --from /path/to/Enmanner [--target /path/to/.enmanner] [--json]" >&2
+}
+
+mode=""
+source_argument=""
+target_argument=""
+json=false
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --check|--apply) mode="$1" ;;
+    --from)
+      shift
+      source_argument="${1:-}"
+      ;;
+    --target)
+      shift
+      target_argument="${1:-}"
+      ;;
+    --json) json=true ;;
+    *) usage; exit 64 ;;
+  esac
+  shift
+done
+[[ -n "$mode" && -n "$source_argument" ]] || { usage; exit 64; }
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [[ -n "$target_argument" ]]; then
+  installation_root="$(cd "$target_argument" && pwd)"
+else
+  installation_root="$(cd "$script_dir/.." && pwd)"
+fi
+if [[ -f "$source_argument/integration/VERSION" ]]; then
+  source_root="$(cd "$source_argument/integration" && pwd)"
+else
+  source_root="$(cd "$source_argument" && pwd)"
+fi
+[[ -f "$source_root/VERSION" ]] || {
+  echo "Error: $source_root is not an Enmanner framework source." >&2
+  exit 1
+}
+provenance="$installation_root/INSTALLATION.json"
+
+conflicts=()
+conflict_count=0
+tracked_paths="$(mktemp "${TMPDIR:-/tmp}/enmanner-tracked.XXXXXX")"
+trap 'rm -f "$tracked_paths"' EXIT
+override_args=(--exclude "project/")
+if [[ -f "$provenance" ]]; then
+  index=0
+  while path="$(/usr/bin/plutil -extract "files.$index.path" raw "$provenance" 2>/dev/null)"; do
+    printf '%s\n' "$path" >> "$tracked_paths"
+    expected="$(/usr/bin/plutil -extract "files.$index.sha256" raw "$provenance")"
+    destination_file="$installation_root/$path"
+    if [[ -f "$destination_file" ]]; then
+      actual="$(/usr/bin/shasum -a 256 "$destination_file" | /usr/bin/awk '{print $1}')"
+      if [[ "$actual" != "$expected" ]]; then
+        conflicts+=("$path")
+        conflict_count=$((conflict_count + 1))
+      fi
+    fi
+    index=$((index + 1))
+  done
+
+  override_index=0
+  while override="$(
+    /usr/bin/plutil -extract "projectOverrides.$override_index" raw \
+      "$provenance" 2>/dev/null
+  )"; do
+    override_args+=(--exclude "$override")
+    override_index=$((override_index + 1))
+  done
+
+  while IFS= read -r -d '' installed_file; do
+    relative="${installed_file#"$installation_root"/}"
+    [[ "$relative" == "INSTALLATION.json" ]] && continue
+    [[ "$relative" == launcher/.build/* ]] && continue
+    is_override=false
+    for ((override_index=0; ; override_index++)); do
+      override="$(
+        /usr/bin/plutil -extract "projectOverrides.$override_index" raw \
+          "$provenance" 2>/dev/null
+      )" || break
+      if [[ "$relative" == "$override"* ]]; then
+        is_override=true
+        break
+      fi
+    done
+    [[ "$is_override" == true ]] && continue
+    if ! grep -Fqx "$relative" "$tracked_paths"; then
+      conflicts+=("$relative (untracked framework-tree file)")
+      conflict_count=$((conflict_count + 1))
+    fi
+  done < <(find "$installation_root" -type f \
+    -not -path '*/.build/*' -print0)
+  from_version="$(/usr/bin/plutil -extract version raw "$provenance")"
+else
+  from_version="$(tr -d '[:space:]' < "$installation_root/VERSION")"
+  expected_legacy_hash=""
+  case "$from_version" in
+    0.1.0)
+      expected_legacy_hash="e1b85443280c5ffb2e6540a4eedc0e500683ded6f369024b00e438f94b1796b5"
+      ;;
+  esac
+  [[ -n "$expected_legacy_hash" ]] || {
+    echo "Error: no safe upgrade baseline is available for Enmanner $from_version." >&2
+    exit 1
+  }
+  actual_legacy_hash="$(
+    cd "$installation_root"
+    find . -type f \
+      -not -path '*/.build/*' \
+      -not -name '.DS_Store' \
+      -not -name 'INSTALLATION.json' \
+      -not -path './project/*' -print |
+      LC_ALL=C sort |
+      while IFS= read -r path; do
+        /usr/bin/shasum -a 256 "$path" |
+          /usr/bin/awk -v p="$path" '{print $1 "  " p}'
+      done |
+      /usr/bin/shasum -a 256 |
+      /usr/bin/awk '{print $1}'
+  )"
+  if [[ "$actual_legacy_hash" != "$expected_legacy_hash" ]]; then
+    conflicts+=("legacy installation differs from the published $from_version baseline")
+    conflict_count=1
+  fi
+fi
+to_version="$(tr -d '[:space:]' < "$source_root/VERSION")"
+emit_json() {
+  printf '{"mode":"%s","fromVersion":"%s","toVersion":"%s","conflicts":[' \
+    "${mode#--}" "$from_version" "$to_version"
+  separator=""
+  if [[ $conflict_count -gt 0 ]]; then
+    for conflict in "${conflicts[@]}"; do
+      escaped="${conflict//\\/\\\\}"; escaped="${escaped//\"/\\\"}"
+      printf '%s"%s"' "$separator" "$escaped"
+      separator=","
+    done
+  fi
+  printf '],"applicable":%s,"applied":%s}\n' \
+    "$([[ $conflict_count -eq 0 ]] && echo true || echo false)" \
+    "$1"
+}
+
+if [[ "$json" != true ]]; then
+  echo "Enmanner upgrade: $from_version → $to_version"
+  if [[ $conflict_count -gt 0 ]]; then
+    echo "Conflicting locally modified framework files:"
+    printf '  %s\n' "${conflicts[@]}"
+  else
+    echo "✓ No locally modified framework files conflict."
+  fi
+fi
+
+if [[ "$mode" == "--check" ]]; then
+  [[ "$json" == true ]] && emit_json false
+  exit 0
+fi
+if [[ $conflict_count -gt 0 ]]; then
+  [[ "$json" == true ]] && emit_json false
+  echo "Error: upgrade was not applied. Preserve or revert the listed changes first." >&2
+  exit 2
+fi
+
+/usr/bin/rsync -a --delete \
+  --exclude ".build" \
+  --exclude ".DS_Store" \
+  --exclude "INSTALLATION.json" \
+  "${override_args[@]}" \
+  "$source_root/" "$installation_root/"
+
+project_root="$(cd "$installation_root/.." && pwd)"
+gitignore="$project_root/.gitignore"
+if grep -Fqx "# Enmanner generated files" "$gitignore" 2>/dev/null; then
+  migrated_gitignore="$(mktemp "${TMPDIR:-/tmp}/enmanner-gitignore.XXXXXX")"
+  /usr/bin/awk '
+    $0 == "# Enmanner generated files" { legacy = 1; next }
+    legacy && $0 == "*.app/" { next }
+    legacy && $0 == ".enmanner/launcher/.build/" { next }
+    legacy && $0 == ".enmanner/.build/" { next }
+    legacy && $0 == ".env" { next }
+    legacy && $0 == ".env.*" { next }
+    legacy && $0 == "!.env.example" { next }
+    legacy && $0 == "data/" { next }
+    legacy { legacy = 0 }
+    { print }
+  ' "$gitignore" > "$migrated_gitignore"
+  {
+    cat "$migrated_gitignore"
+    echo
+    echo "# enmanner:begin"
+    if [[ -f "$project_root/enmanner.json" ]]; then
+      app_name="$(
+        /usr/bin/plutil -extract name raw "$project_root/enmanner.json" \
+          2>/dev/null || true
+      )"
+      if [[ -n "$app_name" ]]; then
+        escaped_app_name="$app_name"
+        escaped_app_name="${escaped_app_name//\\/\\\\}"
+        escaped_app_name="${escaped_app_name//\[/\\[}"
+        escaped_app_name="${escaped_app_name//\]/\\]}"
+        escaped_app_name="${escaped_app_name//\*/\\*}"
+        escaped_app_name="${escaped_app_name//\?/\\?}"
+        escaped_app_name="${escaped_app_name//#/\\#}"
+        escaped_app_name="${escaped_app_name//!/\\!}"
+        echo "/$escaped_app_name.app/"
+      fi
+    fi
+    echo "/.enmanner/launcher/.build/"
+    echo "/.enmanner/.build/"
+    echo "# enmanner:end"
+  } > "$gitignore"
+  rm -f "$migrated_gitignore"
+fi
+if [[ "$json" == true ]]; then
+  "$installation_root/scripts/record-installation" --source "$source_root" >/dev/null
+  "$installation_root/scripts/validate" --json >/dev/null
+  emit_json true
+else
+  "$installation_root/scripts/record-installation" --source "$source_root"
+  "$installation_root/scripts/validate"
+  echo "✓ Upgraded and statically validated Enmanner $to_version"
+fi

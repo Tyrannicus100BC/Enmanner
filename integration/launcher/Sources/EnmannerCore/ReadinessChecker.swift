@@ -14,11 +14,27 @@ public actor ReadinessChecker {
     public func waitUntilReady(
         url: URL,
         timeout: TimeInterval,
+        acceptableStatusCodes: [Int]? = nil,
+        contentTypeContains: String? = nil,
+        bodyContains: String? = nil,
         intervalNanoseconds: UInt64 = 300_000_000
     ) async -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
         while !Task.isCancelled && Date() < deadline {
-            if await probe(url) {
+            let ready: Bool
+            if acceptableStatusCodes == nil &&
+                contentTypeContains == nil &&
+                bodyContains == nil {
+                ready = await probe(url)
+            } else {
+                ready = await Self.httpProbe(
+                    url: url,
+                    acceptableStatusCodes: acceptableStatusCodes,
+                    contentTypeContains: contentTypeContains,
+                    bodyContains: bodyContains
+                )
+            }
+            if ready {
                 return true
             }
             try? await Task.sleep(nanoseconds: intervalNanoseconds)
@@ -26,15 +42,56 @@ public actor ReadinessChecker {
         return false
     }
 
-    private static func httpProbe(url: URL) async -> Bool {
+    public func waitUntilUnavailable(
+        url: URL,
+        timeout: TimeInterval,
+        intervalNanoseconds: UInt64 = 200_000_000
+    ) async -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        var consecutiveFailures = 0
+        while !Task.isCancelled && Date() < deadline {
+            if await Self.httpProbe(url: url) {
+                consecutiveFailures = 0
+            } else {
+                consecutiveFailures += 1
+                if consecutiveFailures >= 3 {
+                    return true
+                }
+            }
+            try? await Task.sleep(nanoseconds: intervalNanoseconds)
+        }
+        return false
+    }
+
+    private static func httpProbe(
+        url: URL,
+        acceptableStatusCodes: [Int]? = nil,
+        contentTypeContains: String? = nil,
+        bodyContains: String? = nil
+    ) async -> Bool {
         var request = URLRequest(url: url)
         request.timeoutInterval = 2
         request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
 
         do {
-            let (_, response) = try await URLSession.shared.data(for: request)
+            let (data, response) = try await URLSession.shared.data(for: request)
             guard let http = response as? HTTPURLResponse else { return false }
-            return (200...399).contains(http.statusCode)
+            let statusMatches = acceptableStatusCodes?.contains(http.statusCode) ??
+                (200...399).contains(http.statusCode)
+            guard statusMatches else { return false }
+            if let contentTypeContains {
+                guard http.value(forHTTPHeaderField: "Content-Type")?
+                    .localizedCaseInsensitiveContains(contentTypeContains) == true else {
+                    return false
+                }
+            }
+            if let bodyContains {
+                guard let body = String(data: data, encoding: .utf8),
+                      body.contains(bodyContains) else {
+                    return false
+                }
+            }
+            return true
         } catch {
             return false
         }

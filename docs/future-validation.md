@@ -1,7 +1,12 @@
 # Decisions requiring future validation
 
 - Verify Command Line Tools-only builds on clean Intel and Apple Silicon Macs,
-  without a full Xcode installation.
+  without a full Xcode installation, including the warned legacy-icon fallback.
+- Evaluate `ictool` preview export for a reproducible icon validation report
+  covering Default, Dark, Clear, and Tinted appearances.
+- Extend icon-source diagnostics beyond the generator's enforceable alpha and
+  canvas checks to flag likely circular masks, baked edge borders, and outer
+  shadows without rejecting legitimate artwork.
 - Test the macOS 13 deployment target and WKWebView behavior across supported OS
   releases.
 - Compare AppKit's lifecycle simplicity with SwiftUI only if the native shell

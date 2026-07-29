@@ -2,6 +2,66 @@ import XCTest
 @testable import EnmannerCore
 
 final class ManifestTests: XCTestCase {
+    func testDecodesManifestWithoutDeprecatedDevelopmentSection() throws {
+        let json = """
+        {
+          "version": 1,
+          "name": "Minimal",
+          "identifier": "local.enmanner.minimal",
+          "server": {
+            "command": ["/usr/bin/true"],
+            "workingDirectory": ".",
+            "environment": {},
+            "readiness": {
+              "url": "http://127.0.0.1:${ENMANNER_PORT}/",
+              "timeoutSeconds": 5
+            }
+          },
+          "window": {
+            "mode": "embedded",
+            "width": 800,
+            "height": 600,
+            "resizable": true
+          }
+        }
+        """
+
+        let manifest = try JSONDecoder().decode(
+            EnmannerManifest.self,
+            from: Data(json.utf8)
+        )
+
+        XCTAssertNil(manifest.development)
+    }
+
+    func testValidationRejectsInvalidReadinessMatchers() {
+        let manifest = EnmannerManifest(
+            version: 1,
+            name: "Matchers",
+            identifier: "local.enmanner.matchers",
+            server: .init(
+                command: ["/usr/bin/true"],
+                readiness: .init(
+                    url: "http://127.0.0.1:43120/",
+                    acceptableStatusCodes: [],
+                    contentTypeContains: ""
+                )
+            )
+        )
+
+        let issues = ManifestValidator.validate(
+            manifest,
+            projectURL: URL(fileURLWithPath: "/tmp")
+        )
+
+        XCTAssertTrue(
+            issues.contains { $0.contains("acceptableStatusCodes") }
+        )
+        XCTAssertTrue(
+            issues.contains { $0.contains("contentTypeContains") }
+        )
+    }
+
     func testDecodesVersionOneManifest() throws {
         let data = Data(
             """
