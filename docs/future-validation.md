@@ -2,8 +2,9 @@
 
 - Verify Command Line Tools-only builds on clean Intel and Apple Silicon Macs,
   without a full Xcode installation, including the warned legacy-icon fallback.
-- Evaluate `ictool` preview export for a reproducible icon validation report
-  covering Default, Dark, Clear, and Tinted appearances.
+- Test `preview-icon` across future Xcode and Icon Composer releases; its
+  reproducible report currently covers Default, Dark, Clear, and Tinted
+  appearances.
 - Extend icon-source diagnostics beyond the generator's enforceable alpha and
   canvas checks to flag likely circular masks, baked edge borders, and outer
   shadows without rejecting legitimate artwork.

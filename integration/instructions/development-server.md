@@ -25,7 +25,8 @@
 
 - Use a startup command already present in the project's normal dependency
   system, such as an npm script.
-- Configure `server.preferredPort` when browser-origin persistence matters.
+- Configure `server.preferredPort` in browser mode so origin-scoped state stays
+  stable when possible. Installer-inferred manifests do this automatically.
   Continue to use `${ENMANNER_PORT}` because Enmanner falls back if that port is busy.
 - Exit cleanly after `SIGTERM` and close database/file handles.
 - Make repeated start/stop cycles safe.

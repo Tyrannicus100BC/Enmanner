@@ -13,6 +13,7 @@ The supported project-facing surface is:
 - `scripts/upgrade` — checksum-verified framework updates;
 - `scripts/clean` — remove local Swift build products;
 - `scripts/create-icon` — create a layered icon package from project artwork;
+- `scripts/preview-icon` — render all supported icon appearances for review;
 - `templates/` — files to copy into the visible project before customization.
 
 `framework/` is the native implementation. Do not place project supervisors,

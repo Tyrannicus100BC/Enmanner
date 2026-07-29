@@ -1,0 +1,101 @@
+#!/bin/bash
+set -euo pipefail
+
+usage() {
+  echo "Usage: $0 [--output project-relative-directory] [--json]" >&2
+}
+
+output_relative=".enmanner/.build/icon-previews"
+json=false
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --output)
+      shift
+      output_relative="${1:-}"
+      [[ -n "$output_relative" ]] || { usage; exit 64; }
+      ;;
+    --json) json=true ;;
+    *) usage; exit 64 ;;
+  esac
+  shift
+done
+
+if [[ "$output_relative" == /* || "$output_relative" == ".." ||
+  "$output_relative" == ../* || "$output_relative" == */../* ||
+  "$output_relative" == */.. ]]; then
+  echo "Error: preview output must stay inside the project." >&2
+  exit 1
+fi
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+integration_dir="$(cd "$script_dir/.." && pwd)"
+project_dir="$(cd "$integration_dir/.." && pwd)"
+manifest="$project_dir/enmanner.json"
+
+icon_path="$(/usr/bin/plutil -extract icon raw "$manifest" 2>/dev/null || true)"
+if [[ "$icon_path" != *.icon ]]; then
+  echo "Error: icon previews require a configured Icon Composer .icon package." >&2
+  exit 1
+fi
+
+if [[ "$json" == true ]]; then
+  "$script_dir/validate" --json >/dev/null
+else
+  "$script_dir/validate"
+fi
+
+developer_dir="$(/usr/bin/xcode-select -p 2>/dev/null || true)"
+ictool="$developer_dir/../Applications/Icon Composer.app/Contents/Executables/ictool"
+if [[ -z "$developer_dir" || ! -x "$ictool" ]]; then
+  echo "Error: previewing icon appearances requires current Xcode and Icon Composer." >&2
+  exit 1
+fi
+
+icon_source="$project_dir/$icon_path"
+output_dir="$project_dir/$output_relative"
+mkdir -p "$output_dir"
+output_dir="$(cd "$output_dir" && pwd)"
+case "$output_dir/" in
+  "$project_dir/"*) ;;
+  *)
+    echo "Error: preview output resolves outside the project." >&2
+    exit 1
+    ;;
+esac
+
+renditions=(Default Dark ClearLight ClearDark TintedLight TintedDark)
+filenames=(
+  default.png
+  dark.png
+  clear-light.png
+  clear-dark.png
+  tinted-light.png
+  tinted-dark.png
+)
+
+for index in 0 1 2 3 4 5; do
+  "$ictool" "$icon_source" \
+    --export-image \
+    --output-file "$output_dir/${filenames[$index]}" \
+    --platform macOS \
+    --rendition "${renditions[$index]}" \
+    --width 512 \
+    --height 512 \
+    --scale 1 >/dev/null
+done
+
+if [[ "$json" == true ]]; then
+  printf '{"valid":true,"outputDirectory":"%s","appearances":[' \
+    "$output_relative"
+  separator=""
+  for index in 0 1 2 3 4 5; do
+    printf '%s{"name":"%s","path":"%s/%s"}' \
+      "$separator" "${renditions[$index]}" "$output_relative" \
+      "${filenames[$index]}"
+    separator=","
+  done
+  printf ']}\n'
+else
+  echo "✓ Rendered Default, Dark, Clear, and Tinted icon appearances"
+  echo "  Inspect: $output_relative"
+fi

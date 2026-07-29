@@ -107,6 +107,74 @@ final class ManifestTests: XCTestCase {
             guard case EnmannerError.malformedManifest = error else {
                 return XCTFail("Expected malformedManifest, received \(error)")
             }
+            XCTAssertEqual(
+                (error as? EnmannerError)?.diagnosticPath,
+                "version"
+            )
+        }
+    }
+
+    func testMissingEnvironmentDefaultsToEmptyDictionary() throws {
+        let directory = try temporaryDirectory()
+        let url = directory.appendingPathComponent("enmanner.json")
+        try Data(
+            """
+            {
+              "version": 2,
+              "name": "Defaults",
+              "identifier": "local.enmanner.defaults",
+              "server": {
+                "command": ["/usr/bin/true"],
+                "workingDirectory": ".",
+                "readiness": {
+                  "url": "http://127.0.0.1:${ENMANNER_PORT}/",
+                  "timeoutSeconds": 5
+                }
+              },
+              "window": {
+                "mode": "browser",
+                "width": 800,
+                "height": 600,
+                "resizable": true
+              }
+            }
+            """.utf8
+        ).write(to: url)
+
+        let manifest = try ManifestLoader.load(from: url)
+
+        XCTAssertEqual(manifest.server.environment, [:])
+    }
+
+    func testMissingRequiredFieldReportsCodingPath() throws {
+        let directory = try temporaryDirectory()
+        let url = directory.appendingPathComponent("enmanner.json")
+        try Data(
+            """
+            {
+              "version": 2,
+              "name": "Missing readiness",
+              "identifier": "local.enmanner.missing",
+              "server": {
+                "command": ["/usr/bin/true"],
+                "workingDirectory": "."
+              },
+              "window": {
+                "mode": "browser",
+                "width": 800,
+                "height": 600,
+                "resizable": true
+              }
+            }
+            """.utf8
+        ).write(to: url)
+
+        XCTAssertThrowsError(try ManifestLoader.load(from: url)) { error in
+            XCTAssertEqual(
+                (error as? EnmannerError)?.diagnosticPath,
+                "server.readiness"
+            )
+            XCTAssertTrue(error.localizedDescription.contains("Missing required field"))
         }
     }
 

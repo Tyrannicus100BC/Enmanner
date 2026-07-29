@@ -7,12 +7,20 @@ project_dir="$(cd "$integration_dir/.." && pwd)"
 framework_dir="$integration_dir/framework"
 
 allow_legacy_icon=false
-if [[ "${1:-}" == "--allow-legacy-icon" ]]; then
-  allow_legacy_icon=true
+replace_existing_app=false
+while [[ "${1:-}" == --* ]]; do
+  case "$1" in
+    --allow-legacy-icon) allow_legacy_icon=true ;;
+    --replace-existing-app) replace_existing_app=true ;;
+    *)
+      echo "Usage: $0 [--allow-legacy-icon] [--replace-existing-app]" >&2
+      exit 64
+      ;;
+  esac
   shift
-fi
+done
 if [[ $# -ne 0 ]]; then
-  echo "Usage: $0 [--allow-legacy-icon]" >&2
+  echo "Usage: $0 [--allow-legacy-icon] [--replace-existing-app]" >&2
   exit 64
 fi
 
@@ -27,8 +35,52 @@ validator="$validator_dir/enmanner-validator"
 app_name="$("$validator" --project "$project_dir" --print name)"
 bundle_identifier="$("$validator" --project "$project_dir" --print identifier)"
 icon_path="$("$validator" --project "$project_dir" --print icon)"
+if [[ -z "$icon_path" ]]; then
+  echo "Error: no app icon is configured in enmanner.json." >&2
+  echo "  Enmanner does not build placeholder launchers. Create and inspect a" >&2
+  echo "  distinctive icon using .enmanner/instructions/icon.md, then rebuild." >&2
+  exit 1
+fi
 app_path="$project_dir/$app_name.app"
 launcher_path="$app_path/Contents/MacOS/EnmannerLauncher"
+ownership_marker="$app_path/Contents/Resources/EnmannerOwnership.plist"
+
+if [[ -e "$app_path" && "$replace_existing_app" != true ]]; then
+  existing_identifier=""
+  existing_executable=""
+  if [[ -f "$ownership_marker" ]]; then
+    existing_identifier="$(
+      /usr/bin/plutil -extract bundleIdentifier raw "$ownership_marker" \
+        2>/dev/null || true
+    )"
+    if [[ "$existing_identifier" != "$bundle_identifier" ]]; then
+      echo "Error: refusing to replace $app_name.app because its Enmanner" >&2
+      echo "  ownership marker belongs to a different project identifier." >&2
+      echo "  Review the collision, then use --replace-existing-app if intentional." >&2
+      exit 1
+    fi
+  elif [[ -f "$app_path/Contents/Info.plist" ]]; then
+    existing_identifier="$(
+      /usr/bin/plutil -extract CFBundleIdentifier raw \
+        "$app_path/Contents/Info.plist" 2>/dev/null || true
+    )"
+    existing_executable="$(
+      /usr/bin/plutil -extract CFBundleExecutable raw \
+        "$app_path/Contents/Info.plist" 2>/dev/null || true
+    )"
+    if [[ "$existing_identifier" != "$bundle_identifier" ||
+      "$existing_executable" != "EnmannerLauncher" ]]; then
+      echo "Error: refusing to replace an unowned existing $app_name.app." >&2
+      echo "  Review the collision, then use --replace-existing-app if intentional." >&2
+      exit 1
+    fi
+    echo "Warning: upgrading a legacy Enmanner app without an ownership marker." >&2
+  else
+    echo "Error: refusing to replace an unowned existing $app_name.app." >&2
+    echo "  Review the collision, then use --replace-existing-app if intentional." >&2
+    exit 1
+  fi
+fi
 
 escaped_app_name="$app_name"
 escaped_app_name="${escaped_app_name//\\/\\\\}"
@@ -40,25 +92,38 @@ escaped_app_name="${escaped_app_name//#/\\#}"
 escaped_app_name="${escaped_app_name//!/\\!}"
 app_ignore="/$escaped_app_name.app/"
 gitignore="$project_dir/.gitignore"
-if ! grep -Fqx "$app_ignore" "$gitignore" 2>/dev/null; then
-  gitignore_update="$(mktemp "${TMPDIR:-/tmp}/enmanner-gitignore.XXXXXX")"
-  if grep -Fqx "# enmanner:end" "$gitignore" 2>/dev/null; then
-    /usr/bin/awk -v entry="$app_ignore" '
-      $0 == "# enmanner:end" { print entry }
-      { print }
-    ' "$gitignore" > "$gitignore_update"
-  else
-    {
-      [[ -f "$gitignore" ]] && cat "$gitignore"
-      echo
-      echo "# enmanner:begin"
-      echo "$app_ignore"
-      echo "/.enmanner/framework/.build/"
-      echo "/.enmanner/.build/"
-      echo "# enmanner:end"
-    } > "$gitignore_update"
-  fi
+gitignore_update="$(mktemp "${TMPDIR:-/tmp}/enmanner-gitignore.XXXXXX")"
+if grep -Fqx "# enmanner:end" "$gitignore" 2>/dev/null; then
+  /usr/bin/awk -v entry="$app_ignore" '
+    $0 == "# enmanner:begin" {
+      in_enmanner = 1
+      print
+      next
+    }
+    $0 == "# enmanner:end" {
+      print entry
+      in_enmanner = 0
+      print
+      next
+    }
+    in_enmanner && /^\/.*\.app\/$/ { next }
+    { print }
+  ' "$gitignore" > "$gitignore_update"
+else
+  {
+    [[ -f "$gitignore" ]] && cat "$gitignore"
+    echo
+    echo "# enmanner:begin"
+    echo "/.enmanner/framework/.build/"
+    echo "/.enmanner/.build/"
+    echo "$app_ignore"
+    echo "# enmanner:end"
+  } > "$gitignore_update"
+fi
+if ! cmp -s "$gitignore_update" "$gitignore" 2>/dev/null; then
   mv "$gitignore_update" "$gitignore"
+else
+  rm -f "$gitignore_update"
 fi
 
 while read -r running_pid running_command; do
@@ -94,7 +159,7 @@ plist="$contents/Info.plist"
 /usr/bin/plutil -insert CFBundleInfoDictionaryVersion -string "6.0" "$plist"
 /usr/bin/plutil -insert CFBundleName -string "$app_name" "$plist"
 /usr/bin/plutil -insert CFBundlePackageType -string "APPL" "$plist"
-/usr/bin/plutil -insert CFBundleShortVersionString -string "0.3.0" "$plist"
+/usr/bin/plutil -insert CFBundleShortVersionString -string "0.4.0" "$plist"
 /usr/bin/plutil -insert CFBundleVersion -string "1" "$plist"
 /usr/bin/plutil -insert LSMinimumSystemVersion -string "13.0" "$plist"
 /usr/bin/plutil -insert LSMultipleInstancesProhibited -bool true "$plist"
@@ -102,11 +167,16 @@ plist="$contents/Info.plist"
 /usr/bin/plutil -insert NSAppTransportSecurity -json \
   '{"NSAllowsLocalNetworking":true}' "$plist"
 
-if [[ -n "$icon_path" ]]; then
-  icon_source="$project_dir/$icon_path"
-  icon_extension="${icon_path##*.}"
+ownership_plist="$contents/Resources/EnmannerOwnership.plist"
+/usr/bin/plutil -create xml1 "$ownership_plist"
+/usr/bin/plutil -insert formatVersion -integer 1 "$ownership_plist"
+/usr/bin/plutil -insert generator -string "Enmanner" "$ownership_plist"
+/usr/bin/plutil -insert bundleIdentifier -string "$bundle_identifier" "$ownership_plist"
 
-  if [[ "$icon_extension" == "icon" ]]; then
+icon_source="$project_dir/$icon_path"
+icon_extension="${icon_path##*.}"
+
+if [[ "$icon_extension" == "icon" ]]; then
     if ! command -v xcrun >/dev/null 2>&1 ||
       ! xcrun --find actool >/dev/null 2>&1; then
       echo "Error: building an Icon Composer package requires Xcode with actool." >&2
@@ -157,17 +227,15 @@ if [[ -n "$icon_path" ]]; then
       exit 1
     fi
     echo "✓ Verified CFBundleIconName and the compiled IconImageStack"
-  else
-    cp "$icon_source" "$contents/Resources/AppIcon.icns"
-    /usr/bin/plutil -insert CFBundleIconFile -string "AppIcon" "$plist"
-  fi
 else
-  echo "Warning: no app icon is configured in enmanner.json." >&2
-  echo "  Inspect project assets or use image generation to create one; see .enmanner/instructions/icon.md." >&2
+  cp "$icon_source" "$contents/Resources/AppIcon.icns"
+  /usr/bin/plutil -insert CFBundleIconFile -string "AppIcon" "$plist"
 fi
 
 if command -v codesign >/dev/null 2>&1; then
   /usr/bin/codesign --force --sign - --timestamp=none "$staged_app"
+  /usr/bin/codesign --verify --deep --strict "$staged_app"
+  echo "✓ Verified the app's ad-hoc code signature"
 fi
 
 previous_app=""

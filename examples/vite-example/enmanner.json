@@ -3,6 +3,7 @@
   "version": 2,
   "name": "Enmanner Vite Example",
   "identifier": "local.enmanner.vite-example",
+  "icon": "assets/EnmannerViteExample.icon",
   "server": {
     "command": [
       "npm",

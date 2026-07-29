@@ -14,6 +14,7 @@ Options:
   --name NAME            Set the generated application name
   --identifier ID        Set the generated bundle identifier
   --allow-legacy-icon    Permit an intentional legacy icon fallback
+  --replace-existing-app Replace an app only after explicit collision review
 EOF
 }
 
@@ -31,6 +32,7 @@ runtime_validation=false
 json=false
 repair=false
 allow_legacy_icon=false
+replace_existing_app=false
 requested_name=""
 requested_identifier=""
 while [[ "${1:-}" == --* ]]; do
@@ -41,6 +43,7 @@ while [[ "${1:-}" == --* ]]; do
     --json) json=true ;;
     --repair) repair=true ;;
     --allow-legacy-icon) allow_legacy_icon=true ;;
+    --replace-existing-app) replace_existing_app=true ;;
     --name)
       shift
       requested_name="${1:-}"
@@ -80,20 +83,42 @@ manifest_path="$target_dir/enmanner.json"
 git_classification="unversioned"
 git_root=""
 nested_repositories=0
+while IFS= read -r -d '' ignored_git_marker; do
+  nested_repositories=$((nested_repositories + 1))
+done < <(find "$target_dir" -mindepth 2 -maxdepth 5 \
+  \( -type d -o -type f \) -name .git \
+  -not -path '*/node_modules/*' -print0 2>/dev/null)
+
 if command -v git >/dev/null 2>&1 &&
   git_root="$(git -C "$target_dir" rev-parse --show-toplevel 2>/dev/null)"; then
   if [[ "$git_root" == "$target_dir" ]]; then
     git_classification="repository-root"
+  elif [[ $nested_repositories -gt 0 ]]; then
+    git_classification="workspace-with-nested-repositories"
   else
-    while IFS= read -r -d '' ignored_git_dir; do
-      nested_repositories=$((nested_repositories + 1))
-    done < <(find "$target_dir" -mindepth 2 -maxdepth 5 -type d -name .git \
-      -not -path '*/node_modules/*' -print0 2>/dev/null)
-    if [[ $nested_repositories -gt 0 ]]; then
-      git_classification="workspace-with-nested-repositories"
-    else
-      git_classification="subdirectory-of-repository"
-    fi
+    git_classification="subdirectory-of-repository"
+  fi
+elif [[ $nested_repositories -gt 0 ]]; then
+  git_classification="workspace-with-nested-repositories"
+fi
+
+git_branch=""
+git_dirty=false
+git_has_upstream=false
+git_ahead=0
+git_behind=0
+if [[ -n "$git_root" ]]; then
+  git_branch="$(git -C "$target_dir" symbolic-ref --short HEAD 2>/dev/null || true)"
+  [[ -n "$(git -C "$target_dir" status --porcelain -- . 2>/dev/null)" ]] &&
+    git_dirty=true
+  ahead_behind="$(
+    git -C "$target_dir" rev-list --left-right --count \
+      '@{upstream}...HEAD' 2>/dev/null || true
+  )"
+  if [[ -n "$ahead_behind" ]]; then
+    git_has_upstream=true
+    git_behind="$(printf '%s' "$ahead_behind" | /usr/bin/awk '{print $1}')"
+    git_ahead="$(printf '%s' "$ahead_behind" | /usr/bin/awk '{print $2}')"
   fi
 fi
 
@@ -107,6 +132,14 @@ slug="$(printf '%s' "$project_name" |
   sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//')"
 [[ -n "$slug" ]] || slug="app"
 bundle_identifier="${requested_identifier:-local.enmanner.$slug}"
+if [[ -f "$manifest_path" && -z "$requested_identifier" ]]; then
+  existing_identifier="$(
+    /usr/bin/plutil -extract identifier raw "$manifest_path" 2>/dev/null || true
+  )"
+  [[ -n "$existing_identifier" ]] && bundle_identifier="$existing_identifier"
+fi
+identifier_checksum="$(printf '%s' "$bundle_identifier" | /usr/bin/cksum | /usr/bin/awk '{print $1}')"
+preferred_port=$((42000 + identifier_checksum % 6000))
 
 package_manager=""
 candidate_command=""
@@ -212,10 +245,31 @@ escaped_app_name="${escaped_app_name//\?/\\?}"
 escaped_app_name="${escaped_app_name//#/\\#}"
 escaped_app_name="${escaped_app_name//!/\\!}"
 app_ignore="/$escaped_app_name.app/"
-files_summary=".enmanner/, AGENTS.md managed section, .gitignore managed section"
+icon_configured=false
+if [[ -f "$manifest_path" ]]; then
+  existing_icon="$(/usr/bin/plutil -extract icon raw "$manifest_path" 2>/dev/null || true)"
+  [[ -n "$existing_icon" ]] && icon_configured=true
+fi
+
+gitignore_needs_update=true
+grep -q "# enmanner:begin" "$target_dir/.gitignore" 2>/dev/null &&
+  gitignore_needs_update=false
+agents_needs_update=true
+grep -q "<!-- enmanner:begin -->" "$target_dir/AGENTS.md" 2>/dev/null &&
+  agents_needs_update=false
+manifest_will_write=false
+[[ ! -e "$manifest_path" && "$manifest_status" == "inferred" ]] &&
+  manifest_will_write=true
+draft_will_write=false
+[[ ! -e "$manifest_path" &&
+  "$manifest_status" == "configurationRequired" &&
+  ! -e "$target_dir/enmanner.json.example" ]] &&
+  draft_will_write=true
+
 will_build=true
 if [[ "$plan" == true || "$skip_build" == true ||
-  "$manifest_status" == "configurationRequired" ]]; then
+  "$manifest_status" == "configurationRequired" ||
+  "$icon_configured" != true ]]; then
   will_build=false
 fi
 
@@ -223,18 +277,42 @@ emit_result() {
   local installed="$1"
   local built="$2"
   local action="$3"
+  local completion_status="installed"
+  if [[ "$built" == true ]]; then
+    completion_status="complete"
+  elif [[ "$manifest_status" == "configurationRequired" ]]; then
+    completion_status="configurationRequired"
+  elif [[ "$icon_configured" != true ]]; then
+    completion_status="iconRequired"
+  fi
   if [[ "$json" == true ]]; then
     printf '{'
+    printf '"schemaVersion":1,'
     printf '"action":"%s",' "$(json_escape "$action")"
     printf '"target":"%s",' "$(json_escape "$target_dir")"
     printf '"installed":%s,' "$installed"
+    printf '"completionStatus":"%s",' "$completion_status"
     printf '"manifestStatus":"%s",' "$(json_escape "$manifest_status")"
     printf '"configurationRequired":%s,' \
       "$([[ "$manifest_status" == "configurationRequired" ]] && echo true || echo false)"
     printf '"built":%s,' "$built"
-    printf '"git":{"classification":"%s","root":"%s","nestedRepositories":%d},' \
+    printf '"build":{"planned":%s,"iconConfigured":%s,' \
+      "$will_build" "$icon_configured"
+    if [[ "$manifest_status" == "configurationRequired" ]]; then
+      printf '"blockedBy":"configurationRequired"},'
+    elif [[ "$icon_configured" != true ]]; then
+      printf '"blockedBy":"iconRequired"},'
+    elif [[ "$plan" == true ]]; then
+      printf '"blockedBy":"planOnly"},'
+    elif [[ "$skip_build" == true ]]; then
+      printf '"blockedBy":"noBuildRequested"},'
+    else
+      printf '"blockedBy":null},'
+    fi
+    printf '"git":{"classification":"%s","root":"%s","nestedRepositories":%d,"branch":"%s","dirty":%s,"hasUpstream":%s,"ahead":%d,"behind":%d},' \
       "$(json_escape "$git_classification")" "$(json_escape "$git_root")" \
-      "$nested_repositories"
+      "$nested_repositories" "$(json_escape "$git_branch")" "$git_dirty" \
+      "$git_has_upstream" "$git_ahead" "$git_behind"
     printf '"detectedStacks":['
     detected_separator=""
     if [[ $detected_stack_count -gt 0 ]]; then
@@ -244,11 +322,59 @@ emit_result() {
       done
     fi
     printf '],'
-    printf '"inference":{"packageManager":"%s","workingDirectory":"%s","command":%s,"reason":"%s"},' \
+    printf '"inference":{"packageManager":"%s","workingDirectory":"%s","command":%s,"preferredPort":%d,"reason":"%s"},' \
       "$(json_escape "$package_manager")" \
       "$(json_escape "$candidate_working_directory")" \
-      "${candidate_command:-null}" "$(json_escape "$inference_reason")"
-    printf '"files":"%s"' "$(json_escape "$files_summary")"
+      "${candidate_command:-null}" "$preferred_port" \
+      "$(json_escape "$inference_reason")"
+    printf '"fileOperations":['
+    printf '{"action":"createDirectory","path":".enmanner/","willWrite":true},'
+    printf '{"action":"ensureManagedSection","path":"AGENTS.md","willWrite":%s},' \
+      "$agents_needs_update"
+    printf '{"action":"ensureManagedSection","path":".gitignore","willWrite":%s},' \
+      "$gitignore_needs_update"
+    if [[ "$manifest_status" == "inferred" ]]; then
+      printf '{"action":"create","path":"enmanner.json","willWrite":%s}' \
+        "$manifest_will_write"
+    elif [[ "$manifest_status" == "configurationRequired" ]]; then
+      printf '{"action":"create","path":"enmanner.json.example","willWrite":%s}' \
+        "$draft_will_write"
+    else
+      printf '{"action":"preserve","path":"enmanner.json","willWrite":false}'
+    fi
+    printf '],'
+    printf '"performedWrites":['
+    if [[ "$installed" == true ]]; then
+      printf '".enmanner/"'
+      [[ "$agents_needs_update" == true ]] &&
+        printf ',"AGENTS.md managed section"'
+      [[ "$gitignore_needs_update" == true ]] &&
+        printf ',".gitignore managed section"'
+      if [[ "$manifest_will_write" == true ]]; then
+        printf ',"enmanner.json"'
+      elif [[ "$draft_will_write" == true ]]; then
+        printf ',"enmanner.json.example"'
+      fi
+    fi
+    printf '],'
+    printf '"unresolvedChecks":['
+    if [[ "$manifest_status" == "configurationRequired" ]]; then
+      printf '{"id":"dynamicPort","status":"unknown","requirement":"server honors ENMANNER_PORT","evidence":"startup candidate found but dynamic-port behavior is unverified","suggestedChange":"prefer ENMANNER_PORT over framework-specific port variables"},'
+      printf '{"id":"loopbackBinding","status":"unknown","requirement":"server binds only to loopback","evidence":"startup candidate does not prove its listener host","suggestedChange":"bind the public listener explicitly to 127.0.0.1"},'
+      printf '{"id":"foregroundLifecycle","status":"unknown","requirement":"command remains in the foreground","evidence":"child and daemon behavior requires project review","suggestedChange":"use one foreground command or a project-owned supervisor"}'
+    fi
+    printf '],'
+    printf '"nextActions":['
+    if [[ "$manifest_status" == "configurationRequired" ]]; then
+      printf '"reviewDraftManifest","resolveCompatibilityChecks",'
+    fi
+    if [[ "$manifest_status" != "configurationRequired" ]]; then
+      printf '"validateLifecycle",'
+    fi
+    if [[ "$icon_configured" != true ]]; then
+      printf '"createAndConfigureIcon",'
+    fi
+    printf '"buildApp"]'
     printf '}\n'
   else
     echo "Enmanner $action for: $target_dir"
@@ -259,8 +385,15 @@ emit_result() {
     fi
     [[ -n "$candidate_command" ]] && echo "  Candidate command: $candidate_command"
     echo "  $inference_reason"
-    echo "  Files: $files_summary"
+    echo "  Files: .enmanner/, managed AGENTS.md and .gitignore sections"
+    if [[ "$manifest_status" == "configurationRequired" ]]; then
+      echo "  Draft: enmanner.json.example"
+    fi
     echo "  Build: $([[ "$will_build" == true ]] && echo planned || echo not-planned)"
+    if [[ "$icon_configured" != true &&
+      "$manifest_status" != "configurationRequired" ]]; then
+      echo "  Completion: icon required before the app can be built"
+    fi
   fi
 }
 
@@ -314,6 +447,7 @@ if [[ ! -e "$manifest_path" && "$manifest_status" == "inferred" ]]; then
     echo "    \"command\": $candidate_command,"
     echo '    "workingDirectory": ".",'
     echo '    "environment": {"PORT": "${ENMANNER_PORT}"},'
+    printf '    "preferredPort": %d,\n' "$preferred_port"
     echo '    "readiness": {'
     echo '      "url": "http://127.0.0.1:${ENMANNER_PORT}/",'
     echo '      "timeoutSeconds": 30'
@@ -327,6 +461,38 @@ if [[ ! -e "$manifest_path" && "$manifest_status" == "inferred" ]]; then
     echo '  }'
     echo '}'
   } > "$manifest_path"
+fi
+
+draft_manifest_path="$target_dir/enmanner.json.example"
+if [[ ! -e "$manifest_path" &&
+  "$manifest_status" == "configurationRequired" &&
+  ! -e "$draft_manifest_path" ]]; then
+  draft_command="${candidate_command:-[\"REPLACE_WITH_PROJECT_COMMAND\"]}"
+  {
+    echo '{'
+    echo '  "$schema": "./.enmanner/enmanner.schema.json",'
+    echo '  "version": 2,'
+    printf '  "name": "%s",\n' "$(json_escape "$project_name")"
+    printf '  "identifier": "%s",\n' "$(json_escape "$bundle_identifier")"
+    echo '  "server": {'
+    printf '    "command": %s,\n' "$draft_command"
+    printf '    "workingDirectory": "%s",\n' \
+      "$(json_escape "$candidate_working_directory")"
+    echo '    "environment": {},'
+    printf '    "preferredPort": %d,\n' "$preferred_port"
+    echo '    "readiness": {'
+    echo '      "url": "http://127.0.0.1:${ENMANNER_PORT}/",'
+    echo '      "timeoutSeconds": 30'
+    echo '    }'
+    echo '  },'
+    echo '  "window": {'
+    echo '    "mode": "browser",'
+    echo '    "width": 1200,'
+    echo '    "height": 800,'
+    echo '    "resizable": true'
+    echo '  }'
+    echo '}'
+  } > "$draft_manifest_path"
 fi
 
 gitignore="$target_dir/.gitignore"
@@ -369,7 +535,9 @@ built=false
 if [[ "$manifest_status" == "configurationRequired" ]]; then
   [[ "$json" == true ]] || {
     echo "✓ Installed framework files."
-    echo "! Configuration is required; no manifest or app was generated."
+    echo "✓ Wrote enmanner.json.example with preserved presentation choices."
+    echo "! Configuration is required; review the draft and resolve the reported checks."
+    echo "  No app was generated."
   }
 elif [[ "$skip_build" == true ]]; then
   [[ "$json" == true ]] || echo "✓ Installed without building as requested."
@@ -383,20 +551,30 @@ else
   elif [[ "$json" != true ]]; then
     echo "Skipped runtime validation because it starts and stops project services."
   fi
-  if [[ "$json" == true ]]; then
-    if [[ "$allow_legacy_icon" == true ]]; then
-      "$destination/scripts/build-app" --allow-legacy-icon >/dev/null
-    else
-      "$destination/scripts/build-app" >/dev/null
+  if [[ "$icon_configured" != true ]]; then
+    if [[ "$runtime_validation" != true ]]; then
+      if [[ "$json" == true ]]; then
+        "$destination/scripts/validate" --json >/dev/null
+      else
+        "$destination/scripts/validate"
+      fi
     fi
+    [[ "$json" == true ]] || {
+      echo "✓ Lifecycle configuration is ready for project-specific verification."
+      echo "! A distinctive icon is required before building the app."
+      echo "  Follow .enmanner/instructions/icon.md, then run ./.enmanner/scripts/build-app."
+    }
   else
-    if [[ "$allow_legacy_icon" == true ]]; then
-      "$destination/scripts/build-app" --allow-legacy-icon
+    build_args=()
+    [[ "$allow_legacy_icon" == true ]] && build_args+=(--allow-legacy-icon)
+    [[ "$replace_existing_app" == true ]] && build_args+=(--replace-existing-app)
+    if [[ "$json" == true ]]; then
+      "$destination/scripts/build-app" "${build_args[@]}" >/dev/null
     else
-      "$destination/scripts/build-app"
+      "$destination/scripts/build-app" "${build_args[@]}"
     fi
+    built=true
   fi
-  built=true
 fi
 
 emit_result true "$built" install

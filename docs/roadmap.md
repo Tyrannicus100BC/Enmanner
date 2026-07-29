@@ -15,7 +15,7 @@
 - Add machine-readable launcher status and bounded diagnostic log interfaces
   without creating a large hidden workspace.
 - Add Keychain-backed secret injection without writing values to the manifest.
-- Automate more of the layered Icon Composer artwork workflow.
+- Extend icon-source diagnostics beyond the new automated appearance renderer.
 - Improve accessibility, menu commands, native update states, and diagnostics.
 - Expand conflict-aware upgrades with explicit manifest migrations when a future
   manifest version requires them.

@@ -3,6 +3,9 @@
 Enmanner is installed in this repository. The repository is the editable source of
 truth; the generated `.app` is only a reproducible native front door.
 
+Start with `instructions/integration.md`. It defines the required sequence and
+routes to the focused rules below only when they apply.
+
 Every file inside `.enmanner/` is vendored, framework-owned code. Do not add
 project overrides there or edit native internals during an integration. Keep
 project configuration in `enmanner.json` and copy templates into visible
@@ -29,6 +32,10 @@ because it already exists. Follow the hard preflight and acceptance gates in
 `instructions/icon.md`; when no appropriate layered asset is available,
 reconstruct it or use your image-generation capability. When `actool` is
 available, a `.icon` package is required.
+
+Validate lifecycle behavior before beginning icon work, but do not build or
+report the app complete until the icon passes its acceptance gate. Use
+`scripts/preview-icon` to render Default, Dark, Clear, and Tinted appearances.
 
 Treat **MUST** as required, **SHOULD** as the safe default, and **MAY** as
 optional. Run `./.enmanner/scripts/validate --runtime` after changing server

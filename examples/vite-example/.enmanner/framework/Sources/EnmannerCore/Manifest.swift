@@ -44,6 +44,32 @@ public struct EnmannerManifest: Codable, Equatable, Sendable {
             self.preferredPort = preferredPort
             self.readiness = readiness
         }
+
+        private enum CodingKeys: String, CodingKey {
+            case command
+            case workingDirectory
+            case environment
+            case preferredPort
+            case readiness
+        }
+
+        public init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            command = try container.decode([String].self, forKey: .command)
+            workingDirectory = try container.decode(
+                String.self,
+                forKey: .workingDirectory
+            )
+            environment = try container.decodeIfPresent(
+                [String: String].self,
+                forKey: .environment
+            ) ?? [:]
+            preferredPort = try container.decodeIfPresent(
+                UInt16.self,
+                forKey: .preferredPort
+            )
+            readiness = try container.decode(Readiness.self, forKey: .readiness)
+        }
     }
 
     public struct Readiness: Codable, Equatable, Sendable {
@@ -115,9 +141,46 @@ public enum ManifestLoader {
             return try decoder.decode(EnmannerManifest.self, from: data)
         } catch let error as EnmannerError {
             throw error
+        } catch let error as DecodingError {
+            throw decodingError(error)
         } catch {
-            throw EnmannerError.malformedManifest(error.localizedDescription)
+            throw EnmannerError.malformedManifest(
+                path: nil,
+                detail: error.localizedDescription
+            )
         }
+    }
+
+    private static func decodingError(_ error: DecodingError) -> EnmannerError {
+        let path: String?
+        let detail: String
+
+        switch error {
+        case .keyNotFound(let key, let context):
+            path = codingPath(context.codingPath + [key])
+            detail = "Missing required field."
+        case .typeMismatch(let type, let context):
+            path = codingPath(context.codingPath)
+            detail = "Expected \(String(describing: type)). \(context.debugDescription)"
+        case .valueNotFound(let type, let context):
+            path = codingPath(context.codingPath)
+            detail = "Expected \(String(describing: type)); found null."
+        case .dataCorrupted(let context):
+            path = codingPath(context.codingPath)
+            detail = context.debugDescription
+        @unknown default:
+            path = nil
+            detail = error.localizedDescription
+        }
+
+        return .malformedManifest(path: path, detail: detail)
+    }
+
+    private static func codingPath(_ keys: [CodingKey]) -> String? {
+        let components = keys.map {
+            $0.intValue.map(String.init) ?? $0.stringValue
+        }
+        return components.isEmpty ? nil : components.joined(separator: ".")
     }
 }
 

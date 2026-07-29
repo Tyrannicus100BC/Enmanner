@@ -11,7 +11,9 @@ trap cleanup EXIT
 
 vite_target="$test_root/Vite Project"
 generic_target="$test_root/Generic Project"
-mkdir -p "$vite_target" "$generic_target"
+workspace_target="$test_root/Workspace Project"
+mkdir -p "$vite_target" "$generic_target" \
+  "$workspace_target/Backend/.git" "$workspace_target/Frontend/.git"
 cp "$repository_dir/examples/vite-example/package.json" \
   "$repository_dir/examples/vite-example/package-lock.json" \
   "$vite_target/"
@@ -23,11 +25,27 @@ plan="$(
     --plan --json "$vite_target"
 )"
 printf '%s\n' "$plan" | jq -e '
+  (.schemaVersion == 1) and
   (.action == "plan") and
   (.manifestStatus == "inferred") and
-  (.installed == false)
+  (.installed == false) and
+  (.completionStatus == "iconRequired") and
+  (.build.blockedBy == "iconRequired") and
+  (.git.dirty | type == "boolean") and
+  (.git.ahead | type == "number") and
+  (.fileOperations | type == "array") and
+  ([.fileOperations[].path] | index("enmanner.json"))
 ' >/dev/null
 test ! -e "$vite_target/.enmanner"
+
+workspace_plan="$(
+  "$repository_dir/integration/scripts/install" \
+    --plan --json "$workspace_target"
+)"
+printf '%s\n' "$workspace_plan" | jq -e '
+  (.git.classification == "workspace-with-nested-repositories") and
+  (.git.nestedRepositories == 2)
+' >/dev/null
 
 vite_result="$(
   "$repository_dir/integration/scripts/install" \
@@ -40,23 +58,104 @@ printf '%s\n' "$vite_result" | jq -e '
 ' >/dev/null
 jq -e '
   (.version == 2) and
-  (.window.mode == "browser")
+  (.window.mode == "browser") and
+  (.server.preferredPort >= 42000) and
+  (.server.preferredPort < 48000)
 ' "$vite_target/enmanner.json" >/dev/null
+
+if "$vite_target/.enmanner/scripts/build-app" \
+  >"$test_root/missing-icon.out" 2>&1; then
+  echo "Error: build-app accepted a manifest without an icon." >&2
+  exit 1
+fi
+grep -Fq "does not build placeholder launchers" "$test_root/missing-icon.out"
+test ! -e "$vite_target/Vite Project.app"
 
 generic_result="$(
   "$repository_dir/integration/scripts/install" \
+    --name "Generic Nice" \
+    --identifier "com.example.generic-nice" \
     --json "$generic_target"
 )"
 printf '%s\n' "$generic_result" | jq -e '
   .installed and
   .configurationRequired and
-  (.built == false)
+  (.built == false) and
+  (.completionStatus == "configurationRequired") and
+  (.build.blockedBy == "configurationRequired") and
+  (.unresolvedChecks | length == 3) and
+  ([.fileOperations[].path] | index("enmanner.json.example")) and
+  ([.performedWrites[]] | index("enmanner.json.example"))
 ' >/dev/null
 test ! -e "$generic_target/enmanner.json"
+jq -e '
+  (.name == "Generic Nice") and
+  (.identifier == "com.example.generic-nice") and
+  (.server.command == ["npm", "run", "start"]) and
+  (.server.preferredPort >= 42000) and
+  (.server.preferredPort < 48000)
+' "$generic_target/enmanner.json.example" >/dev/null
+
+cp "$generic_target/enmanner.json.example" "$generic_target/enmanner.json"
+/usr/bin/plutil -remove server.readiness "$generic_target/enmanner.json"
+if "$generic_target/.enmanner/scripts/validate" --json \
+  >"$test_root/manifest-error.json"; then
+  echo "Error: validator accepted a manifest missing server.readiness." >&2
+  exit 1
+fi
+jq -e '
+  (.valid == false) and
+  (.error.code == "manifestMalformed") and
+  (.error.path == "server.readiness")
+' "$test_root/manifest-error.json" >/dev/null
+
+mkdir -p "$vite_target/assets"
+cp -R "$repository_dir/examples/vite-example/assets/EnmannerViteExample.icon" \
+  "$vite_target/assets/Test.icon"
+/usr/bin/plutil -insert icon -string "assets/Test.icon" \
+  "$vite_target/enmanner.json"
+gitignore_with_stale_app="$test_root/gitignore-with-stale-app"
+/usr/bin/awk '
+  $0 == "# enmanner:end" { print "/Old Name.app/" }
+  { print }
+' "$vite_target/.gitignore" > "$gitignore_with_stale_app"
+mv "$gitignore_with_stale_app" "$vite_target/.gitignore"
+fake_app="$vite_target/Vite Project.app"
+mkdir -p "$fake_app/Contents"
+/usr/bin/plutil -create xml1 "$fake_app/Contents/Info.plist"
+/usr/bin/plutil -insert CFBundleIdentifier -string "com.example.unrelated" \
+  "$fake_app/Contents/Info.plist"
+/usr/bin/plutil -insert CFBundleExecutable -string "Unrelated" \
+  "$fake_app/Contents/Info.plist"
+if "$vite_target/.enmanner/scripts/build-app" \
+  >"$test_root/app-collision.out" 2>&1; then
+  echo "Error: build-app replaced an unrelated app." >&2
+  exit 1
+fi
+grep -Fq "refusing to replace an unowned existing Vite Project.app" \
+  "$test_root/app-collision.out"
+test -f "$fake_app/Contents/Info.plist"
+
+"$vite_target/.enmanner/scripts/build-app" --replace-existing-app \
+  >"$test_root/replaced-app.out"
+test -x "$fake_app/Contents/MacOS/EnmannerLauncher"
+test "$(
+  /usr/bin/plutil -extract bundleIdentifier raw \
+    "$fake_app/Contents/Resources/EnmannerOwnership.plist"
+)" = "local.enmanner.vite-project"
+/usr/bin/codesign --verify --deep --strict "$fake_app"
+if grep -Fqx "/Old Name.app/" "$vite_target/.gitignore"; then
+  echo "Error: build-app left a stale managed app ignore entry." >&2
+  exit 1
+fi
+test "$(
+  grep -Fxc "/Vite Project.app/" "$vite_target/.gitignore"
+)" -eq 1
 
 test -f "$vite_target/.enmanner/INSTALLATION.json"
 jq -e '
-  (.version == "0.3.0") and
+  (.version == "0.4.0") and
+  (.upstreamURL | type == "string") and
   (.manifestStatus == "inferred") and
   (.inferredManifestFields | index("server.command")) and
   ([.files[].path] | any(startswith("framework/Sources/"))) and
@@ -85,8 +184,8 @@ fi
   jq -e '
     .applicable and
     .applied and
-    (.fromVersion == "0.3.0") and
-    (.toVersion == "0.3.0")
+    (.fromVersion == "0.4.0") and
+    (.toVersion == "0.4.0")
   ' >/dev/null
 test ! -e "$vite_target/.enmanner/framework/Tests"
 test ! -e "$vite_target/.enmanner/scripts/install"

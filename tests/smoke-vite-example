@@ -11,6 +11,13 @@ if [[ ! -d "$example_dir/node_modules" ]]; then
 fi
 
 "$example_dir/.enmanner/scripts/validate" --runtime
+"$example_dir/.enmanner/scripts/preview-icon" --json |
+  jq -e '
+    .valid and
+    (.appearances | length == 6) and
+    ([.appearances[].name] | index("ClearLight")) and
+    ([.appearances[].name] | index("TintedDark"))
+  ' >/dev/null
 "$example_dir/.enmanner/scripts/build-app"
 
 app_path="$example_dir/Enmanner Vite Example.app"
@@ -18,6 +25,19 @@ if [[ ! -x "$app_path/Contents/MacOS/EnmannerLauncher" ]]; then
   echo "Error: generated launcher is missing or not executable." >&2
   exit 1
 fi
+if [[ ! -f "$app_path/Contents/Resources/Assets.car" ]]; then
+  echo "Error: generated launcher is missing its modern icon catalog." >&2
+  exit 1
+fi
+ownership_marker="$app_path/Contents/Resources/EnmannerOwnership.plist"
+ownership_identifier="$(
+  /usr/bin/plutil -extract bundleIdentifier raw "$ownership_marker"
+)"
+if [[ "$ownership_identifier" != "local.enmanner.vite-example" ]]; then
+  echo "Error: generated launcher has no matching Enmanner ownership marker." >&2
+  exit 1
+fi
+/usr/bin/codesign --verify --deep --strict "$app_path"
 if find "$app_path" \( -name node_modules -o -name .git -o -name src -o -name enmanner.json \) |
   grep -q .; then
   echo "Error: generated app contains project source or dependencies." >&2

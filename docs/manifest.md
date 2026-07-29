@@ -50,6 +50,10 @@ project. Bare executable names use Enmanner's GUI-safe `PATH`; absolute executab
 are also supported. `workingDirectory` and optional `icon` are project-relative
 and may not escape through `..` or symlinks.
 
+`server.environment` may be omitted when no additional variables are needed; it
+decodes as an empty object. Validation errors include the exact field path, and
+JSON diagnostics use stable `code`, `path`, and `message` fields.
+
 For current macOS icon behavior, `icon` must point to an Icon Composer `.icon`
 package whenever Xcode's `actool` is available. Enmanner compiles it, adds
 `Assets.car` and `CFBundleIconName`, verifies that the catalog contains an
@@ -71,12 +75,16 @@ Optional `server.preferredPort` asks Enmanner to reuse a stable loopback port ac
 launches, preserving origin-scoped browser state such as `localStorage`. If the
 preferred port is unavailable, Enmanner allocates another port and exposes the
 actual choice through `${ENMANNER_PORT}`. Ports below 1024 are rejected.
+Installer-inferred manifests receive a deterministic preferred port by default.
 
 `readiness.url` must use HTTP(S) on `127.0.0.1`, `localhost`, or `::1`.
 Successful and redirect responses count as ready by default. `timeoutSeconds`
 is the overall startup deadline. Optional `acceptableStatusCodes`,
 `contentTypeContains`, and `bodyContains` fields make readiness assert something
-more specific than a listening HTTP server.
+more specific than a listening HTTP server. The deadline is capped at 300
+seconds deliberately: cloning, first-time dependency installation, large seeds,
+and other long initialization belong in an explicit setup step rather than
+normal app startup.
 
 Runtime validation starts and stops the configured command. For applications
 with databases, containers, or other stateful services, review ownership,

@@ -37,7 +37,9 @@ embedded.
 - `build-app` compiles in release mode, creates a conventional app bundle with
   `plutil`, compiles a configured Icon Composer `.icon` package with `actool`
   (or explicitly falls back to a legacy `.icns`), verifies the modern icon
-  metadata and image stack, and ad-hoc signs locally.
+  metadata and image stack, ad-hoc signs locally, and verifies the signature.
+  It embeds an ownership marker and refuses to replace a same-named app that it
+  cannot attribute to the current bundle identifier.
 
 The installed distribution includes `Package.swift` and `Sources`, but excludes
 the framework's own tests and installer. SwiftPM has no non-Apple dependencies.
@@ -180,9 +182,17 @@ rebuild.
 
 ## Installation ownership and upgrades
 
-The installer first builds a non-mutating plan. Only high-confidence adapters
-may generate a complete manifest; ambiguous projects receive framework files
-and a structured `configurationRequired` result without an app build.
+The installer first builds a non-mutating, schema-versioned plan. Only
+high-confidence adapters may generate a complete manifest; ambiguous projects
+receive framework files, an inactive `enmanner.json.example`, and a structured
+`configurationRequired` result without an app build. Inferred manifests use a
+deterministic preferred port derived from the bundle identifier, with the
+normal allocated-port fallback.
+
+An app build is a finishing operation, not an installation side effect.
+Lifecycle validation can run without an icon, but `build-app` requires a
+configured distinctive icon. This lets an agent prove startup and shutdown
+before doing visual work while ensuring the first generated app is finished.
 `.enmanner/INSTALLATION.json` records the installed version, upstream commit,
 and checksums of framework-owned files. Repair and upgrade operations refuse to
 write when those files have local modifications. Every installed file is

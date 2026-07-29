@@ -105,9 +105,16 @@ Preview an installation before changing the project:
 
 For a root npm/Vite project, the installer can infer a safe loopback startup
 command, create `enmanner.json`, append narrowly-owned managed sections to
-`.gitignore` and `AGENTS.md`, perform static validation, and build the `.app`.
-For other stacks it reports candidate package scripts but stops with
-`configurationRequired`; it never builds a knowingly provisional manifest.
+`.gitignore` and `AGENTS.md`, and perform static validation. It deliberately
+does not build an app until a distinctive icon is configured. This keeps
+lifecycle work ahead of visual finishing without ever producing a placeholder
+launcher.
+
+For other stacks it reports candidate package scripts, installs the framework,
+and stops with `configurationRequired`. It writes `enmanner.json.example` with
+the requested name and identifier, candidate command, deterministic preferred
+port, and unresolved compatibility checks; it never treats that draft as the
+live manifest or builds a knowingly provisional app.
 Use `--name` and `--identifier` to override inferred presentation values.
 Pass `--runtime` to opt into a real start/stop cycle after reviewing state
 ownership.
@@ -128,7 +135,8 @@ apply an update from an Enmanner checkout with:
 
 The upgrade refuses all changes if a framework-owned file was locally modified.
 The provenance also records exact file checksums, the upstream commit and dirty
-state, whether the manifest was inferred, and which fields came from that
+state, the upstream repository URL when available, whether the manifest was
+inferred, and which fields came from that
 inference. Every file inside `.enmanner/` is framework-owned. Project
 configuration, supervisors, icons, data, and scripts stay in visible paths
 outside it. `install --repair` uses the same conflict-aware mechanism.
@@ -138,6 +146,11 @@ working directory, effective GUI `PATH`, toolchain, icon capability, and
 optional runtime evidence. Enmanner does not load `.env`; the project command
 may do so explicitly. Remove local Swift products with
 `./.enmanner/scripts/clean`; builds report both app and cache size.
+
+The intended integration order is documented in
+[docs/integration-checklist.md](docs/integration-checklist.md). In short:
+configure and validate lifecycle behavior, create and preview the icon, then
+build the only app the user will encounter.
 
 For applications with several long-running components, Enmanner continues to
 own one foreground command. Adapt the published

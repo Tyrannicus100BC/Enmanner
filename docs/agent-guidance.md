@@ -10,6 +10,10 @@ The package uses:
 - **SHOULD** for safe application defaults
 - **MAY** for optional capabilities
 
+The short `instructions/integration.md` checklist is the authoritative route
+through a normal integration. Focused documents remain references for detected
+capabilities rather than a reading prerequisite for every project.
+
 Native presentation is also agent-owned finishing work. The package tells
 agents that an existing flattened app icon is not necessarily reusable source
 artwork. Its hard preflight rejects baked squircles, transparent rounded
@@ -29,7 +33,16 @@ there is no framework override area. Project supervisors, icons, data, scripts,
 project-owned. Installed distributions include native `Sources` but omit the
 framework's tests and installer. The installer
 offers a non-mutating JSON plan and stops with `configurationRequired` rather
-than manufacturing an unverified startup command.
+than manufacturing an unverified startup command. It still installs the
+framework and writes a deliberately inactive `enmanner.json.example` preserving
+presentation choices and candidate evidence. Inferred single-app integrations
+receive a deterministic preferred port so browser-origin state remains stable
+when that port is available.
+
+Enmanner does not build a placeholder app. Agents validate server lifecycle
+before spending time on artwork, then create and preview a distinctive icon
+before the first `.app` is produced. `preview-icon` renders every supported
+Icon Composer appearance for agent-visible inspection.
 
 Agents should perform conservative Git work in user-facing terms: make a
 checkpoint before risky migrations, save a working milestone after verification,

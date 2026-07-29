@@ -57,6 +57,19 @@ The generator requires square PNG layers of at least 1024×1024, an opaque
 background, and an alpha-bearing foreground. Open the result in Icon Composer
 for visual adjustment and appearance review.
 
+The `.icon` package contains its own copies of the configured layers so it is
+self-contained. Keep the original high-resolution layers as canonical source
+artwork; the package copies are expected, not accidental duplication.
+
+Render every supported appearance without opening Icon Composer:
+
+```bash
+./.enmanner/scripts/preview-icon
+```
+
+The default output is `.enmanner/.build/icon-previews/`. Pass `--output` with a
+project-relative directory when previews should be preserved for review.
+
 ## Package the modern icon
 
 Set the project-relative `.icon` path in `enmanner.json`, for example:
@@ -97,10 +110,13 @@ The icon task is not complete until all of these pass:
 - `./.enmanner/scripts/build-app` confirms `CFBundleIconName` and an
   `IconImageStack` in `Assets.car`.
 - Default, Dark, Clear, and Tinted renditions have been rendered or visually
-  inspected.
+  inspected; `preview-icon` is the supported automated path.
 - The actual Dock/Finder icon has one system-supplied outer container, never a
   smaller rounded icon inside it.
 
 Inspect the compiled `.app`, not merely the source PNG or Icon Composer preview.
 Do not put assets inside the generated `.app` by hand; Enmanner creates each
 bundle reproducibly from tracked project files.
+
+`build-app` refuses a missing icon. Enmanner intentionally provides no
+placeholder-icon completion path.

@@ -31,7 +31,7 @@
     "server": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["command", "workingDirectory", "environment", "readiness"],
+      "required": ["command", "workingDirectory", "readiness"],
       "properties": {
         "command": {
           "type": "array",

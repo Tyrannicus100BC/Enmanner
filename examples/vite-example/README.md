@@ -7,9 +7,14 @@ From a clean clone:
 
 ```bash
 npm ci
+./.enmanner/scripts/preview-icon
 ./.enmanner/scripts/build-app
 open "Enmanner Vite Example.app"
 ```
+
+The tracked layered icon is a complete example of Enmanner's visual finishing
+workflow. `preview-icon` renders Default, Dark, Clear, and Tinted appearances
+before the first app build.
 
 To prove hot reload, edit the heading in `src/main.js` and save. Vite updates
 the default-browser page without rebuilding the app.

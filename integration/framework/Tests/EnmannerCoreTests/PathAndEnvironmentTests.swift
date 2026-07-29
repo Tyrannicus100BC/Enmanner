@@ -145,4 +145,17 @@ final class PathAndEnvironmentTests: XCTestCase {
         XCTAssertTrue(paths?.contains("/usr/local/bin") == true)
         XCTAssertEqual(paths?.filter { $0 == "/usr/bin" }.count, 1)
     }
+
+    func testGUIEnvironmentExpandsTildePathEntries() {
+        let environment = ProcessConfigurationBuilder.environmentForGUIApplication(
+            [
+                "HOME": "/Users/Test Person",
+                "PATH": "~/.local/bin:/usr/bin"
+            ]
+        )
+
+        let paths = environment["PATH"]?.split(separator: ":").map(String.init)
+        XCTAssertTrue(paths?.contains("/Users/Test Person/.local/bin") == true)
+        XCTAssertFalse(paths?.contains("~/.local/bin") == true)
+    }
 }

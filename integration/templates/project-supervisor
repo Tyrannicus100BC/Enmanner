@@ -12,22 +12,52 @@ frontend_command=(
   --strictPort
 )
 
+require_command() {
+  local executable="$1"
+  if ! command -v "$executable" >/dev/null 2>&1; then
+    echo "Required executable is unavailable: $executable" >&2
+    exit 1
+  fi
+}
+
+require_directory() {
+  local directory="$1"
+  if [[ ! -d "$directory" ]]; then
+    echo "Required project directory is missing: $directory" >&2
+    exit 1
+  fi
+}
+
+# Add project-specific prerequisite checks here. Observe external prerequisites
+# such as Docker Desktop or a shared database; do not start, adopt, or stop them.
+require_command make
+require_command npm
+require_directory Backend/backend
+require_directory Frontend/frontend
+
 pids=()
 stopping=false
 
 stop_children() {
+  local index
   local pid
   if [[ "$stopping" == true ]]; then
     return
   fi
   stopping=true
   trap - TERM INT EXIT
-  for pid in ${pids[*]:-}; do
+  index="${#pids[@]}"
+  while [[ "$index" -gt 0 ]]; do
+    index=$((index - 1))
+    pid="${pids[$index]}"
     if kill -0 "$pid" 2>/dev/null; then
       kill -TERM "$pid" 2>/dev/null || true
     fi
   done
-  for pid in ${pids[*]:-}; do
+  index="${#pids[@]}"
+  while [[ "$index" -gt 0 ]]; do
+    index=$((index - 1))
+    pid="${pids[$index]}"
     wait "$pid" 2>/dev/null || true
   done
 }
@@ -40,6 +70,9 @@ trap stop_children TERM INT EXIT
 ) &
 pids+=("$!")
 
+# If the frontend requires a ready backend, poll a cheap project-owned health
+# endpoint here before starting it. Keep the wait bounded and emit a useful
+# error with recent service output when it fails.
 (
   cd Frontend/frontend
   exec "${frontend_command[@]}"

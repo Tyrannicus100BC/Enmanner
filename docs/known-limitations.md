@@ -19,7 +19,10 @@
   project upgrade manager, auto-updater, notarization, or public distribution.
 - Browser mode keeps a native status window but is intentionally basic.
 - Installer inference intentionally completes configuration only for tested,
-  high-confidence adapters. Other stacks receive candidates and a
-  `configurationRequired` result.
+  high-confidence adapters. Other stacks receive an inactive draft, candidates,
+  structured unresolved checks, and a `configurationRequired` result.
+- Automated appearance previews depend on the current Xcode-bundled Icon
+  Composer renderer. The actual Finder and Dock result still needs visual
+  inspection on the target macOS release.
 - The generated app uses local ad-hoc signing and is intended for the same Mac,
   not opaque binary sharing.

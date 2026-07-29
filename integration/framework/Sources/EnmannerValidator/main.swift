@@ -65,6 +65,17 @@ private struct ValidationReport: Codable {
     let runtime: RuntimeReport?
 }
 
+private struct ErrorReport: Codable {
+    struct Diagnostic: Codable {
+        let code: String
+        let path: String?
+        let message: String
+    }
+
+    let valid = false
+    let error: Diagnostic
+}
+
 @main
 struct EnmannerValidatorCommand {
     static func main() async {
@@ -73,10 +84,20 @@ struct EnmannerValidatorCommand {
             try await run(json: json)
         } catch {
             if json {
-                print(
-                    "{\"valid\":false,\"error\":\"" +
-                    jsonEscaped(error.localizedDescription) + "\"}"
+                let enmannerError = error as? EnmannerError
+                let report = ErrorReport(
+                    error: .init(
+                        code: enmannerError?.diagnosticCode ?? "unexpectedError",
+                        path: enmannerError?.diagnosticPath,
+                        message: error.localizedDescription
+                    )
                 )
+                let encoder = JSONEncoder()
+                encoder.outputFormatting = [.sortedKeys]
+                if let data = try? encoder.encode(report),
+                   let output = String(data: data, encoding: .utf8) {
+                    print(output)
+                }
             } else {
                 FileHandle.standardError.write(
                     Data(("Error: \(error.localizedDescription)\n").utf8)
@@ -142,8 +163,9 @@ struct EnmannerValidatorCommand {
                 executable: "/usr/bin/xcrun",
                 arguments: ["--find", "actool"]
             ).isEmpty,
-            warnings: manifest.identifier.hasPrefix("local.enmanner.")
-                ? ["identifier uses Enmanner's inferred local namespace"]
+            warnings: manifest.server.preferredPort == nil &&
+                manifest.window.mode == .browser
+                ? ["browser mode has no preferred port; origin-scoped state may move between launches"]
                 : [],
             runtime: runtimeReport
         )
@@ -437,9 +459,4 @@ struct EnmannerValidatorCommand {
         return arguments[index + 1]
     }
 
-    private static func jsonEscaped(_ value: String) -> String {
-        value.replacingOccurrences(of: "\\", with: "\\\\")
-            .replacingOccurrences(of: "\"", with: "\\\"")
-            .replacingOccurrences(of: "\n", with: "\\n")
-    }
 }

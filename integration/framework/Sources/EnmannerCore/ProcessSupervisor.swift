@@ -71,9 +71,21 @@ public enum ProcessConfigurationBuilder {
         _ environment: [String: String]
     ) -> [String: String] {
         var result = environment
+        let homeDirectory = environment["HOME"].flatMap {
+            $0.isEmpty ? nil : $0
+        } ?? NSHomeDirectory()
         let inherited = environment["PATH", default: ""]
             .split(separator: ":")
-            .map(String.init)
+            .map { entry -> String in
+                let value = String(entry)
+                if value == "~" {
+                    return homeDirectory
+                }
+                if value.hasPrefix("~/") {
+                    return homeDirectory + String(value.dropFirst())
+                }
+                return value
+            }
         let commonRuntimeDirectories = [
             "/opt/homebrew/bin",
             "/usr/local/bin",
