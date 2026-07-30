@@ -269,12 +269,28 @@ records a build-matched ignored receipt only after cleanup and port release.
 Development and final receipts are separate; only the final receipt contributes
 to completion.
 `.enmanner/INSTALLATION.json` records the installed version, upstream commit,
-and checksums of framework-owned files. Repair and upgrade operations refuse to
-write when those files have local modifications. Every installed file is
+declared distribution URL, observed checkout URL, provenance confidence, and
+checksums of framework-owned files. Explicit provenance overrides and
+distribution metadata take precedence over the checkout's Git remote. The
+installer warns when source and target share Git metadata.
+
+Planning classifies framework state as `notInstalled`, `cacheOnly`, `incomplete`,
+`legacyWithoutReceipt`, `installed`, or `damaged`. Cache-only residue is removed
+automatically because only documented build products qualify. Other incomplete
+states require `--replace-incomplete`, which relocates the old framework to a
+visible backup before a clean installation. Receipt-backed repair and upgrade
+operations refuse to write when framework files have local modifications.
+Every installed file is
 framework-owned; there is no hidden project override area. The visible
 project-owned `enmanner/` sibling contains configuration, icon packages, and
 icon source artwork. Application data and unrelated scripts
 remain in their ordinary project paths.
+
+Doctor reports installed, configured, lifecycle, development-native,
+presentation, final-native, and repository-ready milestones. Local integration
+can be technically complete while repository recording remains a user-owned
+action; overall completion requires both unless an unversioned workspace was
+explicitly accepted.
 
 ## Why there is no reverse proxy
 

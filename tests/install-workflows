@@ -21,17 +21,44 @@ vite_target="$test_root/Vite Project"
 generic_target="$test_root/Generic Project"
 workspace_target="$test_root/Workspace Project"
 express_target="$test_root/Express Project"
+cache_target="$test_root/Cache Only Project"
+incomplete_target="$test_root/Incomplete Project"
+legacy_target="$test_root/Legacy Project"
+damaged_target="$test_root/Damaged Project"
 root_manifest_target="$test_root/Root Manifest Project"
 source_collision_target="$test_root/Source Collision Project"
 adapter_root="$test_root/Adapter Projects"
 mkdir -p "$vite_target" "$generic_target" \
-  "$express_target" \
+  "$express_target" "$cache_target/.enmanner/.build" \
+  "$cache_target/.enmanner/framework/.build" \
+  "$incomplete_target/.enmanner" \
+  "$legacy_target/.enmanner/scripts" \
+  "$damaged_target/.enmanner" \
   "$workspace_target/Backend/.git" "$workspace_target/Frontend/.git" \
   "$root_manifest_target" "$source_collision_target" "$adapter_root"
 ln -s "$repository_dir" "$source_collision_target/enmanner"
 cp "$repository_dir/examples/vite-example/package.json" \
   "$repository_dir/examples/vite-example/package-lock.json" \
   "$vite_target/"
+cp "$repository_dir/examples/vite-example/package.json" \
+  "$repository_dir/examples/vite-example/package-lock.json" \
+  "$cache_target/"
+cp "$repository_dir/examples/vite-example/package.json" \
+  "$repository_dir/examples/vite-example/package-lock.json" \
+  "$incomplete_target/"
+cp "$repository_dir/examples/vite-example/package.json" \
+  "$repository_dir/examples/vite-example/package-lock.json" \
+  "$legacy_target/"
+cp "$repository_dir/examples/vite-example/package.json" \
+  "$repository_dir/examples/vite-example/package-lock.json" \
+  "$damaged_target/"
+printf '%s\n' 'cache' > "$cache_target/.enmanner/.build/cache"
+printf '%s\n' 'cache' > "$cache_target/.enmanner/framework/.build/cache"
+printf '%s\n' 'partial' > "$incomplete_target/.enmanner/VERSION"
+printf '%s\n' '0.2.0' > "$legacy_target/.enmanner/VERSION"
+printf '%s\n' '#!/bin/bash' > "$legacy_target/.enmanner/scripts/upgrade"
+chmod +x "$legacy_target/.enmanner/scripts/upgrade"
+printf '%s\n' '{not-json' > "$damaged_target/.enmanner/INSTALLATION.json"
 cp "$repository_dir/tests/fixtures/generic-package.json" \
   "$generic_target/package.json"
 printf '%s\n' '# Generic project instructions' > "$generic_target/CLAUDE.md"
@@ -212,11 +239,102 @@ grep -Fq -- "--allow-unversioned" "$test_root/workspace-install.out"
 
 "$repository_dir/integration/scripts/install" --plan --json "$express_target" |
   jq -e '
-    (.manifestStatus == "configurationRequired") and
+    (.manifestStatus == "inferred") and
     ([.detectedStacks[]] | index("Express")) and
+    (.inference.framework == "express") and
+    (.inference.runtimeVerificationRequired == true) and
     ([.inference.staticEvidence[].check] | index("dynamicPort")) and
     ([.inference.staticEvidence[].check] | index("loopbackBinding")) and
-    ([.unresolvedChecks[] | select(.id == "dynamicPort")][0].status == "detected")
+    ([.inference.staticEvidence[].check] | index("foregroundEntryPoint")) and
+    (.unresolvedChecks | length == 0)
+  ' >/dev/null
+"$repository_dir/integration/scripts/install" \
+  --upstream-url "https://example.test/Enmanner.git" \
+  --no-build --json "$express_target" >/dev/null
+jq -e '
+  (.application.environment.PORT == "${self.endpoints.http.port}") and
+  (.application.environment.HOST == "127.0.0.1")
+' "$express_target/enmanner/enmanner.json" >/dev/null
+jq -e '
+  (.upstreamURL == "https://example.test/Enmanner.git") and
+  (.provenanceConfidence == "explicit") and
+  (.sourceCheckoutURL | type == "string")
+' "$express_target/.enmanner/INSTALLATION.json" >/dev/null
+
+"$repository_dir/integration/scripts/install" --plan --json "$cache_target" |
+  jq -e '
+    (.installationState == "cacheOnly") and
+    .installationApplicable and
+    (.safeRecovery.action == "removeGeneratedCacheAndInstall") and
+    .safeRecovery.automatic and
+    ([.fileOperations[].action] | index("removeGeneratedCache"))
+  ' >/dev/null
+"$repository_dir/integration/scripts/install" \
+  --no-build --json "$cache_target" |
+  jq -e '.installed and (.installationState == "cacheOnly")' >/dev/null
+test -f "$cache_target/.enmanner/INSTALLATION.json"
+git -C "$cache_target" init -q
+git -C "$cache_target" add \
+  package.json package-lock.json .enmanner enmanner AGENTS.md .gitignore
+"$cache_target/.enmanner/scripts/doctor" --json |
+  jq -e '
+    .doctor.milestones.repositoryReady and
+    (.doctor.workspace.status == "tracked") and
+    .doctor.workspace.frameworkTracked and
+    .doctor.workspace.durablePathsTracked
+  ' >/dev/null
+"$cache_target/.enmanner/scripts/doctor" --next \
+  >"$test_root/next-brief.md"
+test "$(head -n 1 "$test_root/next-brief.md")" = "# Enmanner next steps"
+grep -Fq "# Enmanner next steps" "$test_root/next-brief.md"
+grep -Fq "**Runtime:** one Vite service" "$test_root/next-brief.md"
+grep -Fq "## Relevant guidance" "$test_root/next-brief.md"
+
+"$repository_dir/integration/scripts/install" --plan --json \
+  "$incomplete_target" |
+  jq -e '
+    (.installationState == "incomplete") and
+    (.installationApplicable == false) and
+    (.safeRecovery.action == "replaceIncomplete")
+  ' >/dev/null
+if "$repository_dir/integration/scripts/install" --no-build \
+  "$incomplete_target" >"$test_root/incomplete-install.out" 2>&1; then
+  echo "Error: installer implicitly replaced an incomplete framework." >&2
+  exit 1
+fi
+grep -Fq -- "--replace-incomplete" "$test_root/incomplete-install.out"
+incomplete_result="$(
+  "$repository_dir/integration/scripts/install" \
+    --replace-incomplete --allow-unversioned \
+    --no-build --json "$incomplete_target"
+)"
+printf '%s\n' "$incomplete_result" | jq -e '
+  .installed and
+  (.installationState == "incomplete") and
+  (.recoveryBackup | type == "string")
+' >/dev/null
+incomplete_backup="$(
+  printf '%s\n' "$incomplete_result" | jq -r '.recoveryBackup'
+)"
+test -f "$incomplete_backup/VERSION"
+test -f "$incomplete_target/.enmanner/INSTALLATION.json"
+jq -e '.unversionedAccepted == true' \
+  "$incomplete_target/.enmanner/INSTALLATION.json" >/dev/null
+"$incomplete_target/.enmanner/scripts/doctor" --json |
+  jq -e '
+    .doctor.milestones.repositoryReady and
+    (.doctor.workspace.status == "explicitlyUnversioned")
+  ' >/dev/null
+
+"$repository_dir/integration/scripts/install" --plan --json "$legacy_target" |
+  jq -e '
+    (.installationState == "legacyWithoutReceipt") and
+    (.safeRecovery.action == "replaceIncomplete")
+  ' >/dev/null
+"$repository_dir/integration/scripts/install" --plan --json "$damaged_target" |
+  jq -e '
+    (.installationState == "damaged") and
+    (.safeRecovery.action == "replaceIncomplete")
   ' >/dev/null
 
 vite_result="$(
@@ -225,9 +343,17 @@ vite_result="$(
 )"
 printf '%s\n' "$vite_result" | jq -e '
   .installed and
+  (.installationState == "notInstalled") and
   (.manifestStatus == "inferred") and
   (.built == false)
 ' >/dev/null
+"$repository_dir/integration/scripts/install" --plan --json "$vite_target" |
+  jq -e '
+    (.installationState == "installed") and
+    (.installationApplicable == false) and
+    (.safeRecovery.action == "repair") and
+    ([.fileOperations[] | select(.willWrite == true)] | length == 0)
+  ' >/dev/null
 jq -e '
   (.version == 3) and
   (.window.mode == "browser") and
@@ -526,7 +652,10 @@ printf '%s\n' 'PORT=3000' 'USER_SETTING=' \
 test -f "$vite_target/.enmanner/INSTALLATION.json"
 jq -e '
   (.version == "0.6.0") and
-  (.upstreamURL | type == "string") and
+  (.upstreamURL == "git@github.com:Tyrannicus100BC/Enmanner.git") and
+  (.sourceCheckoutURL | type == "string") and
+  (.provenanceConfidence == "declared") and
+  (.unversionedAccepted == false) and
   (.manifestStatus == "inferred") and
   (.inferredManifestFields | index("application.command")) and
   ([.files[].path] | any(startswith("framework/Sources/"))) and

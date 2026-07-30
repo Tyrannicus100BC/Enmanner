@@ -6,9 +6,9 @@
   but version-manager-only runtimes may need an explicit executable path.
 - The component graph starts services in deterministic topological order; it
   does not yet start independent ready branches concurrently.
-- Unexpected managed-service exit currently restarts the complete runtime with
-  stable endpoint allocations. Component-local recovery and continuous
-  degraded-state monitoring remain future work.
+- Unexpected managed-service exit restarts that service and its transitive
+  dependants with stable endpoint allocations. Dependency-specific restart
+  policies and continuous degraded-state monitoring remain future work.
 - Prerequisite checks and service readiness are startup gates, not continuous
   health monitors.
 - A successful startup task is retained for the launcher session. Task results
@@ -28,9 +28,10 @@
   project upgrade manager, auto-updater, notarization, or public distribution.
 - Browser mode keeps a native status window but is intentionally basic.
 - Installer inference completes configuration for tested root Vite and Next.js
-  projects using npm, pnpm, Yarn, or Bun. Custom scripts, monorepos, and other
-  stacks receive an inactive draft, candidates, structured unresolved checks,
-  and a `configurationRequired` result.
+  projects using npm, pnpm, Yarn, or Bun, plus narrowly matched direct Express
+  entry points whose `PORT`, `HOST`, and `listen` flow agree. Custom scripts,
+  monorepos, and other stacks receive an inactive draft, candidates, structured
+  unresolved checks, and a `configurationRequired` result.
 - Automated appearance previews depend on the current Xcode-bundled Icon
   Composer renderer. The actual Finder and Dock result still needs visual
   inspection on the target macOS release.

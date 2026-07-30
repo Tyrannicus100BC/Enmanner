@@ -40,8 +40,10 @@ without editing them automatically. When one is authoritative, the integrating
 agent mirrors the narrowly managed `AGENTS.md` guidance instead of making
 Enmanner proliferate tool-specific policy files. The installer
 offers a non-mutating JSON plan and stops with `configurationRequired` rather
-than manufacturing an unverified startup command. It still installs the
-framework and writes a deliberately inactive
+than manufacturing an unverified startup command. Tested direct Vite, Next.js,
+and strongly evidenced Express entry points are the narrow automatic
+exceptions; Express remains marked for runtime verification. Other projects
+still receive the framework and a deliberately inactive
 `enmanner/enmanner.json.example`, preserving presentation choices and candidate
 evidence. Inferred single-app integrations receive a deterministic preferred
 port so browser-origin state remains stable when that port is available.

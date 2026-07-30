@@ -323,7 +323,7 @@ public final class ProcessSupervisor: @unchecked Sendable {
                 return
             }
             for line in text.split(whereSeparator: \.isNewline) {
-                let message = String(line)
+                let message = logBuffer?.redact(String(line)) ?? String(line)
                 logBuffer?.append(
                     message,
                     stream: stream,

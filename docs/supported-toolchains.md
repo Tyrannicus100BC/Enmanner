@@ -57,7 +57,9 @@ structured checks. They are not necessarily incompatible with Enmanner; their
 startup contract has not been inferred automatically.
 
 For common Express entry points, the plan reports conservative source evidence
-for `process.env.PORT` and loopback host declarations as `detected`. This
-evidence cites the source line but never promotes an Express project to
-verified or automatically completes its manifest; runtime validation remains
-the proof.
+for `process.env.PORT`, loopback host declarations, and a direct
+`app.listen(PORT, HOST)` call. When a direct package script launches that same
+entry file and all three signals agree, the installer writes an active manifest
+with `PORT` and `HOST` wiring and marks it `runtimeVerificationRequired`.
+Otherwise it retains an inactive draft populated with whatever networking
+evidence is safe to propose. Runtime validation remains the proof.

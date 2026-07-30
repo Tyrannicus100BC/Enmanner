@@ -13,7 +13,7 @@ The supported project-facing surface is:
   newline-delimited progress and a configurable post-readiness stability soak;
 - `scripts/doctor` — validation plus installation, manifest-draft, icon,
   generated-app ownership, disk capacity, workspace ownership, and managed-file
-  diagnostics;
+  diagnostics; `doctor --next` prints a tailored Markdown handoff;
 - `scripts/upgrade` — checksum-verified framework updates;
 - `scripts/clean` — remove local Swift build products;
 - `scripts/create-icon` — create a layered icon package from project artwork;

@@ -136,6 +136,16 @@ private struct DoctorReport: Codable {
         let nativeLaunchVerified: Bool
     }
 
+    struct Milestones: Codable {
+        let installed: Bool
+        let configured: Bool
+        let lifecycleVerified: Bool
+        let developmentNativeVerified: Bool
+        let presentationReady: Bool
+        let finalNativeVerified: Bool
+        let repositoryReady: Bool
+    }
+
     struct Disk: Codable {
         let status: String
         let availableBytes: UInt64
@@ -149,10 +159,15 @@ private struct DoctorReport: Codable {
         let projectGitRoot: String?
         let nestedRepositoryCount: Int
         let manifestTracked: Bool
+        let frameworkTracked: Bool
+        let durablePathsTracked: Bool
+        let explicitlyUnversioned: Bool
         let recommendation: String?
     }
 
     let complete: Bool
+    let localIntegrationComplete: Bool
+    let milestones: Milestones
     let installationHistory: InstallationHistory
     let currentStatus: CurrentStatus
     @available(*, deprecated, message: "Use currentStatus.configuration.")
@@ -254,6 +269,12 @@ struct EnmannerValidatorCommand {
             )
         }
         let doctor = arguments.contains("--doctor")
+        let next = arguments.contains("--next")
+        if next && (!doctor || json || jsonLines || runtime) {
+            throw EnmannerError.processLaunchFailed(
+                "--next requires --doctor and plain, non-runtime output."
+            )
+        }
         let printField = value(after: "--print", in: arguments)
         let projectURL = URL(fileURLWithPath: projectPath, isDirectory: true)
             .standardizedFileURL
@@ -319,6 +340,15 @@ struct EnmannerValidatorCommand {
         let doctorReport = doctor
             ? inspectProject(manifest: manifest, projectURL: projectURL)
             : nil
+        if next, let doctorReport {
+            printNextBrief(
+                manifest: manifest,
+                projectURL: projectURL,
+                report: doctorReport,
+                graph: diagnosticPlan.graph
+            )
+            return
+        }
         var warnings = diagnosticPlan.graph.applicationPreferredPort == nil &&
             manifest.window.mode == .browser
             ? ["browser mode has no preferred port; origin-scoped state may move between launches"]
@@ -341,10 +371,10 @@ struct EnmannerValidatorCommand {
                 "cache uses \(disk.frameworkBuildCacheBytes) bytes"
             )
         }
-        if let workspace = doctorReport?.workspace,
-           workspace.status != "tracked" {
+        if let doctorReport,
+           !doctorReport.milestones.repositoryReady {
             warnings.append(
-                workspace.recommendation ??
+                doctorReport.workspace.recommendation ??
                     "enmanner/enmanner.json is not tracked by the project workspace"
             )
         }
@@ -573,7 +603,7 @@ struct EnmannerValidatorCommand {
             developmentNativeLaunchVerified: developmentNativeLaunchVerified,
             nativeLaunchVerified: nativeLaunchVerified
         )
-        let complete =
+        let localIntegrationComplete =
             installationRecordPresent &&
             !staleDraftManifest &&
             manifest.icon != nil &&
@@ -583,20 +613,6 @@ struct EnmannerValidatorCommand {
             agentsManagedSectionPresent &&
             gitignoreManagedSectionPresent &&
             nativeLaunchVerified
-        let integrationStatus: String
-        if complete {
-            integrationStatus = "complete"
-        } else if !installationRecordPresent {
-            integrationStatus = "installationProvenanceRequired"
-        } else if manifest.icon == nil || !iconSourceExists {
-            integrationStatus = "iconRequired"
-        } else if !appExists {
-            integrationStatus = "appBuildRequired"
-        } else if !nativeLaunchVerified {
-            integrationStatus = "nativeLaunchVerificationRequired"
-        } else {
-            integrationStatus = "incomplete"
-        }
         let fileSystemAttributes = (
             try? fileManager.attributesOfFileSystem(
                 forPath: projectURL.path
@@ -625,25 +641,61 @@ struct EnmannerValidatorCommand {
             ]
         ).trimmingCharacters(in: .whitespacesAndNewlines)
         let projectGitRoot = gitRootOutput.isEmpty ? nil : gitRootOutput
-        let manifestTracked = !processOutput(
-            executable: "/usr/bin/git",
-            arguments: [
-                "-C", projectURL.path, "ls-files", "--error-unmatch",
-                "--", "enmanner/enmanner.json"
-            ]
-        ).isEmpty
+        func gitTracks(_ path: String) -> Bool {
+            !processOutput(
+                executable: "/usr/bin/git",
+                arguments: [
+                    "-C", projectURL.path, "ls-files", "--error-unmatch",
+                    "--", path
+                ]
+            ).isEmpty
+        }
+        let manifestTracked = gitTracks("enmanner/enmanner.json")
+        let receiptPaths = (installation?["files"] as? [[String: Any]] ?? [])
+            .compactMap { $0["path"] as? String }
+            .map { ".enmanner/\($0)" } + [".enmanner/INSTALLATION.json"]
+        let frameworkTracked =
+            projectGitRoot != nil &&
+            installationRecordPresent &&
+            receiptPaths.allSatisfy(gitTracks)
+        let iconTracked = selectedIconPath.map(gitTracks) ?? false
+        let durablePathsTracked =
+            projectGitRoot != nil &&
+            manifestTracked &&
+            frameworkTracked &&
+            gitTracks("AGENTS.md") &&
+            gitTracks(".gitignore") &&
+            (manifest.icon == nil || iconTracked)
+        let explicitlyUnversioned =
+            installation?["unversionedAccepted"] as? Bool == true
+        let repositoryReady =
+            durablePathsTracked ||
+            (projectGitRoot == nil && explicitlyUnversioned)
         let nestedRepositoryCount = nestedRepositoryCount(
             inside: projectURL
         )
         let workspaceStatus: String
         let workspaceRecommendation: String?
-        if manifestTracked {
+        if durablePathsTracked {
             workspaceStatus = "tracked"
             workspaceRecommendation = nil
+        } else if projectGitRoot == nil && explicitlyUnversioned {
+            workspaceStatus = "explicitlyUnversioned"
+            workspaceRecommendation = nil
         } else if projectGitRoot != nil {
-            workspaceStatus = "manifestUntracked"
-            workspaceRecommendation =
-                "Track enmanner/enmanner.json in the repository that owns this project."
+            if !manifestTracked {
+                workspaceStatus = "manifestUntracked"
+                workspaceRecommendation =
+                    "Track enmanner/enmanner.json and the durable Enmanner integration files in the repository that owns this project."
+            } else if !frameworkTracked {
+                workspaceStatus = "frameworkUntracked"
+                workspaceRecommendation =
+                    "Track the receipt-listed .enmanner framework distribution."
+            } else {
+                workspaceStatus = "integrationFilesUntracked"
+                workspaceRecommendation =
+                    "Track the configured icon and managed AGENTS.md and .gitignore files."
+            }
         } else if nestedRepositoryCount > 0 {
             workspaceStatus = "unversionedRootWithNestedRepositories"
             workspaceRecommendation =
@@ -653,9 +705,39 @@ struct EnmannerValidatorCommand {
             workspaceRecommendation =
                 "Initialize version control for the project so Enmanner configuration has a durable owner."
         }
+        let complete = localIntegrationComplete && repositoryReady
+        let integrationStatus: String
+        if complete {
+            integrationStatus = "complete"
+        } else if localIntegrationComplete {
+            integrationStatus = "repositoryRecordingRequired"
+        } else if !installationRecordPresent {
+            integrationStatus = "installationProvenanceRequired"
+        } else if manifest.icon == nil || !iconSourceExists {
+            integrationStatus = "iconRequired"
+        } else if !appExists {
+            integrationStatus = "appBuildRequired"
+        } else if !nativeLaunchVerified {
+            integrationStatus = "nativeLaunchVerificationRequired"
+        } else {
+            integrationStatus = "incomplete"
+        }
+        let milestones = DoctorReport.Milestones(
+            installed: installationRecordPresent,
+            configured: true,
+            lifecycleVerified:
+                developmentNativeLaunchVerified || nativeLaunchVerified,
+            developmentNativeVerified: developmentNativeLaunchVerified,
+            presentationReady: manifest.icon != nil && iconSourceExists,
+            finalNativeVerified:
+                appExists && appOwnershipMatches && nativeLaunchVerified,
+            repositoryReady: repositoryReady
+        )
 
         return DoctorReport(
             complete: complete,
+            localIntegrationComplete: localIntegrationComplete,
+            milestones: milestones,
             installationHistory: DoctorReport.InstallationHistory(
                 initialManifestStatus: installation?["manifestStatus"] as? String
             ),
@@ -696,10 +778,84 @@ struct EnmannerValidatorCommand {
                 projectGitRoot: projectGitRoot,
                 nestedRepositoryCount: nestedRepositoryCount,
                 manifestTracked: manifestTracked,
+                frameworkTracked: frameworkTracked,
+                durablePathsTracked: durablePathsTracked,
+                explicitlyUnversioned: explicitlyUnversioned,
                 recommendation: workspaceRecommendation
             ),
             completionEvidence: completionEvidence
         )
+    }
+
+    private static func printNextBrief(
+        manifest: EnmannerManifest,
+        projectURL: URL,
+        report: DoctorReport,
+        graph: RuntimeGraph
+    ) {
+        let package = jsonObject(
+            at: projectURL.appendingPathComponent("package.json")
+        )
+        let dependencies = (package?["dependencies"] as? [String: Any] ?? [:])
+            .merging(
+                package?["devDependencies"] as? [String: Any] ?? [:]
+            ) { current, _ in current }
+        let stack: String
+        if dependencies["express"] != nil {
+            stack = "Express"
+        } else if dependencies["vite"] != nil {
+            stack = "Vite"
+        } else if dependencies["next"] != nil {
+            stack = "Next.js"
+        } else {
+            stack = "project-defined"
+        }
+        print("# Enmanner next steps")
+        print("")
+        print("**Project:** \(manifest.name)")
+        print("**Runtime:** \(graph.components.count == 1 ? "one \(stack) service" : "\(graph.components.count) project-defined components")")
+        print("**Presentation:** \(manifest.window.mode.rawValue)")
+        print("")
+        print("## Current evidence")
+        print("")
+        print("- Configuration valid: yes")
+        print("- Lifecycle verified: \(report.milestones.lifecycleVerified ? "yes" : "no")")
+        print("- Development launcher verified: \(report.milestones.developmentNativeVerified ? "yes" : "no")")
+        print("- Release presentation ready: \(report.milestones.presentationReady ? "yes" : "no")")
+        print("- Final application verified: \(report.milestones.finalNativeVerified ? "yes" : "no")")
+        print("- Repository ready: \(report.milestones.repositoryReady ? "yes" : "no")")
+        print("")
+        print("## Next actions")
+        print("")
+        if !report.milestones.lifecycleVerified {
+            print("1. Review project state ownership, then run `./.enmanner/scripts/validate --runtime --json-lines`.")
+            print("2. Run `./.enmanner/scripts/build-app --development` and `./.enmanner/scripts/test-app --development` if native proof is needed before icon work.")
+        }
+        if !report.milestones.presentationReady {
+            print("1. Create and inspect the configured icon with `./.enmanner/scripts/preview-icon`.")
+        }
+        if !report.milestones.finalNativeVerified {
+            print("1. Run `./.enmanner/scripts/build-app`, then `./.enmanner/scripts/test-app`.")
+        }
+        if !report.milestones.repositoryReady {
+            print("1. Record the durable `enmanner/`, `.enmanner/`, `AGENTS.md`, and `.gitignore` integration files in the owning repository; Enmanner will not stage them.")
+        }
+        if report.complete {
+            print("No integration work remains.")
+        }
+        print("")
+        print("## Relevant guidance")
+        print("")
+        print("- `.enmanner/instructions/development-server.md` — runtime ownership, loopback networking, readiness, and shutdown.")
+        if manifest.userConfiguration != nil {
+            print("- `.enmanner/instructions/security.md` — declared local settings and secret handling.")
+        }
+        if !report.milestones.presentationReady {
+            print("- `.enmanner/instructions/icon.md` — final icon preflight and acceptance.")
+        }
+        if graph.components.count > 1 {
+            print("- `.enmanner/enmanner.schema.json` and the manifest reference — component graph fields.")
+        }
     }
 
     private static func jsonObject(at url: URL) -> [String: Any]? {
@@ -794,7 +950,9 @@ struct EnmannerValidatorCommand {
         print(
             report.complete
                 ? "✓ integration state is complete"
-                : "! integration state is incomplete"
+                : report.localIntegrationComplete
+                    ? "! local integration is complete; repository recording remains"
+                    : "! integration state is incomplete"
         )
         print(
             "\(mark(report.installationRecordPresent)) installation provenance " +
@@ -839,7 +997,7 @@ struct EnmannerValidatorCommand {
                 "clean with \(report.disk.cleanupCommand)"
             )
         }
-        let workspaceMark = report.workspace.status == "tracked" ? "✓" : "!"
+        let workspaceMark = report.milestones.repositoryReady ? "✓" : "!"
         print(
             "\(workspaceMark) workspace configuration: " +
             report.workspace.status
@@ -900,6 +1058,21 @@ struct EnmannerValidatorCommand {
     ) async throws -> RuntimeReport {
         let beforeStatus = gitStatus(projectURL: projectURL)
         let logBuffer = LogBuffer(maximumEntries: 100)
+        if let configuration = manifest.userConfiguration {
+            let secretKeys = Set(
+                configuration.fields
+                    .filter { $0.type == .secret }
+                    .map(\.key)
+            )
+            if let values = try? DotEnvConfigurationStore(
+                projectURL: projectURL,
+                configuration: configuration
+            ).load() {
+                logBuffer.setSensitiveValues(
+                    secretKeys.compactMap { values[$0] }
+                )
+            }
+        }
         let supervisor = RuntimeSupervisor(logBuffer: logBuffer)
         let exitRecorder = RuntimeExitRecorder()
         supervisor.onExit = { exit in

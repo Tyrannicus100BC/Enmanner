@@ -11,6 +11,7 @@ public final class LogBuffer: @unchecked Sendable {
     private var entries: [String] = []
     private var lastMessageKey: String?
     private var repeatedCount = 0
+    private var sensitiveValues: [String] = []
     private let maximumEntries: Int
     public var onChange: (@Sendable (String) -> Void)?
 
@@ -18,12 +19,28 @@ public final class LogBuffer: @unchecked Sendable {
         self.maximumEntries = maximumEntries
     }
 
+    public func setSensitiveValues(_ values: [String]) {
+        queue.sync {
+            sensitiveValues = Array(
+                Set(values.filter { $0.count >= 8 })
+            ).sorted { $0.count > $1.count }
+        }
+    }
+
+    public func redact(_ message: String) -> String {
+        queue.sync {
+            sensitiveValues.reduce(message) { result, value in
+                result.replacingOccurrences(of: value, with: "[REDACTED]")
+            }
+        }
+    }
+
     public func append(
         _ message: String,
         stream: Stream = .launcher,
         component: String? = nil
     ) {
-        let cleanMessage = message.trimmingCharacters(in: .newlines)
+        let cleanMessage = redact(message).trimmingCharacters(in: .newlines)
         guard !cleanMessage.isEmpty else { return }
 
         let timestamp = Self.timestampFormatter.string(from: Date())

@@ -103,11 +103,19 @@ done
   ' >/dev/null
 "$example_dir/.enmanner/scripts/doctor" --json |
   jq -e '
-    .doctor.complete and
+    .doctor.localIntegrationComplete and
     .doctor.completionEvidence.developmentNativeLaunchVerified and
     .doctor.completionEvidence.nativeLaunchVerified and
     (.doctor.currentStatus.configuration == "valid") and
-    (.doctor.currentStatus.integration == "complete")
+    (
+      if .doctor.milestones.repositoryReady then
+        .doctor.complete and
+        (.doctor.currentStatus.integration == "complete")
+      else
+        (.doctor.complete == false) and
+        (.doctor.currentStatus.integration == "repositoryRecordingRequired")
+      end
+    )
   ' >/dev/null
 if find "$app_path" \( -name node_modules -o -name .git -o -name src -o -name enmanner.json \) |
   grep -q .; then

@@ -219,7 +219,8 @@ endpoint must also name it in `dependsOn`. Unknown components, unknown
 endpoints, hidden reference edges, and cycles fail static validation.
 
 Independent branches may be represented in the same graph. The initial version
-starts ready components in deterministic topological order. On Quit, managed
+starts ready components sequentially in deterministic topological order;
+unrelated branches are not started concurrently. On Quit, managed
 services stop in reverse topological order. Each service owns a separate
 process group. If a service later exits, Enmanner restarts that component and
 its transitive dependants while leaving unrelated branches and healthy upstream
@@ -240,6 +241,8 @@ the task's process group, and then starts dependents. This covers first-run
 preparation without a project-authored supervisor script. Probe timeouts may be
 as long as 86400 seconds, and `validate --runtime --json-lines` streams the
 task's labelled stdout and stderr as progress while it waits.
+After a task succeeds, recovery retains that result for the launcher session;
+restarting a failed service and its dependants does not rerun the task.
 
 `prerequisite` observes something Enmanner does not own. It has `check` rather
 than `command`; Enmanner never starts, adopts, restarts, or stops it. Docker

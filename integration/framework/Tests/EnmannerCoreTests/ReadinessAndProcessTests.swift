@@ -18,6 +18,51 @@ final class ReadinessAndProcessTests: XCTestCase {
         XCTAssertTrue(snapshot.contains("repeated 3×"))
     }
 
+    func testLogBufferRedactsDeclaredSecretValues() {
+        let logs = LogBuffer()
+        logs.setSensitiveValues([
+            "sk-example-secret-value",
+            "short"
+        ])
+
+        logs.append(
+            "key=sk-example-secret-value short=short",
+            stream: .stdout
+        )
+
+        XCTAssertTrue(logs.snapshot().contains("key=[REDACTED]"))
+        XCTAssertTrue(logs.snapshot().contains("short=short"))
+        XCTAssertFalse(logs.snapshot().contains("sk-example-secret-value"))
+        XCTAssertEqual(
+            logs.redact("sk-example-secret-value"),
+            "[REDACTED]"
+        )
+    }
+
+    func testProcessOutputCallbackReceivesRedactedText() throws {
+        let logs = LogBuffer()
+        logs.setSensitiveValues(["sk-example-secret-value"])
+        let supervisor = ProcessSupervisor(logBuffer: logs)
+        let output = expectation(description: "redacted output")
+        let exited = expectation(description: "process exits")
+        supervisor.onOutput = { stream, message in
+            guard stream == .stdout else { return }
+            XCTAssertEqual(message, "token=[REDACTED]")
+            output.fulfill()
+        }
+        supervisor.onExit = { _ in exited.fulfill() }
+
+        try supervisor.start(.init(
+            executableURL: URL(fileURLWithPath: "/bin/echo"),
+            arguments: ["token=sk-example-secret-value"],
+            workingDirectoryURL: URL(fileURLWithPath: "/tmp"),
+            environment: ProcessInfo.processInfo.environment
+        ))
+
+        wait(for: [output, exited], timeout: 2)
+        XCTAssertFalse(logs.snapshot().contains("sk-example-secret-value"))
+    }
+
     func testReadinessPollingStopsAfterSuccess() async {
         let attempts = AttemptCounter()
         let checker = ReadinessChecker { _ in

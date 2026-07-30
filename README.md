@@ -139,7 +139,10 @@ can infer a safe loopback startup command, create `enmanner/enmanner.json`,
 append narrowly-owned managed sections to `.gitignore` and `AGENTS.md`, and
 perform static validation. It reads an explicit `packageManager` field and
 matching root lockfile evidence, refuses conflicting package-manager signals,
-and only accepts tested direct `vite` or `next dev` scripts. See
+and only accepts tested direct `vite` or `next dev` scripts. A direct Express
+entry point can also be inferred when its package script, `PORT`, `HOST`, and
+`app.listen(PORT, HOST)` flow agree; that result remains explicitly marked as
+requiring runtime verification. See
 [docs/supported-toolchains.md](docs/supported-toolchains.md) for the exact
 matrix and command contract.
 
@@ -170,6 +173,12 @@ sibling repositories needs an explicit choice: install in a designated
 existing repository, or knowingly keep the launcher configuration unversioned
 by passing `--allow-unversioned`.
 
+It also classifies `.enmanner` as `notInstalled`, `cacheOnly`, `incomplete`,
+`legacyWithoutReceipt`, `installed`, or `damaged`. Cache-only build residue is removed
+automatically. Use `--plan --replace-incomplete` to inspect an explicit,
+recoverable replacement for other incomplete states; apply relocates the old
+framework to a visible project-root backup before installing cleanly.
+
 Installed framework provenance lives in `.enmanner/INSTALLATION.json`. Check or
 apply an update from an Enmanner checkout with:
 
@@ -180,8 +189,8 @@ apply an update from an Enmanner checkout with:
 
 The upgrade refuses all changes if a framework-owned file was locally modified.
 The provenance also records exact file checksums, the upstream commit and dirty
-state, the upstream repository URL when available, whether the manifest was
-inferred, and which fields came from that
+state, the declared distribution URL, the observed checkout URL, provenance
+confidence, whether the manifest was inferred, and which fields came from that
 inference. Every file inside `.enmanner/` is framework-owned. The manifest,
 optional supervisor, icon package, and icon artwork stay in the visible
 project-owned `enmanner/` sibling. Other application data and scripts remain in
@@ -201,8 +210,13 @@ report native-launch evidence instead of inferring success from bundle
 existence.
 Doctor groups historical provenance under `installationHistory` and live
 configuration/integration state under `currentStatus`, reports per-surface
-agent-instruction state, and shows the evidence behind completion. The former
-flat status fields remain as deprecated compatibility aliases for one release.
+agent-instruction state, and reports installed, configured, lifecycle,
+development-native, presentation, final-native, and repository-ready
+milestones. Local technical completion remains distinct from repository
+recording, which Enmanner never performs automatically. Use
+`./.enmanner/scripts/doctor --next` for a tailored Markdown summary of remaining
+actions and relevant focused guidance. The former flat status fields remain as
+deprecated compatibility aliases for one release.
 Use `./.enmanner/scripts/build-app --json` when the final artifact path, icon
 packaging, signing, replacement, and size evidence must be machine-readable.
 

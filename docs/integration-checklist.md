@@ -1,65 +1,39 @@
 # Integration checklist
 
-An Enmanner integration is complete only when project fit, lifecycle behavior,
-final native packaging, and visual presentation all pass. A development-only
-bundle may be used to prove native lifecycle behavior before icon work, but it
-is provisional evidence and can never satisfy completion.
+Use this checklist to route an Enmanner integration; the installed
+`.enmanner/instructions/integration.md` is the sole normative step-by-step
+sequence.
 
-1. Confirm the project has a human-facing local web interface. Stop and ask the
-   user before wrapping a headless API, proxy, worker, daemon, CLI, or
-   infrastructure service.
-2. Inspect Git state, project ownership, runtime data, and existing services.
-   For stateful projects, confirm that another terminal-started copy is not
-   already using the same data.
-3. Run `integration/scripts/install --plan --json`.
-4. Install the framework. If the result is `configurationRequired`, review
-   `enmanner/enmanner.json.example`, resolve every reported compatibility check, and
-   promote a verified configuration to `enmanner/enmanner.json`.
-5. Verify every managed command is an argument array, stays in the foreground,
-   uses its declared endpoint port, and binds to loopback. The application
-   endpoint is also opened for the user, so it must be a meaningful
-   human-facing page rather than a raw health response.
-6. Configure a preferred port in browser mode. Inferred manifests already have
-   a deterministic choice with fallback.
-7. If people must configure machine-local values, add `userConfiguration`.
-   Expose only values they should edit or verify, choose the correct control
-   type, and mark only genuinely startup-blocking values as required. Use
-   consistent human-facing Title Case regardless of dotenv key casing, preserve
-   canonical brands and acronyms, and treat optional descriptions as compact
-   subtitles: add information the label does not, prefer 45 characters or
-   fewer, never exceed 60, and omit the subtitle when it would merely restate
-   the label.
-8. Run static validation. After reviewing state ownership, opt into runtime
-   validation and confirm readiness, shutdown, process-group cleanup, endpoint
-   disappearance, owned-port release, and Git-status mutations. Prefer
-   `./.enmanner/scripts/validate --runtime --json-lines` while diagnosing a
-   graph; it streams component-labelled output and structured lifecycle events.
-   The default five-second post-readiness soak catches delayed worker exits;
-   use `--soak-seconds` only when the graph needs a deliberately different
-   observation interval.
-9. When launcher behavior needs proof before icon work, run
-   `build-app --development`, then `test-app --development`. The resulting
-   `Name Development.app` has a separate bundle identifier, a conspicuous DEV
-   icon, and separate doctor evidence. Do not present or report it as the
-   finished application.
-10. Inspect existing brand assets. Create layered source artwork under
-   `enmanner/icon/` when necessary, package a modern `.icon` there, and inspect
-   it with `preview-icon --package enmanner/icon/App.icon` before configuring
-   its project-relative path in `enmanner/enmanner.json`. Once configured,
-   plain `preview-icon` uses the manifest.
-   For teams mixing full-Xcode and Command Line Tools-only Macs, also commit a
-   legacy `.icns` and configure the pair as `icon.modern` and `icon.legacy`.
-   Open the generated contact sheet and confirm that every Default, Dark,
-   Clear, and Tinted rendition is balanced and uncropped. Review structured
-   source-layer measurements as warnings, not substitutes for visual judgment.
-11. Run `build-app`. Verify the compiled icon, ownership marker, code signature,
-   and Finder/Dock appearance. Run `test-app` to verify native launch,
-   readiness, normal app quit, process cleanup, and port release.
-12. Report tracked source and framework files separately from ignored build
-   products. Do not call the integration complete before step 11. Development
-   build or test receipts do not count as final-build evidence.
+1. Confirm that the target has a human-facing local web interface. Ask before
+   wrapping a headless API, proxy, worker, daemon, CLI, or infrastructure
+   service.
+2. Inspect project ownership, Git state, runtime data, and existing services.
+3. Run `integration/scripts/install --plan --json /path/to/project`. Review
+   `installationState`, `safeRecovery`, file operations, compatibility evidence,
+   and `requiredInstructions`.
+4. Apply the installation. For `cacheOnly`, the installer removes only known
+   disposable build caches. For incomplete or receiptless framework state,
+   review and explicitly use `--replace-incomplete`; it relocates the old
+   framework before installing.
+5. Continue from the installed `.enmanner/instructions/integration.md`. Use
+   `./.enmanner/scripts/doctor --next` for a project-specific Markdown summary
+   of the remaining work and relevant focused references.
 
-Use inline `application` configuration for one frontend command. For several
-project-owned processes, declare `service` and `task` components with explicit
-dependencies. Treat Docker Desktop and already-running shared services as
-observed `prerequisite` components rather than adopted children.
+Enmanner reports completion as evidence milestones:
+
+- `configured`
+- `lifecycleVerified`
+- `developmentNativeVerified`
+- `presentationReady`
+- `finalNativeVerified`
+- `repositoryReady`
+
+Local technical completion and repository readiness are separate. Enmanner
+never stages or commits files. Overall `complete` requires both a verified final
+application and durable repository ownership, or an explicitly accepted
+unversioned workspace.
+
+Use inline `application` configuration for one frontend command. Use component
+graphs for multiple project-owned services, startup tasks, or observed
+prerequisites. Commands remain executable-plus-argument arrays; managed
+listeners bind loopback and use allocated endpoints.

@@ -124,6 +124,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
         self.projectURL = projectURL
         self.manifest = manifest
+        try configureSecretRedaction(
+            manifest: manifest,
+            projectURL: projectURL
+        )
         configureMainMenu(appName: manifest.name)
         supervisor.onExit = { [weak self] exit in
             DispatchQueue.main.async {
@@ -134,8 +138,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     private func prepareProjectConfigurationForLaunch() throws -> Bool {
-        guard let projectURL,
-              let configuration = manifest?.userConfiguration else {
+        guard let projectURL, let manifest,
+              let configuration = manifest.userConfiguration else {
             return false
         }
 
@@ -149,6 +153,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 "\(configuration.template ?? "the declared project settings")."
             )
         }
+        try configureSecretRedaction(
+            manifest: manifest,
+            projectURL: projectURL
+        )
 
         let missingFields = try store.missingRequiredFields()
         guard !missingFields.isEmpty else { return false }
@@ -162,6 +170,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 "Complete the required settings before starting the server."
         )
         return true
+    }
+
+    private func configureSecretRedaction(
+        manifest: EnmannerManifest,
+        projectURL: URL
+    ) throws {
+        guard let configuration = manifest.userConfiguration else {
+            logBuffer.setSensitiveValues([])
+            return
+        }
+        let secretKeys = Set(
+            configuration.fields
+                .filter { $0.type == .secret }
+                .map(\.key)
+        )
+        guard !secretKeys.isEmpty else {
+            logBuffer.setSensitiveValues([])
+            return
+        }
+        let values = try DotEnvConfigurationStore(
+            projectURL: projectURL,
+            configuration: configuration
+        ).load()
+        logBuffer.setSensitiveValues(
+            secretKeys.compactMap { values[$0] }
+        )
     }
 
     private func startServer(reallocateEndpoints: Bool = false) {
@@ -365,6 +399,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     private func restartAfterConfigurationChange() {
+        if let manifest, let projectURL {
+            try? configureSecretRedaction(
+                manifest: manifest,
+                projectURL: projectURL
+            )
+        }
         restartServer(
             reallocatingPort: false,
             logMessage: "Project configuration saved; restarting server."

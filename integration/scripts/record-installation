@@ -2,11 +2,13 @@
 set -euo pipefail
 
 usage() {
-  echo "Usage: $0 --source /path/to/framework [--manifest-status STATUS]" >&2
+  echo "Usage: $0 --source /path/to/framework [--manifest-status STATUS] [--upstream-url URL] [--unversioned-accepted]" >&2
 }
 
 source_root=""
 manifest_status=""
+explicit_upstream_url=""
+unversioned_accepted=false
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --source)
@@ -16,6 +18,14 @@ while [[ $# -gt 0 ]]; do
     --manifest-status)
       shift
       manifest_status="${1:-}"
+      ;;
+    --upstream-url)
+      shift
+      explicit_upstream_url="${1:-}"
+      [[ -n "$explicit_upstream_url" ]] || { usage; exit 64; }
+      ;;
+    --unversioned-accepted)
+      unversioned_accepted=true
       ;;
     *) usage; exit 64 ;;
   esac
@@ -27,6 +37,21 @@ source_root="$(cd "$source_root" && pwd)"
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 installation_root="$(cd "$script_dir/.." && pwd)"
 output="$installation_root/INSTALLATION.json"
+if [[ -f "$output" ]]; then
+  prior_provenance_confidence="$(
+    /usr/bin/plutil -extract provenanceConfidence raw "$output" 2>/dev/null || true
+  )"
+  if [[ -z "$explicit_upstream_url" &&
+    "$prior_provenance_confidence" == "explicit" ]]; then
+    explicit_upstream_url="$(
+      /usr/bin/plutil -extract upstreamURL raw "$output" 2>/dev/null || true
+    )"
+  fi
+  if [[ "$unversioned_accepted" == false &&
+    "$(/usr/bin/plutil -extract unversionedAccepted raw "$output" 2>/dev/null || true)" == "true" ]]; then
+    unversioned_accepted=true
+  fi
+fi
 if [[ -z "$manifest_status" && -f "$output" ]]; then
   manifest_status="$(
     /usr/bin/plutil -extract manifestStatus raw "$output" 2>/dev/null || true
@@ -47,12 +72,32 @@ if command -v git >/dev/null 2>&1; then
 fi
 /usr/bin/plutil -insert upstreamCommit -string "$upstream_commit" "$temporary"
 upstream_url=""
+provenance_confidence="unknown"
+checkout_url=""
 if command -v git >/dev/null 2>&1; then
-  upstream_url="$(
+  checkout_url="$(
     git -C "$source_root" remote get-url origin 2>/dev/null || true
   )"
 fi
+if [[ -n "$explicit_upstream_url" ]]; then
+  upstream_url="$explicit_upstream_url"
+  provenance_confidence="explicit"
+elif [[ -f "$source_root/PROVENANCE.json" ]]; then
+  upstream_url="$(
+    /usr/bin/plutil -extract upstreamURL raw \
+      "$source_root/PROVENANCE.json" 2>/dev/null || true
+  )"
+  [[ -n "$upstream_url" ]] && provenance_confidence="declared"
+elif [[ -n "$checkout_url" ]]; then
+  upstream_url="$checkout_url"
+  provenance_confidence="inferred"
+fi
 /usr/bin/plutil -insert upstreamURL -string "$upstream_url" "$temporary"
+/usr/bin/plutil -insert sourceCheckoutURL -string "$checkout_url" "$temporary"
+/usr/bin/plutil -insert provenanceConfidence -string \
+  "$provenance_confidence" "$temporary"
+/usr/bin/plutil -insert unversionedAccepted -bool \
+  "$unversioned_accepted" "$temporary"
 /usr/bin/plutil -insert upstreamDirty -bool "$(
   if command -v git >/dev/null 2>&1 &&
     [[ -n "$(git -C "$source_root" status --porcelain -- . 2>/dev/null)" ]]; then

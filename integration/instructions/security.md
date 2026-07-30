@@ -12,6 +12,12 @@
 
 Enmanner runs the project's configured command with the current user's permissions.
 It is not a security sandbox and agents must not describe it as one.
+As defense in depth, it redacts exact configured values for declared `secret`
+fields before captured output reaches its log buffer, failure reports, native
+log window, or JSON Lines events. Values shorter than eight characters are not
+automatically redacted because exact replacement would be too broad.
+Applications must still avoid logging credentials: undeclared, shortened, or
+transformed values can remain visible in persistent diagnostic transcripts.
 
 ## SHOULD
 

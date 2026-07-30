@@ -2,13 +2,14 @@
 set -euo pipefail
 
 usage() {
-  echo "Usage: $0 (--check | --apply) --from /path/to/Enmanner [--target /path/to/.enmanner] [--json]" >&2
+  echo "Usage: $0 (--check | --apply) --from /path/to/Enmanner [--target /path/to/.enmanner] [--upstream-url URL] [--json]" >&2
 }
 
 mode=""
 source_argument=""
 target_argument=""
 json=false
+explicit_upstream_url=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --check|--apply) mode="$1" ;;
@@ -19,6 +20,11 @@ while [[ $# -gt 0 ]]; do
     --target)
       shift
       target_argument="${1:-}"
+      ;;
+    --upstream-url)
+      shift
+      explicit_upstream_url="${1:-}"
+      [[ -n "$explicit_upstream_url" ]] || { usage; exit 64; }
       ;;
     --json) json=true ;;
     *) usage; exit 64 ;;
@@ -135,12 +141,19 @@ fi
   --exclude "scripts/install" \
   "$source_root/" "$installation_root/"
 
+record_args=(--source "$source_root")
+[[ -n "$explicit_upstream_url" ]] &&
+  record_args+=(--upstream-url "$explicit_upstream_url")
 if [[ "$json" == true ]]; then
-  "$installation_root/scripts/record-installation" --source "$source_root" >/dev/null
+  "$installation_root/scripts/record-installation" "${record_args[@]}" >/dev/null
   "$installation_root/scripts/validate" --json >/dev/null
   emit_json true
 else
-  "$installation_root/scripts/record-installation" --source "$source_root"
+  "$installation_root/scripts/record-installation" "${record_args[@]}"
   "$installation_root/scripts/validate"
-  echo "✓ Upgraded and statically validated Enmanner $to_version"
+  if [[ "$from_version" == "$to_version" ]]; then
+    echo "✓ Refreshed installation provenance and statically validated Enmanner $to_version"
+  else
+    echo "✓ Upgraded and statically validated Enmanner $to_version"
+  fi
 fi

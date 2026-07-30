@@ -37,6 +37,11 @@ lifecycle behavior earlier, but cannot satisfy completion. Use this order:
    modern icon packaging, app ownership metadata, and the code signature. Run
    `test-app` to verify native launch, readiness, normal quit, and cleanup.
 11. Report the task complete only after the finished app passes. A development
-    app or development test receipt is never final evidence.
+    app or development test receipt is never final evidence. Report local
+    technical completion separately when durable files remain untracked;
+    Enmanner never stages or commits them.
 
 Ordinary web source edits do not require rebuilding the app.
+At any point, `./.enmanner/scripts/doctor --next` prints a tailored Markdown
+summary of current evidence, remaining actions, and only the focused references
+that apply.

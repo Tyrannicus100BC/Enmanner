@@ -11,11 +11,13 @@ Options:
   --runtime              Opt in to state-changing runtime validation
   --json                 Emit one machine-readable result
   --repair               Repair or update an existing installation
+  --replace-incomplete   Relocate an incomplete framework and install cleanly
+  --upstream-url URL     Explicitly declare distribution provenance
   --name NAME            Set the generated application name
   --identifier ID        Set the generated bundle identifier
   --allow-legacy-icon    Permit an intentional legacy icon fallback
   --replace-existing-app Replace an app only after explicit collision review
-  --allow-unversioned    Acknowledge an unversioned nested-repository workspace
+  --allow-unversioned    Acknowledge an intentionally unversioned workspace
 EOF
 }
 
@@ -32,9 +34,11 @@ skip_build=false
 runtime_validation=false
 json=false
 repair=false
+replace_incomplete=false
 allow_legacy_icon=false
 replace_existing_app=false
 allow_unversioned=false
+explicit_upstream_url=""
 requested_name=""
 requested_identifier=""
 while [[ "${1:-}" == --* ]]; do
@@ -44,6 +48,12 @@ while [[ "${1:-}" == --* ]]; do
     --runtime) runtime_validation=true ;;
     --json) json=true ;;
     --repair) repair=true ;;
+    --replace-incomplete) replace_incomplete=true ;;
+    --upstream-url)
+      shift
+      explicit_upstream_url="${1:-}"
+      [[ -n "$explicit_upstream_url" ]] || { usage; exit 64; }
+      ;;
     --allow-legacy-icon) allow_legacy_icon=true ;;
     --replace-existing-app) replace_existing_app=true ;;
     --allow-unversioned) allow_unversioned=true ;;
@@ -71,6 +81,10 @@ if [[ "$repair" == true && ( -n "$requested_name" || -n "$requested_identifier" 
   echo "Error: --name and --identifier do not apply to --repair." >&2
   exit 64
 fi
+if [[ "$repair" == true && "$replace_incomplete" == true ]]; then
+  echo "Error: --repair and --replace-incomplete are mutually exclusive." >&2
+  exit 64
+fi
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source_dir="$(cd "$script_dir/.." && pwd)"
@@ -81,6 +95,76 @@ configuration_dir="$target_dir/enmanner"
 manifest_path="$configuration_dir/enmanner.json"
 manifest_relative_path="enmanner/enmanner.json"
 draft_manifest_path="$configuration_dir/enmanner.json.example"
+
+installation_state="notInstalled"
+installation_recovery="install"
+if [[ -L "$destination" ]]; then
+  installation_state="damaged"
+  installation_recovery="replaceIncomplete"
+elif [[ -e "$destination" && ! -d "$destination" ]]; then
+  installation_state="damaged"
+  installation_recovery="replaceIncomplete"
+elif [[ -d "$destination" ]]; then
+  if [[ -f "$destination/INSTALLATION.json" ]]; then
+    if /usr/bin/plutil -extract formatVersion raw \
+      "$destination/INSTALLATION.json" >/dev/null 2>&1 &&
+      /usr/bin/plutil -extract version raw \
+        "$destination/INSTALLATION.json" >/dev/null 2>&1 &&
+      /usr/bin/plutil -extract files json -o /dev/null \
+        "$destination/INSTALLATION.json" >/dev/null 2>&1; then
+      installation_state="installed"
+      installation_recovery="repair"
+    else
+      installation_state="damaged"
+      installation_recovery="replaceIncomplete"
+    fi
+  else
+    unexpected_installation_content=false
+    [[ -L "$destination/framework" ]] &&
+      unexpected_installation_content=true
+    while IFS= read -r -d '' installed_path; do
+      relative="${installed_path#"$destination"/}"
+      case "$relative" in
+        .build|.build/*|framework|framework/.build|framework/.build/*|\
+          .DS_Store|framework/.DS_Store)
+          ;;
+        *)
+          unexpected_installation_content=true
+          break
+          ;;
+      esac
+    done < <(find "$destination" -mindepth 1 -print0 2>/dev/null)
+    if [[ "$unexpected_installation_content" == false ]]; then
+      installation_state="cacheOnly"
+      installation_recovery="removeGeneratedCacheAndInstall"
+    elif [[ -f "$destination/VERSION" &&
+      -x "$destination/scripts/upgrade" ]]; then
+      installation_state="legacyWithoutReceipt"
+      installation_recovery="replaceIncomplete"
+    else
+      installation_state="incomplete"
+      installation_recovery="replaceIncomplete"
+    fi
+  fi
+fi
+
+source_git_common_dir=""
+target_git_common_dir=""
+shared_git_metadata=false
+if command -v git >/dev/null 2>&1; then
+  source_git_common_dir="$(
+    git -C "$source_repository_dir" rev-parse \
+      --path-format=absolute --git-common-dir 2>/dev/null || true
+  )"
+  target_git_common_dir="$(
+    git -C "$target_dir" rev-parse \
+      --path-format=absolute --git-common-dir 2>/dev/null || true
+  )"
+  if [[ -n "$source_git_common_dir" &&
+    "$source_git_common_dir" == "$target_git_common_dir" ]]; then
+    shared_git_metadata=true
+  fi
+fi
 
 if [[ -e "$configuration_dir" &&
   "$configuration_dir" -ef "$source_repository_dir" ]]; then
@@ -197,6 +281,11 @@ detected_stack_count=0
 express_source=""
 express_port_evidence=""
 express_host_evidence=""
+express_listen_evidence=""
+candidate_uses_port_environment=false
+candidate_uses_host_environment=false
+runtime_verification_required=false
+possible_entry=""
 
 add_detected_stack() {
   local stack="$1"
@@ -234,6 +323,15 @@ if [[ -f "$target_dir/package.json" ]]; then
           '127[.]0[.]0[.]1|localhost|process[.]env[.]HOST|process[.]env\\[['"'"'"]HOST['"'"'"]\\]' \
           "$target_dir/$express_source" | /usr/bin/head -n 1 || true
       )"
+      express_listen_evidence="$(
+        /usr/bin/grep -En \
+          'app[.]listen[[:space:]]*[(][[:space:]]*PORT[[:space:]]*,[[:space:]]*HOST[[:space:]]*[,)]' \
+          "$target_dir/$express_source" | /usr/bin/head -n 1 || true
+      )"
+      [[ -n "$express_port_evidence" ]] &&
+        candidate_uses_port_environment=true
+      [[ -n "$express_host_evidence" ]] &&
+        candidate_uses_host_environment=true
     fi
   fi
 
@@ -394,6 +492,20 @@ if [[ -f "$target_dir/package.json" ]]; then
     "$selected_script" == "dev" ]]; then
     inference_reason="Detected $detected_framework with package manager $package_manager, but the root dev script is not a tested direct framework command."
   fi
+  if [[ "$package_manager_conflict" != true &&
+    "$framework_conflict" != true &&
+    -z "$detected_framework" &&
+    -n "$express_source" &&
+    "$possible_entry" == "$express_source" &&
+    "$selected_script_value" =~ ^node[[:space:]]+(\./)?[^[:space:]]+[[:space:]]*$ &&
+    -n "$express_port_evidence" &&
+    -n "$express_host_evidence" &&
+    -n "$express_listen_evidence" ]]; then
+    detected_framework="express"
+    manifest_status="inferred"
+    runtime_verification_required=true
+    inference_reason="Inferred a direct Express entry point with explicit PORT and HOST flow; runtime verification is still required."
+  fi
 else
   nested_package=""
   while IFS= read -r candidate_package; do
@@ -524,6 +636,26 @@ will_test_app=false
   will_test_app=true
 native_launch_verified=false
 development_native_launch_verified=false
+installation_applicable=false
+case "$installation_state" in
+  notInstalled|cacheOnly)
+    [[ "$replace_incomplete" == false ]] && installation_applicable=true
+    ;;
+  incomplete|legacyWithoutReceipt|damaged)
+    [[ "$replace_incomplete" == true ]] && installation_applicable=true
+    ;;
+esac
+effective_agents_write=false
+effective_gitignore_write=false
+effective_manifest_write=false
+effective_draft_write=false
+if [[ "$installation_applicable" == true ]]; then
+  [[ "$agents_needs_update" == true ]] && effective_agents_write=true
+  [[ "$gitignore_needs_update" == true ]] && effective_gitignore_write=true
+  [[ "$manifest_will_write" == true ]] && effective_manifest_write=true
+  [[ "$draft_will_write" == true ]] && effective_draft_write=true
+fi
+replacement_backup=""
 
 emit_result() {
   local installed="$1"
@@ -544,6 +676,14 @@ emit_result() {
     printf '"schemaVersion":1,'
     printf '"action":"%s",' "$(json_escape "$action")"
     printf '"target":"%s",' "$(json_escape "$target_dir")"
+    printf '"installationState":"%s",' "$installation_state"
+    printf '"installationApplicable":%s,' "$installation_applicable"
+    printf '"safeRecovery":{"action":"%s","automatic":%s},' \
+      "$installation_recovery" \
+      "$([[ "$installation_state" == "cacheOnly" ]] && echo true || echo false)"
+    printf '"recoveryBackup":%s,' \
+      "$([[ -n "$replacement_backup" ]] &&
+        printf '"%s"' "$(json_escape "$replacement_backup")" || printf 'null')"
     printf '"installed":%s,' "$installed"
     printf '"completionStatus":"%s",' "$completion_status"
     printf '"manifestStatus":"%s",' "$(json_escape "$manifest_status")"
@@ -598,12 +738,13 @@ emit_result() {
         "$(json_escape "$requested_name")"
     fi
     printf '],'
-    printf '"inference":{"packageManager":"%s","packageManagerSignal":"%s","framework":"%s","workingDirectory":"%s","command":%s,"preferredPort":%d,"preferredPortDerivation":{"algorithm":"cksum-v1","identifier":"%s","rangeStart":42000,"rangeSize":6000},"reason":"%s","signalsExamined":["root package.json packageManager field","root npm, pnpm, Yarn, and Bun lockfiles","root package.json scripts dev/start/serve","root Vite or Next.js dependency","conservative Express source patterns","nested package.json files","Docker Compose files","Makefile","go.mod","Cargo.toml","pyproject.toml or requirements.txt"],"staticEvidence":[' \
+    printf '"inference":{"packageManager":"%s","packageManagerSignal":"%s","framework":"%s","workingDirectory":"%s","command":%s,"runtimeVerificationRequired":%s,"preferredPort":%d,"preferredPortDerivation":{"algorithm":"cksum-v1","identifier":"%s","rangeStart":42000,"rangeSize":6000},"reason":"%s","signalsExamined":["root package.json packageManager field","root npm, pnpm, Yarn, and Bun lockfiles","root package.json scripts dev/start/serve","root Vite or Next.js dependency","conservative Express source patterns","nested package.json files","Docker Compose files","Makefile","go.mod","Cargo.toml","pyproject.toml or requirements.txt"],"staticEvidence":[' \
       "$(json_escape "$package_manager")" \
       "$(json_escape "$package_manager_signal")" \
       "$(json_escape "$detected_framework")" \
       "$(json_escape "$candidate_working_directory")" \
-      "${candidate_command:-null}" "$preferred_port" \
+      "${candidate_command:-null}" "$runtime_verification_required" \
+      "$preferred_port" \
       "$(json_escape "$bundle_identifier")" \
       "$(json_escape "$inference_reason")"
     evidence_separator=""
@@ -617,6 +758,12 @@ emit_result() {
       printf '%s{"check":"loopbackBinding","status":"detected","source":"%s","evidence":"%s"}' \
         "$evidence_separator" "$(json_escape "$express_source")" \
         "$(json_escape "$express_host_evidence")"
+      evidence_separator=","
+    fi
+    if [[ -n "$express_listen_evidence" ]]; then
+      printf '%s{"check":"foregroundEntryPoint","status":"detected","source":"%s","evidence":"%s"}' \
+        "$evidence_separator" "$(json_escape "$express_source")" \
+        "$(json_escape "$express_listen_evidence")"
     fi
     printf '],"inspect":['
     if [[ -n "$candidate_inspect_path" ]]; then
@@ -633,18 +780,27 @@ emit_result() {
     fi
     printf '],'
     printf '"fileOperations":['
-    printf '{"action":"createDirectory","path":".enmanner/","willWrite":true},'
-    printf '{"action":"createDirectory","path":"enmanner/","willWrite":true},'
+    if [[ "$installation_state" == "cacheOnly" ]]; then
+      printf '{"action":"removeGeneratedCache","path":".enmanner/","willWrite":%s},' \
+        "$installation_applicable"
+    elif [[ "$replace_incomplete" == true ]]; then
+      printf '{"action":"relocateIncompleteFramework","path":".enmanner/","willWrite":%s},' \
+        "$installation_applicable"
+    fi
+    printf '{"action":"createDirectory","path":".enmanner/","willWrite":%s},' \
+      "$installation_applicable"
+    printf '{"action":"createDirectory","path":"enmanner/","willWrite":%s},' \
+      "$installation_applicable"
     printf '{"action":"ensureManagedSection","path":"AGENTS.md","willWrite":%s},' \
-      "$agents_needs_update"
+      "$effective_agents_write"
     printf '{"action":"ensureManagedSection","path":".gitignore","willWrite":%s},' \
-      "$gitignore_needs_update"
+      "$effective_gitignore_write"
     if [[ "$manifest_status" == "inferred" ]]; then
       printf '{"action":"create","path":"enmanner/enmanner.json","willWrite":%s}' \
-        "$manifest_will_write"
+        "$effective_manifest_write"
     elif [[ "$manifest_status" == "configurationRequired" ]]; then
       printf '{"action":"create","path":"enmanner/enmanner.json.example","willWrite":%s}' \
-        "$draft_will_write"
+        "$effective_draft_write"
     else
       printf '{"action":"preserve","path":"%s","willWrite":false}' \
         "$manifest_relative_path"
@@ -732,11 +888,16 @@ emit_result() {
     fi
     if [[ "$git_classification" == "workspace-with-nested-repositories" ]]; then
       printf '%s"The workspace root is not versioned even though nested repositories exist; enmanner/ and .enmanner/ at the root will remain untracked unless the root becomes a repository"' "$warning_separator"
+      warning_separator=","
+    fi
+    if [[ "$shared_git_metadata" == true ]]; then
+      printf '%s"The Enmanner source checkout and target project share Git metadata; checkout remotes may not identify the Enmanner distribution, so use --upstream-url when declared distribution metadata is unavailable"' "$warning_separator"
     fi
     printf ']'
     printf '}\n'
   else
     echo "Enmanner $action for: $target_dir"
+    echo "  Installation state: $installation_state"
     echo "  Git: $git_classification${git_root:+ ($git_root)}"
     if [[ "$git_classification" == "workspace-with-nested-repositories" ]]; then
       echo "  Warning: root Enmanner configuration is not covered by the nested repositories."
@@ -763,16 +924,23 @@ emit_result() {
       echo "  Agent instructions: also review ${other_agent_files[*]}"
       echo "  Mirror the managed AGENTS.md guidance when one of those files is authoritative."
     fi
+    if [[ "$shared_git_metadata" == true ]]; then
+      echo "  Warning: source and target share Git metadata; verify distribution provenance."
+    fi
   fi
 }
 
 if [[ "$plan" == true ]]; then
-  if [[ "$repair" == true && ! -d "$destination" ]]; then
-    echo "Error: no Enmanner installation exists at $destination." >&2
+  if [[ "$repair" == true && "$installation_state" != "installed" ]]; then
+    echo "Error: --repair requires a valid receipt-backed installation; state is $installation_state." >&2
+    [[ "$installation_recovery" == "replaceIncomplete" ]] &&
+      echo "Use --plan --replace-incomplete to inspect a recoverable replacement." >&2
     exit 1
   fi
   if [[ "$repair" == true ]]; then
     repair_plan_args=(--check --from "$source_dir" --target "$destination")
+    [[ -n "$explicit_upstream_url" ]] &&
+      repair_plan_args+=(--upstream-url "$explicit_upstream_url")
     [[ "$json" == true ]] && repair_plan_args+=(--json)
     "$source_dir/scripts/upgrade" "${repair_plan_args[@]}"
     exit 0
@@ -782,12 +950,37 @@ if [[ "$plan" == true ]]; then
 fi
 
 if [[ "$repair" == true ]]; then
+  if [[ "$installation_state" != "installed" ]]; then
+    echo "Error: --repair requires a valid receipt-backed installation; state is $installation_state." >&2
+    [[ "$installation_recovery" == "replaceIncomplete" ]] &&
+      echo "Use --replace-incomplete to relocate it and install cleanly." >&2
+    exit 1
+  fi
   upgrade_args=(
     --apply --from "$source_dir" --target "$destination"
   )
+  [[ -n "$explicit_upstream_url" ]] &&
+    upgrade_args+=(--upstream-url "$explicit_upstream_url")
   [[ "$json" == true ]] && upgrade_args+=(--json)
   "$source_dir/scripts/upgrade" "${upgrade_args[@]}"
   exit 0
+fi
+
+if [[ "$replace_incomplete" == true ]]; then
+  case "$installation_state" in
+    incomplete|legacyWithoutReceipt|damaged)
+      ;;
+    *)
+      echo "Error: --replace-incomplete does not apply to installation state $installation_state." >&2
+      exit 1
+      ;;
+  esac
+elif [[ "$installation_state" == "incomplete" ||
+  "$installation_state" == "legacyWithoutReceipt" ||
+  "$installation_state" == "damaged" ]]; then
+  echo "Error: Enmanner installation state is $installation_state at $destination." >&2
+  echo "Use --plan --replace-incomplete to inspect a recoverable clean installation." >&2
+  exit 1
 fi
 
 if [[ "$git_classification" == "workspace-with-nested-repositories" &&
@@ -811,6 +1004,26 @@ if [[ "$json" != true ]]; then
   else
     echo "  Will validate configuration and build the configured app."
   fi
+fi
+
+if [[ "$installation_state" == "cacheOnly" ]]; then
+  rm -rf "$destination/.build" "$destination/framework/.build"
+  rm -f "$destination/.DS_Store" "$destination/framework/.DS_Store"
+  rmdir "$destination/framework" 2>/dev/null || true
+  rmdir "$destination" 2>/dev/null || true
+  [[ "$json" == true ]] ||
+    echo "✓ Removed disposable Enmanner build-cache residue."
+elif [[ "$replace_incomplete" == true ]]; then
+  replacement_backup="$target_dir/enmanner-framework-backup-$(
+    date -u '+%Y%m%dT%H%M%SZ'
+  )"
+  [[ ! -e "$replacement_backup" ]] || {
+    echo "Error: recovery backup already exists: $replacement_backup" >&2
+    exit 1
+  }
+  mv "$destination" "$replacement_backup"
+  [[ "$json" == true ]] ||
+    echo "✓ Relocated incomplete framework to $replacement_backup"
 fi
 
 if [[ -e "$destination" ]]; then
@@ -838,7 +1051,14 @@ if [[ ! -e "$manifest_path" && "$manifest_status" == "inferred" ]]; then
     echo '  "application": {'
     echo "    \"command\": $candidate_command,"
     echo '    "workingDirectory": ".",'
-    echo '    "environment": {"PORT": "${self.endpoints.http.port}"},'
+    if [[ "$candidate_uses_host_environment" == true ]]; then
+      echo '    "environment": {'
+      echo '      "PORT": "${self.endpoints.http.port}",'
+      echo '      "HOST": "127.0.0.1"'
+      echo '    },'
+    else
+      echo '    "environment": {"PORT": "${self.endpoints.http.port}"},'
+    fi
     printf '    "preferredPort": %d,\n' "$preferred_port"
     echo '    "readiness": {'
     echo '      "path": "/",'
@@ -869,7 +1089,19 @@ if [[ ! -e "$manifest_path" &&
     printf '    "command": %s,\n' "$draft_command"
     printf '    "workingDirectory": "%s",\n' \
       "$(json_escape "$candidate_working_directory")"
-    echo '    "environment": {},'
+    if [[ "$candidate_uses_port_environment" == true &&
+      "$candidate_uses_host_environment" == true ]]; then
+      echo '    "environment": {'
+      echo '      "PORT": "${self.endpoints.http.port}",'
+      echo '      "HOST": "127.0.0.1"'
+      echo '    },'
+    elif [[ "$candidate_uses_port_environment" == true ]]; then
+      echo '    "environment": {"PORT": "${self.endpoints.http.port}"},'
+    elif [[ "$candidate_uses_host_environment" == true ]]; then
+      echo '    "environment": {"HOST": "127.0.0.1"},'
+    else
+      echo '    "environment": {},'
+    fi
     printf '    "preferredPort": %d,\n' "$preferred_port"
     echo '    "readiness": {'
     echo '      "path": "/",'
@@ -914,12 +1146,17 @@ if ! grep -q "<!-- enmanner:begin -->" "$agents_file" 2>/dev/null; then
   } >> "$agents_file"
 fi
 
+record_args=(
+  --source "$source_dir" --manifest-status "$manifest_status"
+)
+[[ -n "$explicit_upstream_url" ]] &&
+  record_args+=(--upstream-url "$explicit_upstream_url")
+[[ "$allow_unversioned" == true ]] &&
+  record_args+=(--unversioned-accepted)
 if [[ "$json" == true ]]; then
-  "$destination/scripts/record-installation" \
-    --source "$source_dir" --manifest-status "$manifest_status" >/dev/null
+  "$destination/scripts/record-installation" "${record_args[@]}" >/dev/null
 else
-  "$destination/scripts/record-installation" \
-    --source "$source_dir" --manifest-status "$manifest_status"
+  "$destination/scripts/record-installation" "${record_args[@]}"
 fi
 
 built=false

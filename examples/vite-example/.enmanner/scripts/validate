@@ -3,12 +3,13 @@ set -euo pipefail
 
 usage() {
   cat >&2 <<EOF
-Usage: $0 [--runtime] [--soak-seconds SECONDS] [--doctor] [--development] [--json|--json-lines] [--allow-legacy-icon]
+Usage: $0 [--runtime] [--soak-seconds SECONDS] [--doctor] [--next] [--development] [--json|--json-lines] [--allow-legacy-icon]
 
 Examples:
   $0
   $0 --runtime --json-lines
   $0 --doctor --json
+  $0 --doctor --next
 
 --runtime starts the declared component graph, waits for readiness, then
 observes service stability for five seconds before checking shutdown. JSON
@@ -23,6 +24,7 @@ framework_dir="$integration_dir/framework"
 runtime_flag=""
 soak_seconds=""
 doctor_flag=false
+next_flag=false
 allow_legacy_icon=false
 development=false
 json=false
@@ -37,6 +39,7 @@ while [[ "${1:-}" == --* ]]; do
       [[ -n "$soak_seconds" ]] || { usage; exit 64; }
       ;;
     --doctor) doctor_flag=true ;;
+    --next) next_flag=true ;;
     --allow-legacy-icon) allow_legacy_icon=true ;;
     --development) development=true ;;
     --json) json=true ;;
@@ -55,6 +58,12 @@ if [[ $# -ne 0 || ( "$json" == true && "$json_lines" == true ) ]]; then
 fi
 if [[ -n "$soak_seconds" && -z "$runtime_flag" ]]; then
   echo "Error: --soak-seconds requires --runtime." >&2
+  exit 64
+fi
+if [[ "$next_flag" == true &&
+  ( "$doctor_flag" != true || "$json" == true || "$json_lines" == true ||
+    -n "$runtime_flag" ) ]]; then
+  echo "Error: --next requires --doctor and plain, non-runtime output." >&2
   exit 64
 fi
 
@@ -98,8 +107,9 @@ if [[ "$available_kib" =~ ^[0-9]+$ ]]; then
   fi
 fi
 
-[[ "$json" == true || "$json_lines" == true ]] || echo "Validating Enmanner configuration…"
-if [[ "$json" == true || "$json_lines" == true ]]; then
+[[ "$json" == true || "$json_lines" == true || "$next_flag" == true ]] ||
+  echo "Validating Enmanner configuration…"
+if [[ "$json" == true || "$json_lines" == true || "$next_flag" == true ]]; then
   swift build --package-path "$framework_dir" -c release \
     --product enmanner-validator >/dev/null
 else
@@ -150,8 +160,9 @@ validator_args=(--project "$project_dir")
 [[ -n "$soak_seconds" ]] &&
   validator_args+=(--runtime-soak-seconds "$soak_seconds")
 [[ "$doctor_flag" == true ]] && validator_args+=(--doctor)
+[[ "$next_flag" == true ]] && validator_args+=(--next)
 [[ "$json" == true ]] && validator_args+=(--json)
 [[ "$json_lines" == true ]] && validator_args+=(--json-lines)
 "$bin_dir/enmanner-validator" "${validator_args[@]}"
-[[ "$json" == true || "$json_lines" == true ]] ||
+[[ "$json" == true || "$json_lines" == true || "$next_flag" == true ]] ||
   echo "✓ validator compiles with the active Apple toolchain"
