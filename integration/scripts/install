@@ -74,12 +74,22 @@ fi
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source_dir="$(cd "$script_dir/.." && pwd)"
+source_repository_dir="$(cd "$source_dir/.." && pwd)"
 target_dir="$(cd "$1" && pwd)"
 destination="$target_dir/.enmanner"
 configuration_dir="$target_dir/enmanner"
 manifest_path="$configuration_dir/enmanner.json"
 manifest_relative_path="enmanner/enmanner.json"
 draft_manifest_path="$configuration_dir/enmanner.json.example"
+
+if [[ -e "$configuration_dir" &&
+  "$configuration_dir" -ef "$source_repository_dir" ]]; then
+  echo "Error: the Enmanner source checkout resolves to the project's" >&2
+  echo "  enmanner/ configuration directory on this filesystem." >&2
+  echo "  Move the Enmanner checkout outside $target_dir before installing;" >&2
+  echo "  source code and project-owned configuration must be distinct paths." >&2
+  exit 1
+fi
 
 [[ -w "$target_dir" || "$plan" == true ]] || {
   echo "Error: The project directory is not writable: $target_dir" >&2
@@ -557,9 +567,10 @@ emit_result() {
     else
       printf '"blockedBy":null},'
     fi
-    printf '"git":{"classification":"%s","root":"%s","nestedRepositories":%d,"requiresExplicitUnversionedChoice":%s,"branch":"%s","dirty":%s,"hasUpstream":%s,"ahead":%d,"behind":%d,"aheadBehindSource":"localRemoteTrackingRefs","networkAccessed":false},' \
+    printf '"git":{"classification":"%s","root":"%s","nestedRepositories":%d,"projectRootConfigurationTracked":%s,"requiresExplicitUnversionedChoice":%s,"branch":"%s","dirty":%s,"hasUpstream":%s,"ahead":%d,"behind":%d,"aheadBehindSource":"localRemoteTrackingRefs","networkAccessed":false},' \
       "$(json_escape "$git_classification")" "$(json_escape "$git_root")" \
       "$nested_repositories" \
+      "$([[ "$git_classification" == "repository-root" || "$git_classification" == "subdirectory-of-repository" ]] && echo true || echo false)" \
       "$([[ "$git_classification" == "workspace-with-nested-repositories" ]] && echo true || echo false)" \
       "$(json_escape "$git_branch")" "$git_dirty" \
       "$git_has_upstream" "$git_ahead" "$git_behind"
@@ -717,12 +728,20 @@ emit_result() {
     fi
     if [[ $other_agent_file_count -gt 0 ]]; then
       printf '%s"Other agent instruction files were detected; mirror the managed AGENTS.md guidance there when they are authoritative for this project"' "$warning_separator"
+      warning_separator=","
+    fi
+    if [[ "$git_classification" == "workspace-with-nested-repositories" ]]; then
+      printf '%s"The workspace root is not versioned even though nested repositories exist; enmanner/ and .enmanner/ at the root will remain untracked unless the root becomes a repository"' "$warning_separator"
     fi
     printf ']'
     printf '}\n'
   else
     echo "Enmanner $action for: $target_dir"
     echo "  Git: $git_classification${git_root:+ ($git_root)}"
+    if [[ "$git_classification" == "workspace-with-nested-repositories" ]]; then
+      echo "  Warning: root Enmanner configuration is not covered by the nested repositories."
+      echo "  Initialize version control at the workspace root or explicitly accept unversioned configuration."
+    fi
     echo "  Manifest: $manifest_status"
     if [[ $detected_stack_count -gt 0 ]]; then
       echo "  Detected stacks: ${detected_stacks[*]}"

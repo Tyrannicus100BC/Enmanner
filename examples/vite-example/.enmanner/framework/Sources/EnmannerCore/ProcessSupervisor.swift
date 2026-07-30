@@ -170,6 +170,7 @@ public final class ProcessSupervisor: @unchecked Sendable {
     private let componentName: String
 
     public var onExit: (@Sendable (Exit) -> Void)?
+    public var onOutput: (@Sendable (LogBuffer.Stream, String) -> Void)?
 
     public init(logBuffer: LogBuffer, componentName: String = "application") {
         self.logBuffer = logBuffer
@@ -314,16 +315,21 @@ public final class ProcessSupervisor: @unchecked Sendable {
         pipe.fileHandleForReading.readabilityHandler = {
             [weak logBuffer, weak self] handle in
             let data = handle.availableData
-            guard !data.isEmpty,
-                  let text = String(data: data, encoding: .utf8) else {
+            guard !data.isEmpty else {
+                handle.readabilityHandler = nil
+                return
+            }
+            guard let text = String(data: data, encoding: .utf8) else {
                 return
             }
             for line in text.split(whereSeparator: \.isNewline) {
+                let message = String(line)
                 logBuffer?.append(
-                    String(line),
+                    message,
                     stream: stream,
                     component: self?.componentName
                 )
+                self?.onOutput?(stream, message)
             }
         }
     }

@@ -96,6 +96,15 @@ if [[ "$json" == true ]]; then
 fi
 trap finish EXIT
 
+available_kib="$(df -Pk "$project_dir" | /usr/bin/awk 'NR == 2 { print $4 }')"
+if [[ "$available_kib" =~ ^[0-9]+$ && "$available_kib" -lt 1048576 ]]; then
+  echo "Error: building an app requires at least 1 GiB of free disk space." >&2
+  echo "  Available: $((available_kib / 1024)) MiB on the project filesystem." >&2
+  echo "  Run ./.enmanner/scripts/clean or remove other safe caches first." >&2
+  echo "  Enmanner will not alter Docker data or project-owned state." >&2
+  exit 1
+fi
+
 if [[ "$development" == true ]]; then
   "$script_dir/validate" --development
 elif [[ "$allow_legacy_icon" == true ]]; then

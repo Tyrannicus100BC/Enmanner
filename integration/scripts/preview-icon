@@ -2,13 +2,27 @@
 set -euo pipefail
 
 usage() {
-  echo "Usage: $0 [--output project-relative-directory] [--json]" >&2
+  echo "Usage: $0 [--package project-relative.icon] [--output project-relative-directory] [--json]" >&2
+}
+
+json_escape() {
+  local value="$1"
+  value="${value//\\/\\\\}"
+  value="${value//\"/\\\"}"
+  value="${value//$'\n'/\\n}"
+  printf '%s' "$value"
 }
 
 output_relative=".enmanner/.build/icon-previews"
+requested_package=""
 json=false
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --package)
+      shift
+      requested_package="${1:-}"
+      [[ -n "$requested_package" ]] || { usage; exit 64; }
+      ;;
     --output)
       shift
       output_relative="${1:-}"
@@ -41,20 +55,32 @@ project_dir="$(cd "$integration_dir/.." && pwd)"
 manifest="$project_dir/enmanner/enmanner.json"
 
 icon_path="$(
-  /usr/bin/plutil -extract icon.modern raw "$manifest" 2>/dev/null ||
-    /usr/bin/plutil -extract icon raw "$manifest" 2>/dev/null ||
-    true
+  if [[ -n "$requested_package" ]]; then
+    printf '%s' "$requested_package"
+  else
+    /usr/bin/plutil -extract icon.modern raw "$manifest" 2>/dev/null ||
+      /usr/bin/plutil -extract icon raw "$manifest" 2>/dev/null ||
+      true
+  fi
 )"
 if [[ "$icon_path" != *.icon ]]; then
-  echo "Error: icon previews require a configured Icon Composer .icon package." >&2
-  echo "  Add the package's project-relative path to enmanner/enmanner.json first." >&2
+  echo "Error: icon previews require an Icon Composer .icon package." >&2
+  echo "  Configure icon.modern or pass --package enmanner/icon/App.icon." >&2
   exit 1
 fi
 
-if [[ "$json" == true ]]; then
-  "$script_dir/validate" --json >/dev/null
-else
-  "$script_dir/validate"
+if [[ "$icon_path" == /* || "$icon_path" == ".." || "$icon_path" == ../* ||
+  "$icon_path" == */../* || "$icon_path" == */.. ]]; then
+  echo "Error: icon package must stay inside the project." >&2
+  exit 1
+fi
+
+if [[ -z "$requested_package" ]]; then
+  if [[ "$json" == true ]]; then
+    "$script_dir/validate" --json >/dev/null
+  else
+    "$script_dir/validate"
+  fi
 fi
 
 developer_dir="$(/usr/bin/xcode-select -p 2>/dev/null || true)"
@@ -65,6 +91,10 @@ if [[ -z "$developer_dir" || ! -x "$ictool" ]]; then
 fi
 
 icon_source="$project_dir/$icon_path"
+if [[ ! -d "$icon_source" || ! -f "$icon_source/icon.json" ]]; then
+  echo "Error: no valid icon package exists at $icon_path." >&2
+  exit 1
+fi
 output_dir="$project_dir/$output_relative"
 mkdir -p "$output_dir"
 output_dir="$(cd "$output_dir" && pwd)"
@@ -303,8 +333,8 @@ try metricsData.write(to: URL(fileURLWithPath: metricsPath), options: .atomic)
 SWIFT
 
 if [[ "$json" == true ]]; then
-  printf '{"valid":true,"outputDirectory":"%s","appearances":[' \
-    "$output_relative"
+  printf '{"valid":true,"iconPath":"%s","outputDirectory":"%s","appearances":[' \
+    "$(json_escape "$icon_path")" "$(json_escape "$output_relative")"
   separator=""
   for index in 0 1 2 3 4 5; do
     printf '%s{"name":"%s","path":"%s/%s"}' \

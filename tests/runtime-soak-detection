@@ -1,0 +1,50 @@
+#!/bin/bash
+set -euo pipefail
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+repository_dir="$(cd "$script_dir/.." && pwd)"
+test_root="$(mktemp -d "${TMPDIR:-/tmp}/Enmanner Soak Test.XXXXXX")"
+trap 'rm -rf "$test_root"' EXIT
+
+project_dir="$test_root/Delayed Failure Project"
+mkdir -p "$project_dir/.enmanner" "$project_dir/enmanner"
+cp "$repository_dir/tests/fixtures/soak-failure/"*.mjs "$project_dir/"
+cp "$repository_dir/tests/fixtures/soak-failure/enmanner/enmanner.json" \
+  "$project_dir/enmanner/enmanner.json"
+/usr/bin/rsync -a --exclude '.build' \
+  --exclude 'framework/Tests/' \
+  --exclude 'scripts/install' \
+  "$repository_dir/integration/" "$project_dir/.enmanner/"
+
+set +e
+"$project_dir/.enmanner/scripts/validate" \
+  --runtime --soak-seconds 2 --json-lines >"$test_root/events.jsonl"
+status=$?
+set -e
+if [[ $status -eq 0 ]]; then
+  echo "Error: runtime validation accepted a delayed worker failure." >&2
+  exit 1
+fi
+
+if ! jq -s -e '
+  ([.[].event] | index("soakStarted")) and
+  (map(select(
+    .event == "componentOutput" and
+    .component == "worker" and
+    (.message | contains("worker delayed failure"))
+  )) | length == 1) and
+  (map(select(.event == "error"))[0].report.error.runtimeFailure |
+    (.code == "componentExited") and
+    (.phase == "stability") and
+    (.component == "worker") and
+    (.exitStatus == 23) and
+    (.command[0] | endswith("/node")) and
+    (.workingDirectory | endswith("Delayed Failure Project")) and
+    (any(.recentLogs[]; contains("worker delayed failure"))))
+' "$test_root/events.jsonl" >/dev/null; then
+  echo "Error: delayed failure diagnostics were incomplete." >&2
+  cat "$test_root/events.jsonl" >&2
+  exit 1
+fi
+
+echo "✓ runtime soak rejects a delayed component failure with diagnostics"

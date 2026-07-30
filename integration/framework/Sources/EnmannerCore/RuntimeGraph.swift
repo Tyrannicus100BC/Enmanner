@@ -241,6 +241,18 @@ public struct RuntimePlan: Equatable, Sendable {
         endpoints.mapValues(\.port)
     }
 
+    public var ownedPorts: [EndpointKey: UInt16] {
+        ports.filter { key, _ in
+            graph.components[key.component]?.kind != .prerequisite
+        }
+    }
+
+    public var observedPorts: [EndpointKey: UInt16] {
+        ports.filter { key, _ in
+            graph.components[key.component]?.kind == .prerequisite
+        }
+    }
+
     public var applicationPort: UInt16 {
         endpoints[
             .init(

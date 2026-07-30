@@ -209,7 +209,7 @@ final class ManifestTests: XCTestCase {
                     readiness: .init(
                         type: .http,
                         endpoint: "missing",
-                        timeoutSeconds: 400
+                        timeoutSeconds: 90_000
                     )
                 )
             ]
@@ -223,6 +223,69 @@ final class ManifestTests: XCTestCase {
         XCTAssertTrue(issues.contains { $0.contains("timeoutSeconds") })
         XCTAssertTrue(issues.contains { $0.contains("declared endpoint") })
         XCTAssertTrue(issues.contains { $0.contains("HTTP or HTTPS") })
+    }
+
+    func testDecodesTaskCompletionAndProcessReadiness() throws {
+        let data = Data(
+            """
+            {
+              "version": 3,
+              "name": "Lifecycle Probes",
+              "identifier": "local.enmanner.lifecycle-probes",
+              "components": {
+                "prepare": {
+                  "kind": "task",
+                  "command": ["/usr/bin/true"],
+                  "endpoints": {
+                    "http": {"protocol": "http", "port": {}}
+                  },
+                  "completion": {
+                    "type": "http",
+                    "endpoint": "http",
+                    "timeoutSeconds": 1200
+                  }
+                },
+                "worker": {
+                  "kind": "service",
+                  "dependsOn": ["prepare"],
+                  "command": ["/usr/bin/true"],
+                  "readiness": {
+                    "type": "process",
+                    "minimumUptimeSeconds": 3,
+                    "timeoutSeconds": 10
+                  }
+                },
+                "web": {
+                  "kind": "service",
+                  "dependsOn": ["worker"],
+                  "command": ["/usr/bin/true"],
+                  "endpoints": {
+                    "http": {"protocol": "http", "port": {}}
+                  },
+                  "readiness": {"endpoint": "http"}
+                }
+              },
+              "application": {"component": "web", "endpoint": "http"},
+              "window": {
+                "mode": "browser",
+                "width": 1200,
+                "height": 800,
+                "resizable": true
+              }
+            }
+            """.utf8
+        )
+
+        let manifest = try JSONDecoder().decode(
+            EnmannerManifest.self,
+            from: data
+        )
+
+        XCTAssertEqual(manifest.components["prepare"]?.completion?.type, .http)
+        XCTAssertEqual(
+            manifest.components["worker"]?.readiness?.minimumUptimeSeconds,
+            3
+        )
     }
 
     func testCommandPrerequisiteDecodesOutputMatcher() throws {

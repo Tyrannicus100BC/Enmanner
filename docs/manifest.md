@@ -77,19 +77,58 @@ or observed external prerequisites:
       },
       "failureMessage": "Start the local PostgreSQL container first."
     },
+    "redis": {
+      "kind": "prerequisite",
+      "endpoints": {
+        "tcp": {
+          "protocol": "tcp",
+          "port": {
+            "fixed": 6379
+          }
+        }
+      },
+      "check": {
+        "type": "tcp",
+        "endpoint": "tcp",
+        "timeoutSeconds": 5
+      },
+      "failureMessage": "Start the local Redis message bus first."
+    },
     "migrate": {
       "kind": "task",
       "dependsOn": ["postgres"],
       "command": ["./bin/studio", "db:migrate"],
       "workingDirectory": "Backend"
     },
-    "api": {
-      "kind": "service",
+    "prepare-api": {
+      "kind": "task",
       "dependsOn": ["migrate"],
-      "command": ["./bin/studio", "serve"],
+      "command": ["./bin/studio", "prepare-and-serve"],
       "workingDirectory": "Backend",
       "environment": {
         "PORT": "${self.endpoints.http.port}"
+      },
+      "endpoints": {
+        "http": {
+          "protocol": "http",
+          "port": {}
+        }
+      },
+      "completion": {
+        "type": "http",
+        "endpoint": "http",
+        "path": "/api/v1/health",
+        "timeoutSeconds": 1200
+      }
+    },
+    "api": {
+      "kind": "service",
+      "dependsOn": ["prepare-api", "redis"],
+      "command": ["./bin/studio", "serve"],
+      "workingDirectory": "Backend",
+      "environment": {
+        "PORT": "${self.endpoints.http.port}",
+        "REDIS_URL": "${components.redis.endpoints.tcp.url}"
       },
       "endpoints": {
         "http": {
@@ -104,9 +143,24 @@ or observed external prerequisites:
         "timeoutSeconds": 60
       }
     },
+    "worker": {
+      "kind": "service",
+      "dependsOn": ["api", "redis"],
+      "command": ["./bin/studio", "worker"],
+      "workingDirectory": "Backend",
+      "environment": {
+        "API_URL": "${components.api.endpoints.http.url}",
+        "REDIS_URL": "${components.redis.endpoints.tcp.url}"
+      },
+      "readiness": {
+        "type": "process",
+        "minimumUptimeSeconds": 3,
+        "timeoutSeconds": 30
+      }
+    },
     "frontend": {
       "kind": "service",
-      "dependsOn": ["api"],
+      "dependsOn": ["api", "worker"],
       "command": [
         "npm",
         "run",
@@ -155,8 +209,9 @@ or observed external prerequisites:
 Component names use lowercase letters, digits, and hyphens. `dependsOn`
 provides startup ordering:
 
-- A service dependency must be running and, when configured, ready.
-- A task dependency must exit successfully.
+- A service dependency must pass its required readiness probe.
+- A task dependency must exit successfully or pass its configured completion
+  probe.
 - A prerequisite dependency must pass its check.
 
 Dependencies are explicit. A component that references another component's
@@ -166,26 +221,33 @@ endpoints, hidden reference edges, and cycles fail static validation.
 Independent branches may be represented in the same graph. The initial version
 starts ready components in deterministic topological order. On Quit, managed
 services stop in reverse topological order. Each service owns a separate
-process group.
+process group. If a service later exits, Enmanner restarts that component and
+its transitive dependants while leaving unrelated branches and healthy upstream
+dependencies running.
 
 ## Component kinds
 
 `service` is the default. It runs one foreground executable-plus-argument array
-for the application lifetime. A service without `readiness` is considered
-running as soon as process creation succeeds; configure readiness whenever a
-dependent needs a stronger startup guarantee.
+for the application lifetime and requires `readiness`. HTTP and TCP readiness
+describe network services; process readiness gives workers an explicit,
+bounded minimum-uptime gate.
 
 `task` runs once per Enmanner launch after its dependencies are satisfied. It
 must exit with status zero before dependents start. Database migrations are a
-typical task.
+typical task. A task that must temporarily run a server may instead declare
+endpoints and a `completion` probe. Enmanner waits for that probe, terminates
+the task's process group, and then starts dependents. This covers first-run
+preparation without a project-authored supervisor script. Probe timeouts may be
+as long as 86400 seconds, and `validate --runtime --json-lines` streams the
+task's labelled stdout and stderr as progress while it waits.
 
 `prerequisite` observes something Enmanner does not own. It has `check` rather
 than `command`; Enmanner never starts, adopts, restarts, or stops it. Docker
 Desktop, shared databases, and already-running infrastructure belong here.
 
-The first component-graph runtime uses checks as startup gates. Continuous
-health and degraded-state reconciliation remain separate future policy rather
-than being inferred from startup readiness.
+Checks are startup gates. Enmanner treats an owned service process exiting as
+an ongoing failure signal, but it does not infer continuous health monitoring
+from readiness probes or prerequisite checks.
 
 ## Endpoints and references
 
@@ -209,6 +271,9 @@ An endpoint has a `protocol` (`http`, `https`, or `tcp`), a loopback `host`
 
 Endpoints on a `prerequisite` must use `fixed`, because Enmanner observes that
 listener rather than choosing the port or starting its owner.
+Prerequisite ports are reported as observed, not owned. Runtime shutdown
+validation requires only service and completion-task ports to be released; an
+external database remaining available is correct.
 
 Endpoint values are frozen for one launcher session. Enmanner constructs URLs,
 including IPv6 formatting, and supports only these exact references:
@@ -234,10 +299,19 @@ timeout. Exit status zero succeeds unless `success.stdoutEquals` or
 `success.stdoutContains` adds a bounded output assertion. Command probes do not
 invoke a shell.
 
-`readiness` is a startup gate for managed services. `check` is the corresponding
-startup gate for prerequisites. A process exiting remains the default ongoing
-failure signal; readiness is not silently converted into continuous health
-monitoring.
+A process probe succeeds after the component remains alive for
+`minimumUptimeSeconds`, which defaults to 2. It is intended for workers with no
+meaningful network endpoint.
+
+`readiness` is the startup gate for managed services, `completion` is the
+success gate for a long-running startup task, and `check` is the corresponding
+gate for prerequisites. Probe timeouts default to 30 seconds and may be set up
+to 86400 seconds. A process exiting remains the default ongoing failure signal;
+readiness is not silently converted into continuous health monitoring.
+Runtime validation additionally observes the ready graph for five seconds by
+default so a component that fails shortly after its gate is not accepted.
+The service referenced by `application` must use HTTP readiness against that
+same endpoint, because passing readiness authorizes Enmanner to open the page.
 
 ## Commands and paths
 

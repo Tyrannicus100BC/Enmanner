@@ -99,10 +99,19 @@ final class ReadinessAndProcessTests: XCTestCase {
                     dependsOn: ["migrate"],
                     endpoints: [
                         "http": .init(protocol: .http)
-                    ]
+                    ],
+                    readiness: .init(
+                        type: .process,
+                        endpoint: nil,
+                        timeoutSeconds: 1,
+                        minimumUptimeSeconds: 0.05
+                    )
                 ),
                 "frontend": .init(
-                    command: ["/bin/sleep", "30"],
+                    command: [
+                        "/usr/bin/python3", "-m", "http.server",
+                        "${self.endpoints.http.port}", "--bind", "127.0.0.1"
+                    ],
                     environment: [
                         "BACKEND_URL":
                             "${components.backend.endpoints.http.url}"
@@ -110,7 +119,11 @@ final class ReadinessAndProcessTests: XCTestCase {
                     dependsOn: ["backend"],
                     endpoints: [
                         "http": .init(protocol: .http)
-                    ]
+                    ],
+                    readiness: .init(
+                        endpoint: "http",
+                        timeoutSeconds: 5
+                    )
                 )
             ]
         )
@@ -148,6 +161,314 @@ final class ReadinessAndProcessTests: XCTestCase {
             FileManager.default.fileExists(atPath: taskOutput.path)
         )
         supervisor.stop(gracePeriod: 0.2)
+    }
+
+    func testCompletionProbeStopsLongRunningTaskAndEmitsOutput() async throws {
+        let directory = try temporaryDirectory()
+        let manifest = EnmannerManifest(
+            version: 3,
+            name: "Completion",
+            identifier: "local.enmanner.completion",
+            application: .init(component: "web", endpoint: "http"),
+            components: [
+                "prepare": .init(
+                    kind: .task,
+                    command: [
+                        "/usr/bin/python3", "-c",
+                        "import http.server, os; http.server.HTTPServer(('127.0.0.1', int(os.environ['PORT'])), http.server.SimpleHTTPRequestHandler).serve_forever()"
+                    ],
+                    environment: [
+                        "PORT": "${self.endpoints.http.port}"
+                    ],
+                    endpoints: [
+                        "http": .init(protocol: .http)
+                    ],
+                    completion: .init(
+                        endpoint: "http",
+                        timeoutSeconds: 5
+                    )
+                ),
+                "web": .init(
+                    command: [
+                        "/usr/bin/python3", "-m", "http.server",
+                        "${self.endpoints.http.port}", "--bind", "127.0.0.1"
+                    ],
+                    dependsOn: ["prepare"],
+                    endpoints: [
+                        "http": .init(protocol: .http)
+                    ],
+                    readiness: .init(
+                        endpoint: "http",
+                        timeoutSeconds: 5
+                    )
+                )
+            ]
+        )
+        let events = EventRecorder()
+        let supervisor = RuntimeSupervisor(logBuffer: LogBuffer())
+        supervisor.onEvent = { event in events.append(event) }
+
+        let launch = try await supervisor.start(
+            manifest: manifest,
+            projectURL: directory
+        )
+
+        XCTAssertNotNil(launch.ownedPorts.first {
+            $0.key.component == "prepare"
+        })
+        XCTAssertNil(supervisor.processIdentifiers["prepare"])
+        XCTAssertTrue(events.snapshot.contains {
+            $0.kind == .taskCompleted && $0.component == "prepare"
+        })
+        supervisor.stop(gracePeriod: 0.2)
+    }
+
+    func testRuntimePlanSeparatesOwnedAndObservedPorts() throws {
+        let manifest = EnmannerManifest(
+            version: 3,
+            name: "Ownership",
+            identifier: "local.enmanner.ownership",
+            application: .init(component: "web", endpoint: "http"),
+            components: [
+                "database": .init(
+                    kind: .prerequisite,
+                    endpoints: [
+                        "postgres": .init(
+                            protocol: .tcp,
+                            port: .init(fixed: 54_321)
+                        )
+                    ],
+                    check: .init(type: .tcp, endpoint: "postgres")
+                ),
+                "web": .init(
+                    command: ["/bin/sleep", "30"],
+                    dependsOn: ["database"],
+                    endpoints: ["http": .init(protocol: .http)],
+                    readiness: .init(
+                        type: .process,
+                        endpoint: nil,
+                        minimumUptimeSeconds: 0.05
+                    )
+                )
+            ]
+        )
+
+        let plan = try RuntimePlan.make(manifest: manifest)
+
+        XCTAssertEqual(plan.observedPorts.count, 1)
+        XCTAssertEqual(plan.ownedPorts.count, 1)
+        XCTAssertEqual(plan.observedPorts.values.first, 54_321)
+    }
+
+    func testTaskFailureIsStructuredAndIncludesRecentOutput() async throws {
+        let directory = try temporaryDirectory()
+        let manifest = EnmannerManifest(
+            version: 3,
+            name: "Failure",
+            identifier: "local.enmanner.failure",
+            application: .init(component: "web", endpoint: "http"),
+            components: [
+                "prepare": .init(
+                    kind: .task,
+                    command: [
+                        "/usr/bin/python3", "-c",
+                        "import sys; print('preparation detail', flush=True); sys.exit(7)"
+                    ]
+                ),
+                "web": .init(
+                    command: ["/bin/sleep", "30"],
+                    dependsOn: ["prepare"],
+                    endpoints: ["http": .init(protocol: .http)],
+                    readiness: .init(
+                        type: .process,
+                        endpoint: nil,
+                        minimumUptimeSeconds: 0.05
+                    )
+                )
+            ]
+        )
+        let supervisor = RuntimeSupervisor(logBuffer: LogBuffer())
+
+        do {
+            _ = try await supervisor.start(
+                manifest: manifest,
+                projectURL: directory
+            )
+            XCTFail("Expected task failure.")
+        } catch let EnmannerError.runtimeFailure(failure) {
+            XCTAssertEqual(failure.code, .taskExited)
+            XCTAssertEqual(failure.phase, .startup)
+            XCTAssertEqual(failure.component, "prepare")
+            XCTAssertEqual(failure.exitStatus, 7)
+            XCTAssertEqual(failure.command?.first, "/usr/bin/python3")
+            XCTAssertEqual(failure.workingDirectory, directory.path)
+            XCTAssertTrue(
+                failure.recentLogs.contains {
+                    $0.contains("preparation detail")
+                }
+            )
+        }
+    }
+
+    func testServiceExitBeforeReadinessIncludesStatusAndLaunchContext() async throws {
+        let directory = try temporaryDirectory()
+        let manifest = EnmannerManifest(
+            version: 3,
+            name: "Service Failure",
+            identifier: "local.enmanner.service-failure",
+            application: .init(component: "web", endpoint: "http"),
+            components: [
+                "web": .init(
+                    command: [
+                        "/usr/bin/python3", "-c",
+                        "import sys; print('service detail', flush=True); sys.exit(9)"
+                    ],
+                    endpoints: ["http": .init(protocol: .http)],
+                    readiness: .init(endpoint: "http", timeoutSeconds: 2)
+                )
+            ]
+        )
+        let supervisor = RuntimeSupervisor(logBuffer: LogBuffer())
+
+        do {
+            _ = try await supervisor.start(
+                manifest: manifest,
+                projectURL: directory
+            )
+            XCTFail("Expected service failure.")
+        } catch let EnmannerError.runtimeFailure(failure) {
+            XCTAssertEqual(failure.code, .componentExited)
+            XCTAssertEqual(failure.phase, .readiness)
+            XCTAssertEqual(failure.component, "web")
+            XCTAssertEqual(failure.exitStatus, 9)
+            XCTAssertEqual(failure.command?.first, "/usr/bin/python3")
+            XCTAssertEqual(failure.workingDirectory, directory.path)
+            XCTAssertTrue(
+                failure.recentLogs.contains {
+                    $0.contains("service detail")
+                }
+            )
+        }
+    }
+
+    func testRecoveryCircuitBreakerUsesRollingFailureWindow() {
+        var breaker = RecoveryCircuitBreaker(
+            maximumFailures: 2,
+            windowSeconds: 60
+        )
+        let start = Date(timeIntervalSince1970: 1_000)
+
+        XCTAssertEqual(breaker.recordFailure(at: start), 1)
+        XCTAssertEqual(
+            breaker.recordFailure(at: start.addingTimeInterval(10)),
+            2
+        )
+        XCTAssertNil(
+            breaker.recordFailure(at: start.addingTimeInterval(20))
+        )
+        XCTAssertEqual(
+            breaker.recordFailure(at: start.addingTimeInterval(81)),
+            1
+        )
+    }
+
+    func testRecoveryRestartsOnlyFailedServiceAndDependents() async throws {
+        let directory = try temporaryDirectory()
+        let processReadiness = EnmannerManifest.Probe(
+            type: .process,
+            endpoint: nil,
+            timeoutSeconds: 1,
+            minimumUptimeSeconds: 0.05
+        )
+        let manifest = EnmannerManifest(
+            version: 3,
+            name: "Recovery",
+            identifier: "local.enmanner.recovery",
+            application: .init(component: "frontend", endpoint: "http"),
+            components: [
+                "backend": .init(
+                    command: ["/bin/sleep", "30"],
+                    readiness: processReadiness
+                ),
+                "worker": .init(
+                    command: ["/bin/sleep", "30"],
+                    dependsOn: ["backend"],
+                    readiness: processReadiness
+                ),
+                "consumer": .init(
+                    command: ["/bin/sleep", "30"],
+                    dependsOn: ["worker"],
+                    readiness: processReadiness
+                ),
+                "metrics": .init(
+                    command: ["/bin/sleep", "30"],
+                    readiness: processReadiness
+                ),
+                "frontend": .init(
+                    command: [
+                        "/usr/bin/python3", "-m", "http.server",
+                        "${self.endpoints.http.port}", "--bind", "127.0.0.1"
+                    ],
+                    dependsOn: ["backend"],
+                    endpoints: ["http": .init(protocol: .http)],
+                    readiness: .init(endpoint: "http", timeoutSeconds: 5)
+                )
+            ]
+        )
+        XCTAssertEqual(
+            ManifestValidator.validate(manifest, projectURL: directory),
+            []
+        )
+        let supervisor = RuntimeSupervisor(logBuffer: LogBuffer())
+        let workerExited = expectation(description: "worker exited")
+        supervisor.onExit = { exit in
+            if exit.component == "worker" {
+                workerExited.fulfill()
+            }
+        }
+        _ = try await supervisor.start(
+            manifest: manifest,
+            projectURL: directory
+        )
+        let before = supervisor.processIdentifiers
+        let workerPID = try XCTUnwrap(before["worker"])
+
+        XCTAssertEqual(Darwin.kill(workerPID, SIGKILL), 0)
+        await fulfillment(of: [workerExited], timeout: 2)
+
+        let recovery = try await supervisor.recover(
+            components: ["worker"],
+            projectURL: directory
+        )
+        let after = supervisor.processIdentifiers
+
+        XCTAssertEqual(
+            recovery.affectedComponents,
+            Set(["worker", "consumer"])
+        )
+        XCTAssertEqual(after["backend"], before["backend"])
+        XCTAssertEqual(after["frontend"], before["frontend"])
+        XCTAssertEqual(after["metrics"], before["metrics"])
+        XCTAssertNotEqual(after["worker"], before["worker"])
+        XCTAssertNotEqual(after["consumer"], before["consumer"])
+        supervisor.stop(gracePeriod: 0.2)
+    }
+}
+
+private final class EventRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var events: [RuntimeEvent] = []
+
+    func append(_ event: RuntimeEvent) {
+        lock.lock()
+        events.append(event)
+        lock.unlock()
+    }
+
+    var snapshot: [RuntimeEvent] {
+        lock.lock()
+        defer { lock.unlock() }
+        return events
     }
 }
 

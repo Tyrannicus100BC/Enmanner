@@ -78,17 +78,15 @@ The `.icon` package contains its own copies of the configured layers so it is
 self-contained. Keep the original high-resolution layers as canonical source
 artwork; the package copies are expected, not accidental duplication.
 
-Before previewing, add the package's project-relative path to `enmanner/enmanner.json`:
-
-```json
-"icon": "enmanner/icon/AppIcon.icon",
-```
-
-Render every supported appearance without opening Icon Composer:
+Render every supported appearance without opening Icon Composer, before
+changing the manifest:
 
 ```bash
-./.enmanner/scripts/preview-icon
+./.enmanner/scripts/preview-icon --package enmanner/icon/AppIcon.icon
 ```
+
+After selecting the finished package, add its project-relative path to
+`enmanner/enmanner.json`. Plain `preview-icon` then uses the configured path.
 
 The default output is `.enmanner/.build/icon-previews/`. Pass `--output` with a
 visible project-relative directory when previews should be preserved for

@@ -110,8 +110,9 @@ opening the app:
 ```
 
 The runtime check starts the configured server on an Enmanner-selected loopback
-port, waits for it, then stops it. It can mutate project runtime state; inspect
-databases, container volumes, and service ownership before running it.
+port, waits for the full graph, observes all managed services for five seconds,
+then stops it. It can mutate project runtime state; inspect databases,
+container volumes, and service ownership before running it.
 
 ## Add Enmanner to an existing project
 
@@ -213,8 +214,10 @@ test the finished app.
 
 For applications with several runtime components, declare services, one-shot
 tasks, observed prerequisites, named endpoints, and explicit dependencies in
-the manifest. The single-process `application` shorthand lowers into that same
-component graph.
+the manifest. Services use explicit readiness, including process-uptime
+readiness for workers. Startup tasks may expose temporary endpoints and finish
+through a completion probe. The single-process `application` shorthand lowers
+into that same component graph.
 
 Before choosing embedded presentation for a browser-capability-heavy project,
 use the [WKWebView compatibility checklist](docs/embedded-webview-checklist.md).
@@ -246,7 +249,10 @@ The launcher starts the command directly without a shell or Terminal, captures
 standard output and error, and polls the configured HTTP readiness URL. If
 initial startup fails, it shows a plain-language error with recent output,
 copy/retry controls, and a way to reveal the project. If a previously-ready
-server exits, Enmanner shows a reconnecting state and performs bounded restarts.
+service exits, Enmanner restarts it and its affected dependants with bounded
+backoff while leaving unrelated components running. More than five failures in
+60 seconds opens the circuit breaker. Browser mode opens a page automatically
+only on initial launch, never on recovery.
 Choose **Window → Server Log** or press **Command-Shift-L** to inspect the
 bounded live output while the app is starting, healthy, reconnecting, or
 failed. Logs remain memory-only and are not archived to disk.

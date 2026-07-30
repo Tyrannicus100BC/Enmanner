@@ -10,13 +10,15 @@ The supported project-facing surface is:
 - `scripts/build-app` — validate and build the final native application, or a
   separately identified development-only lifecycle bundle;
 - `scripts/validate` — static or opted-in runtime validation, with optional
-  newline-delimited progress;
+  newline-delimited progress and a configurable post-readiness stability soak;
 - `scripts/doctor` — validation plus installation, manifest-draft, icon,
-  generated-app ownership, and managed-file diagnostics;
+  generated-app ownership, disk capacity, workspace ownership, and managed-file
+  diagnostics;
 - `scripts/upgrade` — checksum-verified framework updates;
 - `scripts/clean` — remove local Swift build products;
 - `scripts/create-icon` — create a layered icon package from project artwork;
-- `scripts/preview-icon` — render all supported icon appearances for review;
+- `scripts/preview-icon` — render a configured or explicitly selected icon
+  package in all supported appearances for review;
 - `scripts/test-app` — verify final or explicitly selected development app
   launch, readiness, normal quit, and runtime cleanup with separate receipts.
 

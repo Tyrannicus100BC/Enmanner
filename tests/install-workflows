@@ -22,11 +22,13 @@ generic_target="$test_root/Generic Project"
 workspace_target="$test_root/Workspace Project"
 express_target="$test_root/Express Project"
 root_manifest_target="$test_root/Root Manifest Project"
+source_collision_target="$test_root/Source Collision Project"
 adapter_root="$test_root/Adapter Projects"
 mkdir -p "$vite_target" "$generic_target" \
   "$express_target" \
   "$workspace_target/Backend/.git" "$workspace_target/Frontend/.git" \
-  "$root_manifest_target" "$adapter_root"
+  "$root_manifest_target" "$source_collision_target" "$adapter_root"
+ln -s "$repository_dir" "$source_collision_target/enmanner"
 cp "$repository_dir/examples/vite-example/package.json" \
   "$repository_dir/examples/vite-example/package-lock.json" \
   "$vite_target/"
@@ -152,6 +154,14 @@ fi
 grep -Fq "manifest must live at enmanner/enmanner.json" \
   "$test_root/root-manifest.out"
 
+if "$repository_dir/integration/scripts/install" --plan \
+  "$source_collision_target" >"$test_root/source-collision.out" 2>&1; then
+  echo "Error: installer accepted overlapping source and configuration paths." >&2
+  exit 1
+fi
+grep -Fq "source code and project-owned configuration must be distinct" \
+  "$test_root/source-collision.out"
+
 plan="$(
   "$repository_dir/integration/scripts/install" \
     --plan --json "$vite_target"
@@ -189,7 +199,9 @@ workspace_plan="$(
 printf '%s\n' "$workspace_plan" | jq -e '
   (.git.classification == "workspace-with-nested-repositories") and
   (.git.nestedRepositories == 2) and
-  (.git.requiresExplicitUnversionedChoice == true)
+  (.git.projectRootConfigurationTracked == false) and
+  (.git.requiresExplicitUnversionedChoice == true) and
+  ([.warnings[]] | any(contains("workspace root is not versioned")))
 ' >/dev/null
 if "$repository_dir/integration/scripts/install" --no-build \
   "$workspace_target" >"$test_root/workspace-install.out" 2>&1; then
@@ -389,6 +401,12 @@ if cmp -s \
   echo "Error: create-icon ignored the requested foreground transform." >&2
   exit 1
 fi
+"$vite_target/.enmanner/scripts/preview-icon" \
+  --package enmanner/icon/Test.icon \
+  --output .enmanner/.build/preconfigured-icon-preview \
+  --json >"$test_root/preconfigured-icon-preview.json"
+jq -e '.valid and (.iconPath == "enmanner/icon/Test.icon")' \
+  "$test_root/preconfigured-icon-preview.json" >/dev/null
 /usr/bin/plutil -insert icon -string "enmanner/icon/Test.icon" \
   "$vite_target/enmanner/enmanner.json"
 if "$vite_target/.enmanner/scripts/preview-icon" \
@@ -464,6 +482,12 @@ jq -e '
   .doctor.appOwnershipMatches and
   .doctor.agentsManagedSectionPresent and
   .doctor.gitignoreManagedSectionPresent and
+  (.doctor.disk.status as $status |
+    ["healthy", "warning", "critical"] | index($status)) and
+  (.doctor.disk.availableBytes > 0) and
+  (.doctor.disk.cleanupCommand == "./.enmanner/scripts/clean") and
+  (.doctor.workspace.status == "unversioned") and
+  (.doctor.workspace.manifestTracked == false) and
   ([.warnings[]] | any(contains("stale draft")))
 ' "$test_root/doctor.json" >/dev/null
 rm "$vite_target/enmanner/enmanner.json.example"

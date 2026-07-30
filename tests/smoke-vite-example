@@ -4,13 +4,31 @@ set -euo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repository_dir="$(cd "$script_dir/.." && pwd)"
 example_dir="${ENMANNER_SMOKE_EXAMPLE_DIR:-$repository_dir/examples/vite-example}"
+runtime_events="$(mktemp "${TMPDIR:-/tmp}/enmanner-runtime-events.XXXXXX")"
+trap 'rm -f "$runtime_events"' EXIT
 
 if [[ ! -d "$example_dir/node_modules" ]]; then
   echo "Installing example dependencies…"
   npm ci --prefix "$example_dir"
 fi
 
-"$example_dir/.enmanner/scripts/validate" --runtime
+"$example_dir/.enmanner/scripts/validate" --runtime --json-lines \
+  >"$runtime_events"
+jq -s -e '
+  ([.[].event] | index("componentStarted")) and
+  ([.[].event] | index("componentOutput")) and
+  ([.[].event] | index("probePassed")) and
+  ([.[].event] | index("soakStarted")) and
+  ([.[].event] | index("soakPassed")) and
+  ([.[].event] | index("componentExited")) and
+  (map(select(.event == "complete"))[0].report.runtime |
+    .readinessPassed and
+    .soakPassed and
+    (.soakSeconds == 5) and
+    .portReleased and
+    (.ownedPorts | length == 1) and
+    (.observedPorts | length == 0))
+' "$runtime_events" >/dev/null
 "$example_dir/.enmanner/scripts/build-app" --development --json |
   jq -e '
     .valid and

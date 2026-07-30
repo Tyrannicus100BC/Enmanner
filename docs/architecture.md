@@ -64,14 +64,15 @@ and current WKWebView behavior while retaining several years of Mac coverage.
    declared, and retain those values for the launcher session.
 4. Expand only exact component endpoint references and
    `${project.directory}`.
-5. Traverse the dependency graph. Observe prerequisites, run one-shot tasks,
-   and start foreground services after their dependencies are satisfied.
+5. Traverse the dependency graph. Observe prerequisites, run exit-gated or
+   completion-gated tasks, and start foreground services after their
+   dependencies are satisfied.
 6. Resolve relative executables from each component's working directory,
    absolute executables directly, and bare executable names from a GUI-safe
    PATH made from the inherited value plus standard Apple Silicon and Intel
    local runtime locations.
 7. Put each managed service in its own process group, label its captured output,
-   and wait for any configured HTTP, TCP, or command readiness probe.
+   and wait for its required HTTP, TCP, command, or process readiness probe.
 8. In browser mode, the default, remain windowless while keeping normal Dock
    presence. Embedded mode displays the native starting state.
 9. Once the configured application component is ready, load its named HTTP
@@ -94,18 +95,20 @@ that group. This covers common package-manager descendants without starting
 through a shell. There is still no complete guarantee for children that
 deliberately escape the process group.
 
-One-shot tasks receive the same independent process-group ownership. A task is
-not accepted as complete if its root command exits while descendants remain in
-that group.
+Tasks receive the same independent process-group ownership. An ordinary task
+must exit successfully and is not accepted if descendants remain. A task with a
+`completion` probe may expose temporary endpoints; once the probe passes,
+Enmanner stops the whole group and records the task as successful.
 
-An exit before first readiness produces a component-attributed failure. In the
-first component-graph implementation, an exit after the app has been ready
-enters a reconnecting state and performs up to five whole-runtime restarts with
-bounded exponential backoff. Endpoint allocations remain stable. The graph
-model and independent process groups establish the boundary for later
-component-local recovery without making transient dependency loss
-automatically kill otherwise healthy dependents. Framework HMR remains
-untouched while services stay up.
+An exit before first readiness produces a component-attributed failure. After
+the app has been ready, Enmanner restarts the failed component and its
+transitive dependants in topological order. Unaffected branches and upstream
+dependencies remain running; the visible application enters reconnecting state
+only when its component is in the affected set. Endpoint allocations remain
+stable. Recovery uses bounded exponential backoff and a rolling circuit
+breaker: more than five unexpected exits within 60 seconds stops automatic
+recovery. A successful readiness probe does not erase recent failures.
+Framework HMR remains untouched while its service stays up.
 
 The bundle also declares that Launch Services should prohibit multiple
 instances. Normal repeated opens therefore activate the existing app instead of
@@ -114,22 +117,28 @@ starting a second project server.
 Readiness accepts redirects and transient connection errors. Each request has a
 short timeout; the overall deadline comes from the manifest.
 
-Runtime validation races readiness against process exit. A server that exits
+Runtime validation races readiness against process exit. A service that exits
 before readiness therefore fails immediately with its status and bounded recent
-output instead of consuming the rest of the readiness timeout. It is an
-explicitly state-changing operation: Enmanner cannot infer whether a project
-command mutates databases, containers, volumes, or caches.
+output instead of consuming the rest of the readiness timeout. Once the whole
+graph is ready, validation observes every managed service for a five-second
+soak by default before declaring readiness stable. `--soak-seconds` may adjust
+that interval. It is an explicitly state-changing operation: Enmanner cannot
+infer whether a project command mutates databases, containers, volumes, or
+caches.
 The validator also handles `SIGINT` and `SIGTERM`, stops the owned process group
 with the same bounded escalation policy, and emits structured interruption
-postconditions. Optional JSON Lines progress reports startup, readiness,
-shutdown, and postcondition phases without changing the single-result JSON
-mode.
+postconditions. Optional JSON Lines reports component start, labelled stdout
+and stderr, probe progress, task completion, soak progress, exits, shutdown, and
+postcondition phases without changing the single-result JSON mode. Runtime
+failures carry a stable code, phase, component, resolved command, working
+directory, exit status or timeout where applicable, and bounded recent logs.
 
 After readiness, validation records every launched process tree, stops the
 runtime, and requires every immediate process and process group to disappear,
-the application endpoint to remain unavailable, and every selected port to
-have no loopback listener. It reports surviving tracked PIDs and the Git-status
-delta as `gitStatusMutations`. The former `workspaceMutations` JSON field
+the application endpoint to remain unavailable, and every Enmanner-owned port
+to have no loopback listener. Fixed prerequisite ports are reported as observed
+and are deliberately excluded from shutdown ownership checks. It reports
+surviving tracked PIDs and the Git-status delta as `gitStatusMutations`. The former `workspaceMutations` JSON field
 remains as a deprecated compatibility alias for one release.
 External containers, daemons, and deliberately detached processes remain
 project-owned and are reported as outside the proof boundary.
@@ -142,12 +151,13 @@ other hosts and links requesting a new window open in the default browser.
 Server restarts hide the broken page and reload only after readiness returns.
 
 Browser mode keeps the launcher in the Dock but does not show a native window
-during a healthy launch. Once readiness succeeds, it opens the same URL through
-`NSWorkspace` in the default browser and continues to own the server. A Dock
-click from another app foregrounds Enmanner so its menus, including Quit, are
-available. Clicking the Dock icon again while Enmanner is already active reopens
-the default browser. When the server is not ready, that second click reveals
-the native status window instead.
+during a healthy launch. Once initial readiness succeeds, it opens the URL
+through `NSWorkspace` in the default browser and continues to own the server.
+Automatic recovery never opens another browser window. A Dock click from
+another app foregrounds Enmanner so its menus, including Quit, are available.
+Clicking the Dock icon again while Enmanner is already active explicitly
+reopens the default browser. When the server is not ready, that second click
+reveals the native status window instead.
 
 ## Native menus and settings
 
@@ -182,14 +192,22 @@ starting a server known to be misconfigured.
 The native state panel distinguishes starting, reconnecting, running in the browser,
 and failed. Embedded mode presents it during startup. Browser mode presents it
 only after an explicit Dock reopen or when a failure needs attention. Failure
-includes the configured argument array, exit status when known, and recent
-output. Users can show the bounded inline log view, copy it, retry, or reveal
-the project without opening Terminal. A separate resizable Server Log window
+includes the failed component, resolved argument array, working directory,
+exit status when known, and recent output. Users can show the bounded inline
+log view, copy it, retry, or reveal the project without opening Terminal. A
+separate resizable Server Log window
 remains available while the server is healthy, starting, reconnecting, or
 failed and updates from the same in-memory buffer.
 
 Logs are memory-only and capped at 500 entries. Enmanner does not create a hidden
 log archive or leak project output into Application Support.
+
+Build and runtime-validation scripts inspect free space on the project
+filesystem before doing expensive work. `doctor` reports available bytes and
+the size of Enmanner's Swift build cache, with
+`./.enmanner/scripts/clean` as the only automated cleanup path. Enmanner never
+repairs or removes Docker volumes, container state, databases, or other
+project-owned data.
 
 ## Storage and trust
 

@@ -227,6 +227,7 @@ public struct EnmannerManifest: Codable, Equatable, Sendable {
         public let dependsOn: [String]
         public let endpoints: [String: Endpoint]
         public let readiness: Probe?
+        public let completion: Probe?
         public let check: Probe?
         public let failureMessage: String?
 
@@ -238,6 +239,7 @@ public struct EnmannerManifest: Codable, Equatable, Sendable {
             dependsOn: [String] = [],
             endpoints: [String: Endpoint] = [:],
             readiness: Probe? = nil,
+            completion: Probe? = nil,
             check: Probe? = nil,
             failureMessage: String? = nil
         ) {
@@ -248,6 +250,7 @@ public struct EnmannerManifest: Codable, Equatable, Sendable {
             self.dependsOn = dependsOn
             self.endpoints = endpoints
             self.readiness = readiness
+            self.completion = completion
             self.check = check
             self.failureMessage = failureMessage
         }
@@ -260,6 +263,7 @@ public struct EnmannerManifest: Codable, Equatable, Sendable {
             case dependsOn
             case endpoints
             case readiness
+            case completion
             case check
             case failureMessage
         }
@@ -285,6 +289,10 @@ public struct EnmannerManifest: Codable, Equatable, Sendable {
                 forKey: .endpoints
             ) ?? [:]
             readiness = try container.decodeIfPresent(Probe.self, forKey: .readiness)
+            completion = try container.decodeIfPresent(
+                Probe.self,
+                forKey: .completion
+            )
             check = try container.decodeIfPresent(Probe.self, forKey: .check)
             failureMessage = try container.decodeIfPresent(
                 String.self,
@@ -344,6 +352,7 @@ public struct EnmannerManifest: Codable, Equatable, Sendable {
             case http
             case tcp
             case command
+            case process
         }
 
         public struct Success: Codable, Equatable, Sendable {
@@ -368,6 +377,7 @@ public struct EnmannerManifest: Codable, Equatable, Sendable {
         public let contentTypeContains: String?
         public let bodyContains: String?
         public let success: Success?
+        public let minimumUptimeSeconds: Double?
 
         public init(
             type: ProbeType = .http,
@@ -378,7 +388,8 @@ public struct EnmannerManifest: Codable, Equatable, Sendable {
             acceptableStatusCodes: [Int]? = nil,
             contentTypeContains: String? = nil,
             bodyContains: String? = nil,
-            success: Success? = nil
+            success: Success? = nil,
+            minimumUptimeSeconds: Double? = nil
         ) {
             self.type = type
             self.endpoint = endpoint
@@ -389,6 +400,7 @@ public struct EnmannerManifest: Codable, Equatable, Sendable {
             self.contentTypeContains = contentTypeContains
             self.bodyContains = bodyContains
             self.success = success
+            self.minimumUptimeSeconds = minimumUptimeSeconds
         }
 
         private enum CodingKeys: String, CodingKey {
@@ -401,13 +413,14 @@ public struct EnmannerManifest: Codable, Equatable, Sendable {
             case contentTypeContains
             case bodyContains
             case success
+            case minimumUptimeSeconds
         }
 
         public init(from decoder: Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
             type = try container.decodeIfPresent(ProbeType.self, forKey: .type) ?? .http
             endpoint = try container.decodeIfPresent(String.self, forKey: .endpoint) ??
-                (type == .command ? nil : "http")
+                (type == .command || type == .process ? nil : "http")
             path = try container.decodeIfPresent(String.self, forKey: .path) ?? "/"
             command = try container.decodeIfPresent([String].self, forKey: .command)
             timeoutSeconds = try container.decodeIfPresent(
@@ -427,6 +440,10 @@ public struct EnmannerManifest: Codable, Equatable, Sendable {
                 forKey: .bodyContains
             )
             success = try container.decodeIfPresent(Success.self, forKey: .success)
+            minimumUptimeSeconds = try container.decodeIfPresent(
+                Double.self,
+                forKey: .minimumUptimeSeconds
+            )
         }
     }
 
@@ -777,11 +794,22 @@ public enum ManifestValidator {
             if component.kind != .service && component.readiness != nil {
                 issues.append("\(displayPath).readiness is valid only for services.")
             }
+            if component.kind != .task && component.completion != nil {
+                issues.append("\(displayPath).completion is valid only for tasks.")
+            }
             if component.kind != .prerequisite && component.check != nil {
                 issues.append("\(displayPath).check is valid only for prerequisites.")
             }
-            if component.kind == .task && !component.endpoints.isEmpty {
-                issues.append("\(displayPath).endpoints are not valid for a task.")
+            if component.kind == .service && component.readiness == nil {
+                issues.append(
+                    "\(displayPath).readiness is required; use a process probe for workers without a network endpoint."
+                )
+            }
+            if component.kind == .task && !component.endpoints.isEmpty &&
+                component.completion == nil {
+                issues.append(
+                    "\(displayPath).endpoints require a completion probe."
+                )
             }
             if component.kind == .prerequisite {
                 for (endpointName, endpoint) in component.endpoints
@@ -834,6 +862,14 @@ public enum ManifestValidator {
                     issues: &issues
                 )
             }
+            if let completion = component.completion {
+                validateProbe(
+                    completion,
+                    component: component,
+                    path: "\(displayPath).completion",
+                    issues: &issues
+                )
+            }
         }
 
         guard let applicationComponent = graph.components[
@@ -853,6 +889,17 @@ public enum ManifestValidator {
         if applicationEndpoint.protocol != .http &&
             applicationEndpoint.protocol != .https {
             issues.append("application must reference an HTTP or HTTPS endpoint.")
+        }
+        if let readiness = applicationComponent.readiness {
+            if readiness.type != .http {
+                issues.append(
+                    "the application component requires HTTP readiness for the page Enmanner opens."
+                )
+            } else if readiness.endpoint != graph.applicationEndpoint {
+                issues.append(
+                    "the application component readiness probe must use the endpoint referenced by application."
+                )
+            }
         }
 
         validateInterpolation(
@@ -965,8 +1012,8 @@ public enum ManifestValidator {
         path: String,
         issues: inout [String]
     ) {
-        if probe.timeoutSeconds <= 0 || probe.timeoutSeconds > 300 {
-            issues.append("\(path).timeoutSeconds must be between 1 and 300.")
+        if probe.timeoutSeconds <= 0 || probe.timeoutSeconds > 86_400 {
+            issues.append("\(path).timeoutSeconds must be between 1 and 86400.")
         }
         switch probe.type {
         case .http:
@@ -1019,6 +1066,39 @@ public enum ManifestValidator {
                     "\(path) HTTP response matchers are valid only for HTTP probes."
                 )
             }
+        case .process:
+            if component.kind == .prerequisite {
+                issues.append(
+                    "\(path) process probes require an Enmanner-owned task or service."
+                )
+            }
+            if probe.endpoint != nil {
+                issues.append("\(path).endpoint is not valid for a process probe.")
+            }
+            if probe.command != nil {
+                issues.append("\(path).command is valid only for command probes.")
+            }
+            if probe.acceptableStatusCodes != nil ||
+                probe.contentTypeContains != nil ||
+                probe.bodyContains != nil {
+                issues.append(
+                    "\(path) HTTP response matchers are valid only for HTTP probes."
+                )
+            }
+            if probe.success != nil {
+                issues.append("\(path).success is valid only for command probes.")
+            }
+            let minimumUptime = probe.minimumUptimeSeconds ?? 2
+            if minimumUptime <= 0 || minimumUptime > probe.timeoutSeconds {
+                issues.append(
+                    "\(path).minimumUptimeSeconds must be greater than 0 and no greater than timeoutSeconds."
+                )
+            }
+        }
+        if probe.type != .process && probe.minimumUptimeSeconds != nil {
+            issues.append(
+                "\(path).minimumUptimeSeconds is valid only for process probes."
+            )
         }
         if let statusCodes = probe.acceptableStatusCodes,
            statusCodes.isEmpty ||
@@ -1083,6 +1163,7 @@ public enum ManifestValidator {
             let values = (component.command ?? []) +
                 Array(component.environment.values) +
                 (component.readiness?.command ?? []) +
+                (component.completion?.command ?? []) +
                 (component.check?.command ?? [])
             for value in values {
                 do {

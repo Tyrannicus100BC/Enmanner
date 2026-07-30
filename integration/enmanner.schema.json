@@ -162,7 +162,7 @@
     "serviceComponent": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["command"],
+      "required": ["command", "readiness"],
       "properties": {
         "kind": {
           "const": "service"
@@ -192,6 +192,9 @@
       "type": "object",
       "additionalProperties": false,
       "required": ["kind", "command"],
+      "dependentRequired": {
+        "endpoints": ["completion"]
+      },
       "properties": {
         "kind": {
           "const": "task"
@@ -208,6 +211,12 @@
         },
         "dependsOn": {
           "$ref": "#/$defs/dependencyList"
+        },
+        "endpoints": {
+          "$ref": "#/$defs/endpoints"
+        },
+        "completion": {
+          "$ref": "#/$defs/probe"
         }
       }
     },
@@ -313,6 +322,9 @@
         },
         {
           "$ref": "#/$defs/commandProbe"
+        },
+        {
+          "$ref": "#/$defs/processProbe"
         }
       ]
     },
@@ -334,7 +346,7 @@
         "timeoutSeconds": {
           "type": "number",
           "minimum": 1,
-          "maximum": 300
+          "maximum": 86400
         },
         "acceptableStatusCodes": {
           "type": "array",
@@ -371,7 +383,7 @@
         "timeoutSeconds": {
           "type": "number",
           "minimum": 1,
-          "maximum": 300
+          "maximum": 86400
         }
       }
     },
@@ -389,7 +401,7 @@
         "timeoutSeconds": {
           "type": "number",
           "minimum": 1,
-          "maximum": 300
+          "maximum": 86400
         },
         "success": {
           "type": "object",
@@ -405,6 +417,26 @@
           "not": {
             "required": ["stdoutEquals", "stdoutContains"]
           }
+        }
+      }
+    },
+    "processProbe": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type"],
+      "properties": {
+        "type": {
+          "const": "process"
+        },
+        "timeoutSeconds": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 86400
+        },
+        "minimumUptimeSeconds": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 86400
         }
       }
     },

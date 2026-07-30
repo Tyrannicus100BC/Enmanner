@@ -31,15 +31,22 @@ is provisional evidence and can never satisfy completion.
    the label.
 8. Run static validation. After reviewing state ownership, opt into runtime
    validation and confirm readiness, shutdown, process-group cleanup, endpoint
-   disappearance, port release, and Git-status mutations.
+   disappearance, owned-port release, and Git-status mutations. Prefer
+   `./.enmanner/scripts/validate --runtime --json-lines` while diagnosing a
+   graph; it streams component-labelled output and structured lifecycle events.
+   The default five-second post-readiness soak catches delayed worker exits;
+   use `--soak-seconds` only when the graph needs a deliberately different
+   observation interval.
 9. When launcher behavior needs proof before icon work, run
    `build-app --development`, then `test-app --development`. The resulting
    `Name Development.app` has a separate bundle identifier, a conspicuous DEV
    icon, and separate doctor evidence. Do not present or report it as the
    finished application.
 10. Inspect existing brand assets. Create layered source artwork under
-   `enmanner/icon/` when necessary, package a modern `.icon` there, add its
-   project-relative path to `enmanner/enmanner.json`, then run `preview-icon`.
+   `enmanner/icon/` when necessary, package a modern `.icon` there, and inspect
+   it with `preview-icon --package enmanner/icon/App.icon` before configuring
+   its project-relative path in `enmanner/enmanner.json`. Once configured,
+   plain `preview-icon` uses the manifest.
    For teams mixing full-Xcode and Command Line Tools-only Macs, also commit a
    legacy `.icns` and configure the pair as `icon.modern` and `icon.legacy`.
    Open the generated contact sheet and confirm that every Default, Dark,

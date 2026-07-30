@@ -2,6 +2,8 @@ import Darwin
 import Foundation
 import EnmannerCore
 
+private let jsonLineLock = NSLock()
+
 private actor RuntimeInterruptWaiter {
     private var signal: Int32?
     private var cancelled = false
@@ -40,6 +42,22 @@ private actor RuntimeInterruptWaiter {
             Task { await self.cancel() }
         }
     }
+
+    var recordedSignal: Int32? {
+        signal
+    }
+}
+
+private actor RuntimeExitRecorder {
+    private var exit: RuntimeSupervisor.ComponentExit?
+
+    func record(_ exit: RuntimeSupervisor.ComponentExit) {
+        self.exit = self.exit ?? exit
+    }
+
+    var recordedExit: RuntimeSupervisor.ComponentExit? {
+        exit
+    }
 }
 
 private enum RuntimeValidationOutcome {
@@ -51,9 +69,13 @@ private enum RuntimeValidationOutcome {
 private struct RuntimeReport: Codable {
     let selectedPort: UInt16
     let selectedPorts: [String: UInt16]
+    let ownedPorts: [String: UInt16]
+    let observedPorts: [String: UInt16]
     let readinessURL: String
     let componentProcessIdentifiers: [String: Int32]
     let readinessPassed: Bool
+    let soakSeconds: Double
+    let soakPassed: Bool
     let supervisorExited: Bool
     let processGroupStopped: Bool
     let readinessUnavailable: Bool
@@ -67,7 +89,8 @@ private struct RuntimeReport: Codable {
     let interruptSignal: Int32?
 
     var passed: Bool {
-        !interrupted && readinessPassed && supervisorExited && processGroupStopped &&
+        !interrupted && readinessPassed && soakPassed &&
+            supervisorExited && processGroupStopped &&
             readinessUnavailable && portReleased &&
             nonLoopbackListeners.isEmpty && remainingProcesses.isEmpty
     }
@@ -113,6 +136,22 @@ private struct DoctorReport: Codable {
         let nativeLaunchVerified: Bool
     }
 
+    struct Disk: Codable {
+        let status: String
+        let availableBytes: UInt64
+        let frameworkBuildCacheBytes: UInt64
+        let cleanupCommand: String
+        let externalStatePolicy: String
+    }
+
+    struct Workspace: Codable {
+        let status: String
+        let projectGitRoot: String?
+        let nestedRepositoryCount: Int
+        let manifestTracked: Bool
+        let recommendation: String?
+    }
+
     let complete: Bool
     let installationHistory: InstallationHistory
     let currentStatus: CurrentStatus
@@ -140,6 +179,8 @@ private struct DoctorReport: Codable {
     let gitignoreManagedSectionPresent: Bool
     let otherAgentInstructions: [String]
     let agentInstructions: [String: String]
+    let disk: Disk
+    let workspace: Workspace
     let completionEvidence: CompletionEvidence
 }
 
@@ -148,6 +189,7 @@ private struct ErrorReport: Encodable {
         let code: String
         let path: String?
         let message: String
+        let runtimeFailure: RuntimeFailure?
     }
 
     let valid = false
@@ -174,7 +216,8 @@ struct EnmannerValidatorCommand {
                     error: .init(
                         code: enmannerError?.diagnosticCode ?? "unexpectedError",
                         path: enmannerError?.diagnosticPath,
-                        message: error.localizedDescription
+                        message: error.localizedDescription,
+                        runtimeFailure: enmannerError?.runtimeFailure
                     )
                 )
                 let encoder = JSONEncoder()
@@ -202,6 +245,14 @@ struct EnmannerValidatorCommand {
         let projectPath = value(after: "--project", in: arguments) ??
             FileManager.default.currentDirectoryPath
         let runtime = arguments.contains("--runtime")
+        let runtimeSoakSeconds = Double(
+            value(after: "--runtime-soak-seconds", in: arguments) ?? "5"
+        ) ?? -1
+        if runtime && !(0...300).contains(runtimeSoakSeconds) {
+            throw EnmannerError.processLaunchFailed(
+                "--runtime-soak-seconds must be between 0 and 300."
+            )
+        }
         let doctor = arguments.contains("--doctor")
         let printField = value(after: "--print", in: arguments)
         let projectURL = URL(fileURLWithPath: projectPath, isDirectory: true)
@@ -261,7 +312,8 @@ struct EnmannerValidatorCommand {
             ? try await validateRuntime(
                 manifest: manifest,
                 projectURL: projectURL,
-                jsonLines: jsonLines
+                jsonLines: jsonLines,
+                soakSeconds: runtimeSoakSeconds
             )
             : nil
         let doctorReport = doctor
@@ -280,6 +332,20 @@ struct EnmannerValidatorCommand {
            agentInstructions.values.contains("needsMirroring") {
             warnings.append(
                 "other agent instruction files exist; mirror Enmanner guidance there when one is authoritative"
+            )
+        }
+        if let disk = doctorReport?.disk, disk.status != "healthy" {
+            warnings.append(
+                "project filesystem disk space is \(disk.status); " +
+                "\(disk.availableBytes) bytes remain and the Enmanner build " +
+                "cache uses \(disk.frameworkBuildCacheBytes) bytes"
+            )
+        }
+        if let workspace = doctorReport?.workspace,
+           workspace.status != "tracked" {
+            warnings.append(
+                workspace.recommendation ??
+                    "enmanner/enmanner.json is not tracked by the project workspace"
             )
         }
         warnings.append(contentsOf: dotenvEnvironmentWarnings(
@@ -531,6 +597,62 @@ struct EnmannerValidatorCommand {
         } else {
             integrationStatus = "incomplete"
         }
+        let fileSystemAttributes = (
+            try? fileManager.attributesOfFileSystem(
+                forPath: projectURL.path
+            )
+        ) ?? [:]
+        let availableBytes = (
+            fileSystemAttributes[.systemFreeSize] as? NSNumber
+        )?.uint64Value ?? 0
+        let buildCacheBytes = allocatedSize(
+            at: projectURL.appendingPathComponent(
+                ".enmanner/framework/.build"
+            )
+        )
+        let diskStatus: String
+        if availableBytes < 1_073_741_824 {
+            diskStatus = "critical"
+        } else if availableBytes < 5_368_709_120 {
+            diskStatus = "warning"
+        } else {
+            diskStatus = "healthy"
+        }
+        let gitRootOutput = processOutput(
+            executable: "/usr/bin/git",
+            arguments: [
+                "-C", projectURL.path, "rev-parse", "--show-toplevel"
+            ]
+        ).trimmingCharacters(in: .whitespacesAndNewlines)
+        let projectGitRoot = gitRootOutput.isEmpty ? nil : gitRootOutput
+        let manifestTracked = !processOutput(
+            executable: "/usr/bin/git",
+            arguments: [
+                "-C", projectURL.path, "ls-files", "--error-unmatch",
+                "--", "enmanner/enmanner.json"
+            ]
+        ).isEmpty
+        let nestedRepositoryCount = nestedRepositoryCount(
+            inside: projectURL
+        )
+        let workspaceStatus: String
+        let workspaceRecommendation: String?
+        if manifestTracked {
+            workspaceStatus = "tracked"
+            workspaceRecommendation = nil
+        } else if projectGitRoot != nil {
+            workspaceStatus = "manifestUntracked"
+            workspaceRecommendation =
+                "Track enmanner/enmanner.json in the repository that owns this project."
+        } else if nestedRepositoryCount > 0 {
+            workspaceStatus = "unversionedRootWithNestedRepositories"
+            workspaceRecommendation =
+                "The workspace root is unversioned; initialize version control there or explicitly accept that root Enmanner configuration has no repository owner."
+        } else {
+            workspaceStatus = "unversioned"
+            workspaceRecommendation =
+                "Initialize version control for the project so Enmanner configuration has a durable owner."
+        }
 
         return DoctorReport(
             complete: complete,
@@ -561,6 +683,21 @@ struct EnmannerValidatorCommand {
             gitignoreManagedSectionPresent: gitignoreManagedSectionPresent,
             otherAgentInstructions: otherAgentInstructions,
             agentInstructions: agentInstructions,
+            disk: .init(
+                status: diskStatus,
+                availableBytes: availableBytes,
+                frameworkBuildCacheBytes: buildCacheBytes,
+                cleanupCommand: "./.enmanner/scripts/clean",
+                externalStatePolicy:
+                    "Enmanner never removes Docker data or project-owned state."
+            ),
+            workspace: .init(
+                status: workspaceStatus,
+                projectGitRoot: projectGitRoot,
+                nestedRepositoryCount: nestedRepositoryCount,
+                manifestTracked: manifestTracked,
+                recommendation: workspaceRecommendation
+            ),
             completionEvidence: completionEvidence
         )
     }
@@ -571,6 +708,69 @@ struct EnmannerValidatorCommand {
             return nil
         }
         return object as? [String: Any]
+    }
+
+    private static func allocatedSize(at url: URL) -> UInt64 {
+        let keys: Set<URLResourceKey> = [
+            .isRegularFileKey,
+            .totalFileAllocatedSizeKey,
+            .fileAllocatedSizeKey
+        ]
+        guard let enumerator = FileManager.default.enumerator(
+            at: url,
+            includingPropertiesForKeys: Array(keys),
+            options: [.skipsPackageDescendants],
+            errorHandler: { _, _ in true }
+        ) else {
+            return 0
+        }
+        var total: UInt64 = 0
+        for case let fileURL as URL in enumerator {
+            guard let values = try? fileURL.resourceValues(forKeys: keys),
+                  values.isRegularFile == true else {
+                continue
+            }
+            total += UInt64(
+                values.totalFileAllocatedSize ??
+                    values.fileAllocatedSize ??
+                    0
+            )
+        }
+        return total
+    }
+
+    private static func nestedRepositoryCount(inside projectURL: URL) -> Int {
+        let keys: Set<URLResourceKey> = [.isDirectoryKey]
+        guard let enumerator = FileManager.default.enumerator(
+            at: projectURL,
+            includingPropertiesForKeys: Array(keys),
+            options: [],
+            errorHandler: { _, _ in true }
+        ) else {
+            return 0
+        }
+        var count = 0
+        for case let url as URL in enumerator {
+            let relative = url.path.replacingOccurrences(
+                of: projectURL.path + "/",
+                with: ""
+            )
+            let depth = relative.split(separator: "/").count
+            let name = url.lastPathComponent
+            if name == "node_modules" || name == ".enmanner" ||
+                name == ".build" || depth > 5 {
+                enumerator.skipDescendants()
+                continue
+            }
+            if name == ".git" {
+                if url.deletingLastPathComponent().standardizedFileURL !=
+                    projectURL.standardizedFileURL {
+                    count += 1
+                }
+                enumerator.skipDescendants()
+            }
+        }
+        return count
     }
 
     private static func plistObject(at url: URL) -> [String: Any]? {
@@ -627,6 +827,26 @@ struct EnmannerValidatorCommand {
             "\(mark(report.completionEvidence.nativeLaunchVerified)) " +
             "generated app native launch lifecycle"
         )
+        let diskMark = report.disk.status == "healthy" ? "✓" : "!"
+        print(
+            "\(diskMark) disk space: \(report.disk.status), " +
+            "\(report.disk.availableBytes / 1_048_576) MiB available"
+        )
+        if report.disk.frameworkBuildCacheBytes > 0 {
+            print(
+                "  Enmanner build cache: " +
+                "\(report.disk.frameworkBuildCacheBytes / 1_048_576) MiB; " +
+                "clean with \(report.disk.cleanupCommand)"
+            )
+        }
+        let workspaceMark = report.workspace.status == "tracked" ? "✓" : "!"
+        print(
+            "\(workspaceMark) workspace configuration: " +
+            report.workspace.status
+        )
+        if let recommendation = report.workspace.recommendation {
+            print("  \(recommendation)")
+        }
         if report.staleDraftManifest {
             print("! enmanner/enmanner.json.example remains beside the live manifest")
         }
@@ -675,12 +895,20 @@ struct EnmannerValidatorCommand {
     private static func validateRuntime(
         manifest: EnmannerManifest,
         projectURL: URL,
-        jsonLines: Bool
+        jsonLines: Bool,
+        soakSeconds: Double
     ) async throws -> RuntimeReport {
         let beforeStatus = gitStatus(projectURL: projectURL)
         let logBuffer = LogBuffer(maximumEntries: 100)
         let supervisor = RuntimeSupervisor(logBuffer: logBuffer)
+        let exitRecorder = RuntimeExitRecorder()
+        supervisor.onExit = { exit in
+            Task { await exitRecorder.record(exit) }
+        }
         if jsonLines {
+            supervisor.onEvent = { event in
+                printRuntimeEvent(event)
+            }
             printJSONLine(
                 event: "starting",
                 fields: ["component": "runtime"]
@@ -713,7 +941,7 @@ struct EnmannerValidatorCommand {
             Darwin.signal(SIGTERM, SIG_DFL)
         }
 
-        let outcome = try await withThrowingTaskGroup(
+        var outcome = try await withThrowingTaskGroup(
             of: RuntimeValidationOutcome.self
         ) { group in
             group.addTask {
@@ -770,9 +998,49 @@ struct EnmannerValidatorCommand {
             processIdentifiers: Array(trackedProcesses.keys)
         )
 
-        let readinessPassed: Bool
+        var readinessPassed: Bool
+        var soakPassed = false
         let interrupted: Bool
         let interruptSignal: Int32?
+        if case .launched = outcome {
+            if jsonLines {
+                printJSONLine(
+                    event: "soakStarted",
+                    fields: ["seconds": soakSeconds]
+                )
+            }
+            let deadline = Date().addingTimeInterval(soakSeconds)
+            while Date() < deadline {
+                if let exit = await exitRecorder.recordedExit {
+                    supervisor.stop()
+                    throw EnmannerError.runtimeFailure(.init(
+                        code: .componentExited,
+                        phase: .stability,
+                        component: exit.component,
+                        message: "Component \(exit.component) exited during the \(String(format: "%.1f", soakSeconds))-second post-readiness soak.",
+                        exitStatus: exit.status,
+                        timeoutSeconds: soakSeconds,
+                        command: exit.command,
+                        workingDirectory: exit.workingDirectory,
+                        recentLogs: exit.recentLogs
+                    ))
+                }
+                if let signal = await interruptWaiter.recordedSignal {
+                    outcome = .interrupted(signal)
+                    break
+                }
+                try? await Task.sleep(nanoseconds: 100_000_000)
+            }
+            if case .launched = outcome {
+                soakPassed = true
+                if jsonLines {
+                    printJSONLine(
+                        event: "soakPassed",
+                        fields: ["seconds": soakSeconds]
+                    )
+                }
+            }
+        }
         switch outcome {
         case .launched:
             readinessPassed = true
@@ -806,7 +1074,7 @@ struct EnmannerValidatorCommand {
             url: url,
             timeout: 4
         )
-        let portReleased = plan.ports.values.allSatisfy {
+        let portReleased = plan.ownedPorts.values.allSatisfy {
             !PortAllocator.isLoopbackPortListening($0)
         }
         let remainingProcesses = survivingProcesses(trackedProcesses)
@@ -831,9 +1099,21 @@ struct EnmannerValidatorCommand {
                     ("\(key.component).\(key.endpoint)", value)
                 }
             ),
+            ownedPorts: Dictionary(
+                uniqueKeysWithValues: plan.ownedPorts.map { key, value in
+                    ("\(key.component).\(key.endpoint)", value)
+                }
+            ),
+            observedPorts: Dictionary(
+                uniqueKeysWithValues: plan.observedPorts.map { key, value in
+                    ("\(key.component).\(key.endpoint)", value)
+                }
+            ),
             readinessURL: url.absoluteString,
             componentProcessIdentifiers: rootProcesses,
             readinessPassed: readinessPassed,
+            soakSeconds: soakSeconds,
+            soakPassed: soakPassed,
             supervisorExited: supervisorExited,
             processGroupStopped: processGroupsStopped,
             readinessUnavailable: readinessUnavailable,
@@ -852,16 +1132,28 @@ struct EnmannerValidatorCommand {
             print("! runtime validation was interrupted by signal \(report.interruptSignal ?? 0)")
         } else {
             print("✓ server became ready at \(report.readinessURL)")
+            print(
+                "\(mark(report.soakPassed)) services remained stable for " +
+                "\(String(format: "%.1f", report.soakSeconds)) seconds"
+            )
         }
         print("\(mark(report.supervisorExited)) supervisor process exited")
         print("\(mark(report.processGroupStopped)) process group stopped")
         print("\(mark(report.readinessUnavailable)) readiness became unavailable")
-        print("\(mark(report.portReleased)) selected port \(report.selectedPort) was released")
+        print("\(mark(report.portReleased)) all Enmanner-owned ports were released")
         if report.selectedPorts.count > 1 {
             for (endpoint, port) in report.selectedPorts.sorted(
                 by: { $0.key < $1.key }
             ) {
                 print("  \(endpoint): \(port)")
+            }
+        }
+        if !report.observedPorts.isEmpty {
+            print("  Observed prerequisite ports are not expected to close:")
+            for (endpoint, port) in report.observedPorts.sorted(
+                by: { $0.key < $1.key }
+            ) {
+                print("    \(endpoint): \(port)")
             }
         }
         if !report.nonLoopbackListeners.isEmpty {
@@ -1010,6 +1302,8 @@ struct EnmannerValidatorCommand {
         event: String,
         fields: [String: Any] = [:]
     ) {
+        jsonLineLock.lock()
+        defer { jsonLineLock.unlock() }
         var object = fields
         object["event"] = event
         guard JSONSerialization.isValidJSONObject(object),
@@ -1022,6 +1316,26 @@ struct EnmannerValidatorCommand {
         }
         print(output)
         fflush(stdout)
+    }
+
+    private static func printRuntimeEvent(_ runtimeEvent: RuntimeEvent) {
+        var fields: [String: Any] = [:]
+        if let component = runtimeEvent.component {
+            fields["component"] = component
+        }
+        if let stream = runtimeEvent.stream {
+            fields["stream"] = stream.rawValue
+        }
+        if let message = runtimeEvent.message {
+            fields["message"] = message
+        }
+        if let status = runtimeEvent.status {
+            fields["status"] = Int(status)
+        }
+        if let expected = runtimeEvent.expected {
+            fields["expected"] = expected
+        }
+        printJSONLine(event: runtimeEvent.kind.rawValue, fields: fields)
     }
 
 }

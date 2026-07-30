@@ -8,6 +8,7 @@ public enum EnmannerError: LocalizedError, Equatable {
     case executableNotFound(String)
     case processAlreadyRunning
     case processLaunchFailed(String)
+    case runtimeFailure(RuntimeFailure)
     case portAllocationFailed
 
     public var errorDescription: String? {
@@ -29,6 +30,8 @@ public enum EnmannerError: LocalizedError, Equatable {
             return "The application server is already running."
         case .processLaunchFailed(let detail):
             return "Enmanner could not start the application server. \(detail)"
+        case .runtimeFailure(let failure):
+            return failure.message
         case .portAllocationFailed:
             return "Enmanner could not reserve a local network port."
         }
@@ -50,6 +53,8 @@ public enum EnmannerError: LocalizedError, Equatable {
             return "processAlreadyRunning"
         case .processLaunchFailed:
             return "processLaunchFailed"
+        case .runtimeFailure(let failure):
+            return failure.code.rawValue
         case .portAllocationFailed:
             return "portAllocationFailed"
         }
@@ -58,5 +63,10 @@ public enum EnmannerError: LocalizedError, Equatable {
     public var diagnosticPath: String? {
         guard case .malformedManifest(let path, _) = self else { return nil }
         return path
+    }
+
+    public var runtimeFailure: RuntimeFailure? {
+        guard case .runtimeFailure(let failure) = self else { return nil }
+        return failure
     }
 }

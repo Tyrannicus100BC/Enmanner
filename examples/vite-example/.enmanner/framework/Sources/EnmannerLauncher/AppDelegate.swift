@@ -16,7 +16,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var currentLaunch: RuntimeSupervisor.Launch?
     private var reachedReadyState = false
     private var isRecovering = false
-    private var recoveryAttempts = 0
+    private var recoveryCircuitBreaker = RecoveryCircuitBreaker()
+    private var pendingRecoveryComponents: Set<String> = []
+    private var hasOpenedBrowserAutomatically = false
     private var shuttingDown = false
     private var browserReopenNeedsForegroundOnly = true
     private var activationSequence = 0
@@ -69,7 +71,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             if manifest?.window.mode.launchesWindowless == false {
                 showLauncherWindow()
             }
-            startServer(recovering: false)
+            startServer()
         } catch {
             presentPreparationFailure(error)
         }
@@ -162,18 +164,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         return true
     }
 
-    private func startServer(
-        recovering: Bool,
-        reallocateEndpoints: Bool = false
-    ) {
+    private func startServer(reallocateEndpoints: Bool = false) {
         guard let manifest, let projectURL else { return }
         readinessTask?.cancel()
-        isRecovering = recovering
-        if recovering {
-            windowController?.showReconnecting()
-        } else {
-            windowController?.showStarting()
-        }
+        isRecovering = false
+        windowController?.showStarting()
 
         readinessTask = Task { [weak self] in
             guard let self else { return }
@@ -188,7 +183,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 applicationURL = launch.applicationURL
                 reachedReadyState = true
                 isRecovering = false
-                recoveryAttempts = 0
                 logBuffer.append("Application is ready.")
                 writeTestStatus(launch: launch)
                 switch manifest.window.mode {
@@ -201,7 +195,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                         at: launch.applicationURL
                     )
                     windowController?.hideWindow()
-                    if !suppressBrowserForTesting {
+                    if !suppressBrowserForTesting &&
+                        !hasOpenedBrowserAutomatically {
+                        hasOpenedBrowserAutomatically = true
                         NSWorkspace.shared.open(launch.applicationURL)
                     }
                 }
@@ -246,27 +242,119 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         guard !shuttingDown, !exit.expected else { return }
         readinessTask?.cancel()
 
-        if reachedReadyState && recoveryAttempts < 5 {
-            recoveryAttempts += 1
-            isRecovering = true
-            let delay = min(pow(2.0, Double(recoveryAttempts - 1)) * 0.6, 5)
-            logBuffer.append(
-                "Component \(exit.component) stopped unexpectedly; recovery attempt \(recoveryAttempts) starts in \(String(format: "%.1f", delay)) seconds."
-            )
-            windowController?.showReconnecting()
-            supervisor.stop()
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-                guard let self, !self.shuttingDown else { return }
-                self.startServer(recovering: true)
-            }
-        } else {
+        guard reachedReadyState else {
             showFailure(
-                error: EnmannerError.processLaunchFailed(
-                    "Component \(exit.component) exited unexpectedly."
-                ),
+                error: EnmannerError.runtimeFailure(.init(
+                    code: .componentExited,
+                    phase: .startup,
+                    component: exit.component,
+                    message: "Component \(exit.component) exited unexpectedly.",
+                    exitStatus: exit.status,
+                    command: exit.command,
+                    workingDirectory: exit.workingDirectory,
+                    recentLogs: exit.recentLogs
+                )),
                 exitStatus: exit.status
             )
+            return
         }
+
+        guard let attempt = recoveryCircuitBreaker.recordFailure() else {
+            pendingRecoveryComponents.removeAll()
+            supervisor.stop()
+            showFailure(
+                error: EnmannerError.runtimeFailure(.init(
+                    code: .componentExited,
+                    phase: .stability,
+                    component: exit.component,
+                    message: "Component \(exit.component) repeatedly exited; automatic recovery stopped after more than five failures within 60 seconds.",
+                    exitStatus: exit.status,
+                    command: exit.command,
+                    workingDirectory: exit.workingDirectory,
+                    recentLogs: exit.recentLogs
+                )),
+                exitStatus: exit.status
+            )
+            return
+        }
+
+        pendingRecoveryComponents.insert(exit.component)
+        if isRecovering {
+            logBuffer.append(
+                "Component \(exit.component) also stopped while recovery was pending."
+            )
+            return
+        }
+
+        isRecovering = true
+        let affected = supervisor.recoveryComponents(
+            for: pendingRecoveryComponents
+        )
+        if let applicationComponent = applicationComponentName(),
+           affected.contains(applicationComponent) {
+            windowController?.showReconnecting()
+        }
+        let delay = min(pow(2.0, Double(attempt - 1)) * 0.6, 5)
+        logBuffer.append(
+            "Component \(exit.component) stopped unexpectedly; recovery attempt \(attempt) starts in \(String(format: "%.1f", delay)) seconds."
+        )
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+            guard let self, !self.shuttingDown else { return }
+            self.recoverPendingComponents()
+        }
+    }
+
+    private func recoverPendingComponents() {
+        guard let projectURL, !pendingRecoveryComponents.isEmpty else {
+            isRecovering = false
+            return
+        }
+        let components = pendingRecoveryComponents
+        pendingRecoveryComponents.removeAll()
+        readinessTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let recovery = try await supervisor.recover(
+                    components: components,
+                    projectURL: projectURL
+                )
+                guard !Task.isCancelled else { return }
+                let launch = recovery.launch
+                currentLaunch = launch
+                applicationURL = launch.applicationURL
+                reachedReadyState = true
+                isRecovering = false
+                logBuffer.append("Application recovery is ready.")
+
+                guard let applicationComponent = applicationComponentName(),
+                      recovery.affectedComponents.contains(
+                        applicationComponent
+                      ) else {
+                    return
+                }
+                switch manifest?.window.mode {
+                case .embedded:
+                    windowController?.showEmbeddedApplication(
+                        at: launch.applicationURL
+                    )
+                case .browser:
+                    windowController?.showBrowserRunning(
+                        at: launch.applicationURL
+                    )
+                    windowController?.hideWindow()
+                case nil:
+                    break
+                }
+            } catch {
+                guard !Task.isCancelled else { return }
+                showFailure(error: error)
+            }
+        }
+    }
+
+    private func applicationComponentName() -> String? {
+        guard let manifest else { return nil }
+        return try? RuntimeGraph.make(from: manifest).applicationComponent
     }
 
     private func retry() {
@@ -292,14 +380,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         supervisor.stop()
         reachedReadyState = false
         isRecovering = false
-        recoveryAttempts = 0
+        recoveryCircuitBreaker.reset()
+        pendingRecoveryComponents.removeAll()
         if reallocatingPort {
             currentLaunch = nil
         }
-        startServer(
-            recovering: false,
-            reallocateEndpoints: reallocatingPort
-        )
+        startServer(reallocateEndpoints: reallocatingPort)
     }
 
     private func showFailure(error: Error, exitStatus: Int32? = nil) {
@@ -308,12 +394,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         isRecovering = false
         NSApplication.shared.activate(ignoringOtherApps: true)
         let controller = ensureWindowController()
+        let runtimeFailure = (error as? EnmannerError)?.runtimeFailure
         controller?.showFailure(
             message: error.localizedDescription,
-            command: manifest.flatMap {
+            command: runtimeFailure?.command ?? manifest.flatMap {
                 try? RuntimeGraph.make(from: $0).applicationCommand
             } ?? [],
-            exitStatus: exitStatus,
+            workingDirectory: runtimeFailure?.workingDirectory,
+            exitStatus: exitStatus ?? runtimeFailure?.exitStatus,
             includesRecentOutput: settings.includesRecentOutputInErrors
         )
         controller?.showWindow(nil)

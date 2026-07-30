@@ -90,6 +90,7 @@ final class MainWindowController: NSWindowController, WKNavigationDelegate {
     func showFailure(
         message: String,
         command: [String],
+        workingDirectory: String? = nil,
         exitStatus: Int32? = nil,
         includesRecentOutput: Bool = true
     ) {
@@ -98,6 +99,9 @@ final class MainWindowController: NSWindowController, WKNavigationDelegate {
         var detail = message
         if !command.isEmpty {
             detail += "\n\nCommand: " + command.joined(separator: " ")
+        }
+        if let workingDirectory, !workingDirectory.isEmpty {
+            detail += "\nWorking directory: " + workingDirectory
         }
         if let exitStatus {
             detail += "\nExit status: \(exitStatus)"

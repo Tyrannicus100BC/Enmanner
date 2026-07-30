@@ -1,0 +1,44 @@
+{
+  "$schema": "../../.enmanner/enmanner.schema.json",
+  "version": 3,
+  "name": "Soak Failure",
+  "identifier": "local.enmanner.soak-failure",
+  "application": {
+    "component": "frontend",
+    "endpoint": "http"
+  },
+  "components": {
+    "frontend": {
+      "command": ["node", "server.mjs"],
+      "workingDirectory": ".",
+      "environment": {
+        "PORT": "${self.endpoints.http.port}"
+      },
+      "endpoints": {
+        "http": {
+          "protocol": "http"
+        }
+      },
+      "readiness": {
+        "endpoint": "http",
+        "path": "/",
+        "timeoutSeconds": 5
+      }
+    },
+    "worker": {
+      "command": ["node", "worker.mjs"],
+      "workingDirectory": ".",
+      "readiness": {
+        "type": "process",
+        "minimumUptimeSeconds": 0.1,
+        "timeoutSeconds": 2
+      }
+    }
+  },
+  "window": {
+    "mode": "browser",
+    "width": 900,
+    "height": 700,
+    "resizable": true
+  }
+}

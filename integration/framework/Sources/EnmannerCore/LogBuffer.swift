@@ -1,7 +1,7 @@
 import Foundation
 
 public final class LogBuffer: @unchecked Sendable {
-    public enum Stream: String, Sendable {
+    public enum Stream: String, Codable, Sendable {
         case launcher = "enmanner"
         case stdout
         case stderr
@@ -30,28 +30,33 @@ public final class LogBuffer: @unchecked Sendable {
         let source = component.map { "[\($0)] " } ?? ""
         let entry = "[\(timestamp)] \(source)[\(stream.rawValue)] \(cleanMessage)"
         let messageKey = "\(component ?? "")\u{0}\(stream.rawValue)\u{0}\(cleanMessage)"
-        queue.async { [weak self] in
-            guard let self else { return }
-            if self.lastMessageKey == messageKey, !self.entries.isEmpty {
-                self.repeatedCount += 1
-                self.entries[self.entries.count - 1] =
-                    "\(entry) (repeated \(self.repeatedCount)×)"
+        queue.sync {
+            if lastMessageKey == messageKey, !entries.isEmpty {
+                repeatedCount += 1
+                entries[entries.count - 1] =
+                    "\(entry) (repeated \(repeatedCount)×)"
             } else {
-                self.lastMessageKey = messageKey
-                self.repeatedCount = 1
-                self.entries.append(entry)
+                lastMessageKey = messageKey
+                repeatedCount = 1
+                entries.append(entry)
             }
-            if self.entries.count > self.maximumEntries {
-                self.entries.removeFirst(self.entries.count - self.maximumEntries)
+            if entries.count > maximumEntries {
+                entries.removeFirst(entries.count - maximumEntries)
             }
-            let snapshot = self.entries.joined(separator: "\n")
-            self.onChange?(snapshot)
+            let snapshot = entries.joined(separator: "\n")
+            onChange?(snapshot)
         }
     }
 
     public func snapshot() -> String {
         queue.sync {
             entries.joined(separator: "\n")
+        }
+    }
+
+    public func recentEntries(limit: Int = 20) -> [String] {
+        queue.sync {
+            Array(entries.suffix(max(0, limit)))
         }
     }
 

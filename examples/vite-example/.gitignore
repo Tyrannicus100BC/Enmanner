@@ -7,4 +7,5 @@ node_modules/
 /.enmanner/framework/.build/
 /.enmanner/.build/
 /Enmanner Vite Example.app/
+/Enmanner Vite Example Development.app/
 # enmanner:end
