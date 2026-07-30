@@ -1160,11 +1160,11 @@ public enum ManifestValidator {
 
         for componentName in graph.startupOrder {
             guard let component = graph.components[componentName] else { continue }
-            let values = (component.command ?? []) +
-                Array(component.environment.values) +
-                (component.readiness?.command ?? []) +
-                (component.completion?.command ?? []) +
-                (component.check?.command ?? [])
+            var values: [String] = component.command ?? []
+            values.append(contentsOf: component.environment.values)
+            values.append(contentsOf: component.readiness?.command ?? [])
+            values.append(contentsOf: component.completion?.command ?? [])
+            values.append(contentsOf: component.check?.command ?? [])
             for value in values {
                 do {
                     _ = try ManifestInterpolator.expand(
