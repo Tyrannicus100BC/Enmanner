@@ -5,6 +5,11 @@ for people who can describe the app they want to an AI coding agent but should
 not have to learn about terminals, ports, server processes, package managers,
 or native application bundles.
 
+Enmanner was created by James Marr in close collaboration with Codex, OpenAI's
+coding agent. That collaboration reflects a core project principle: agents are
+customers of the framework too, and their constraints, concerns, and experience
+deserve serious design attention.
+
 The idea is simple:
 
 > The repository is the source of truth. The `.app` is the front door.
