@@ -45,18 +45,21 @@ layers.
    Preserve the high-resolution source artwork and the `.icon` package in
    normal tracked project directories.
 
-For a simple two-layer icon, Enmanner can create the initial package without
-manual Icon Composer setup:
+For a simple two-layer icon, Enmanner can create the initial modern package and
+Apple-generated legacy fallback together on the Xcode-equipped Mac:
 
 ```bash
 ./.enmanner/scripts/create-icon \
   --background enmanner/icon/icon-background.png \
   --foreground enmanner/icon/icon-foreground.png \
-  --output enmanner/icon/AppIcon.icon
+  --output enmanner/icon/AppIcon.icon \
+  --legacy-output enmanner/icon/AppIcon.icns
 ```
 
 The generator requires square PNG layers of at least 1024×1024, an opaque
-background, and an alpha-bearing foreground. Open the result in Icon Composer
+background, and an alpha-bearing foreground. `--legacy-output` requires current
+Xcode because it retains the `.icns` fallback produced by `actool`; it does not
+approximate the fallback independently. Open the modern result in Icon Composer
 for visual adjustment and appearance review.
 
 To adjust composition without changing canonical source artwork, transform only
@@ -68,7 +71,8 @@ the foreground copy embedded in the package:
   --foreground enmanner/icon/icon-foreground.png \
   --foreground-scale 0.86 \
   --foreground-offset-y 24 \
-  --output enmanner/icon/AppIcon.icon
+  --output enmanner/icon/AppIcon.icon \
+  --legacy-output enmanner/icon/AppIcon.icns
 ```
 
 Positive X moves right and positive Y moves down. The original PNG remains
@@ -99,14 +103,7 @@ and corner-opacity warnings complement but never replace visual inspection.
 
 ## Package the modern icon
 
-Set the project-relative `.icon` path in `enmanner/enmanner.json`, for example:
-
-```json
-"icon": "enmanner/icon/AppIcon.icon",
-```
-
-For a repository shared by Macs with and without full Xcode, commit both
-sources instead:
+Commit both generated formats and configure their project-relative paths:
 
 ```json
 "icon": {
@@ -117,6 +114,8 @@ sources instead:
 
 Enmanner selects `modern` when `actool` is available and `legacy` otherwise, so
 developers do not need to edit the manifest for their local toolchain.
+The single-string modern form remains compatible, but it does not provide a
+build source for Command Line Tools-only collaborators.
 
 When full Xcode and `actool` are available, agents MUST produce and configure an
 Icon Composer `.icon` package. Do not configure `.icns` merely because it
@@ -142,8 +141,8 @@ fallback.
 
 The icon task is not complete until all of these pass:
 
-- `enmanner/enmanner.json` references the `.icon` package, directly or as
-  `icon.modern`.
+- `enmanner/enmanner.json` references the `.icon` package as `icon.modern` and
+  the generated `.icns` fallback as `icon.legacy`.
 - Background artwork fills every corner of its square source canvas.
 - Foreground artwork has real alpha transparency.
 - No source layer contains a baked squircle, border, shadow, or backing plate.

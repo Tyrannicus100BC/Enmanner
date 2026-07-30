@@ -16,7 +16,8 @@ The supported project-facing surface is:
   diagnostics; `doctor --next` prints a tailored Markdown handoff;
 - `scripts/upgrade` — checksum-verified framework updates;
 - `scripts/clean` — remove local Swift build products;
-- `scripts/create-icon` — create a layered icon package from project artwork;
+- `scripts/create-icon` — create a layered modern icon package and, with full
+  Xcode, its generated legacy fallback from project artwork;
 - `scripts/preview-icon` — render a configured or explicitly selected icon
   package in all supported appearances for review;
 - `scripts/test-app` — verify final or explicitly selected development app

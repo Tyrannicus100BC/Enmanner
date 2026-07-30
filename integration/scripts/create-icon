@@ -4,7 +4,11 @@ set -euo pipefail
 usage() {
   echo "Usage: $0 --background path.png --foreground path.png --output AppIcon.icon [options]" >&2
   echo "  All paths are project-relative; output must end in .icon." >&2
-  echo "  Options: --foreground-scale NUMBER --foreground-offset-x PIXELS --foreground-offset-y PIXELS" >&2
+  echo "  Options:" >&2
+  echo "    --legacy-output AppIcon.icns" >&2
+  echo "    --foreground-scale NUMBER" >&2
+  echo "    --foreground-offset-x PIXELS" >&2
+  echo "    --foreground-offset-y PIXELS" >&2
 }
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -12,13 +16,14 @@ project_dir="$(cd "$script_dir/../.." && pwd -P)"
 background_path=""
 foreground_path=""
 output_path=""
+legacy_output_path=""
 foreground_scale="1"
 foreground_offset_x="0"
 foreground_offset_y="0"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --background|--foreground|--output|--foreground-scale|--foreground-offset-x|--foreground-offset-y)
+    --background|--foreground|--output|--legacy-output|--foreground-scale|--foreground-offset-x|--foreground-offset-y)
       if [[ $# -lt 2 ]]; then
         usage
         exit 64
@@ -27,6 +32,7 @@ while [[ $# -gt 0 ]]; do
         --background) background_path="$2" ;;
         --foreground) foreground_path="$2" ;;
         --output) output_path="$2" ;;
+        --legacy-output) legacy_output_path="$2" ;;
         --foreground-scale) foreground_scale="$2" ;;
         --foreground-offset-x) foreground_offset_x="$2" ;;
         --foreground-offset-y) foreground_offset_y="$2" ;;
@@ -56,7 +62,9 @@ for offset in "$foreground_offset_x" "$foreground_offset_y"; do
   fi
 done
 
-for relative_path in "$background_path" "$foreground_path" "$output_path"; do
+icon_paths=("$background_path" "$foreground_path" "$output_path")
+[[ -n "$legacy_output_path" ]] && icon_paths+=("$legacy_output_path")
+for relative_path in "${icon_paths[@]}"; do
   if [[ "$relative_path" == /* ||
     "$relative_path" == ".." ||
     "$relative_path" == ../* ||
@@ -70,10 +78,17 @@ if [[ "$output_path" != *.icon ]]; then
   echo "Error: --output must end in .icon." >&2
   exit 64
 fi
+if [[ -n "$legacy_output_path" && "$legacy_output_path" != *.icns ]]; then
+  echo "Error: --legacy-output must end in .icns." >&2
+  exit 64
+fi
 
 background_source="$project_dir/$background_path"
 foreground_source="$project_dir/$foreground_path"
 output="$project_dir/$output_path"
+legacy_output=""
+[[ -n "$legacy_output_path" ]] &&
+  legacy_output="$project_dir/$legacy_output_path"
 if [[ ! -f "$background_source" || ! -f "$foreground_source" ]]; then
   echo "Error: both source layers must be existing PNG files." >&2
   exit 1
@@ -88,6 +103,17 @@ if [[ "${background_source##*.}" != "png" || "${foreground_source##*.}" != "png"
 fi
 if [[ -e "$output" ]]; then
   echo "Error: refusing to overwrite existing icon package: $output_path" >&2
+  exit 1
+fi
+if [[ -n "$legacy_output" && -e "$legacy_output" ]]; then
+  echo "Error: refusing to overwrite existing legacy icon: $legacy_output_path" >&2
+  exit 1
+fi
+if [[ -n "$legacy_output" ]] &&
+  { ! command -v xcrun >/dev/null 2>&1 ||
+    ! xcrun --find actool >/dev/null 2>&1; }; then
+  echo "Error: --legacy-output requires current Xcode with actool." >&2
+  echo "  Generate and commit both icon formats on the Xcode-equipped Mac." >&2
   exit 1
 fi
 
@@ -169,31 +195,54 @@ for source in "$background_source" "$foreground_source"; do
   esac
 done
 
-output_parent="$(dirname "$output")"
-existing_parent="$output_parent"
-while [[ ! -e "$existing_parent" ]]; do
-  existing_parent="$(dirname "$existing_parent")"
-done
-if [[ ! -d "$existing_parent" ]]; then
-  echo "Error: the output parent path is not a directory." >&2
-  exit 1
-fi
-resolved_parent="$(cd "$existing_parent" && pwd -P)"
-case "$resolved_parent" in
-  "$project_dir"|"$project_dir"/*) ;;
-  *)
-    echo "Error: icon output must stay inside the project." >&2
+validate_output_parent() {
+  local destination="$1"
+  local parent
+  local existing_parent
+  local resolved_parent
+  parent="$(dirname "$destination")"
+  existing_parent="$parent"
+  while [[ ! -e "$existing_parent" ]]; do
+    existing_parent="$(dirname "$existing_parent")"
+  done
+  if [[ ! -d "$existing_parent" ]]; then
+    echo "Error: the icon output parent path is not a directory." >&2
     exit 1
-    ;;
-esac
+  fi
+  resolved_parent="$(cd "$existing_parent" && pwd -P)"
+  case "$resolved_parent" in
+    "$project_dir"|"$project_dir"/*) ;;
+    *)
+      echo "Error: icon output must stay inside the project." >&2
+      exit 1
+      ;;
+  esac
+}
+
+output_parent="$(dirname "$output")"
+validate_output_parent "$output"
+legacy_output_parent=""
+if [[ -n "$legacy_output" ]]; then
+  legacy_output_parent="$(dirname "$legacy_output")"
+  validate_output_parent "$legacy_output"
+fi
 mkdir -p "$output_parent"
+[[ -n "$legacy_output_parent" ]] && mkdir -p "$legacy_output_parent"
 stage_dir="$(mktemp -d "${TMPDIR:-/tmp}/enmanner-icon.XXXXXX")"
+completed=false
+published_modern=false
+published_legacy=false
 cleanup() {
   rm -rf "$stage_dir"
+  if [[ "$completed" != true ]]; then
+    [[ "$published_modern" == true ]] && rm -rf "$output"
+    [[ "$published_legacy" == true ]] && rm -f "$legacy_output"
+  fi
 }
 trap cleanup EXIT
 
-staged_icon="$stage_dir/AppIcon.icon"
+icon_name="$(basename "$output_path" .icon)"
+staged_icon="$stage_dir/$icon_name.icon"
 mkdir -p "$staged_icon/Assets"
 cp "$background_source" "$staged_icon/Assets/background.png"
 if [[ "$foreground_scale" == "1" &&
@@ -276,11 +325,50 @@ printf '%s\n' \
   '  }' \
   '}' > "$staged_icon/icon.json"
 
+staged_legacy=""
+if [[ -n "$legacy_output" ]]; then
+  compiled_output="$stage_dir/compiled"
+  partial_plist="$stage_dir/icon-info.plist"
+  mkdir -p "$compiled_output"
+  xcrun actool "$staged_icon" \
+    --compile "$compiled_output" \
+    --platform macosx \
+    --minimum-deployment-target 13.0 \
+    --app-icon "$icon_name" \
+    --standalone-icon-behavior all \
+    --output-partial-info-plist "$partial_plist" \
+    --warnings \
+    --errors \
+    --notices \
+    --output-format human-readable-text
+  generated_legacy="$compiled_output/$icon_name.icns"
+  if [[ ! -s "$generated_legacy" ]]; then
+    echo "Error: actool did not generate the expected legacy .icns fallback." >&2
+    exit 1
+  fi
+  staged_legacy="$stage_dir/$(basename "$legacy_output_path")"
+  cp "$generated_legacy" "$staged_legacy"
+fi
+
 mv "$staged_icon" "$output"
+published_modern=true
+if [[ -n "$staged_legacy" ]]; then
+  mv "$staged_legacy" "$legacy_output"
+  published_legacy=true
+fi
+completed=true
 echo "✓ Created $output_path from separate full-canvas layers"
+if [[ -n "$legacy_output_path" ]]; then
+  echo "✓ Created $legacy_output_path from actool's legacy fallback"
+fi
 if [[ "$foreground_scale" != "1" ||
   "$foreground_offset_x" != "0" ||
   "$foreground_offset_y" != "0" ]]; then
   echo "  Embedded foreground transform: scale $foreground_scale, x $foreground_offset_x px, y $foreground_offset_y px"
 fi
-echo "  Configure it in enmanner/enmanner.json, then run ./.enmanner/scripts/preview-icon."
+if [[ -n "$legacy_output_path" ]]; then
+  echo "  Configure icon.modern and icon.legacy in enmanner/enmanner.json,"
+  echo "  then run ./.enmanner/scripts/preview-icon."
+else
+  echo "  Configure it in enmanner/enmanner.json, then run ./.enmanner/scripts/preview-icon."
+fi

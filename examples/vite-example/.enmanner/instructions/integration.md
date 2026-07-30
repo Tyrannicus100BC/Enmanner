@@ -29,10 +29,12 @@ lifecycle behavior earlier, but cannot satisfy completion. Use this order:
    `build-app --development` and `test-app --development`. Treat the separate
    app, bundle identifier, DEV icon, and doctor evidence as provisional.
 9. Only after lifecycle behavior passes, read `icon.md`, create layered artwork
-   under `enmanner/icon/`, configure its project-relative path in
-   `enmanner/enmanner.json`, render all appearances with `preview-icon`, and
-   inspect every rendition on the generated contact sheet for crop and balance.
-   Open an individual rendition when the contact sheet leaves any ambiguity.
+   under `enmanner/icon/`, and use `create-icon --legacy-output` on the
+   Xcode-equipped Mac to generate both committed icon formats. Configure them
+   as `icon.modern` and `icon.legacy` in `enmanner/enmanner.json`, render all
+   appearances with `preview-icon`, and inspect every rendition on the
+   generated contact sheet for crop and balance. Open an individual rendition
+   when the contact sheet leaves any ambiguity.
 10. Run `build-app` and inspect the actual Finder/Dock result. The build verifies
    modern icon packaging, app ownership metadata, and the code signature. Run
    `test-app` to verify native launch, readiness, normal quit, and cleanup.

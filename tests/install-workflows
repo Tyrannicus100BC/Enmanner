@@ -506,7 +506,24 @@ SWIFT
 "$vite_target/.enmanner/scripts/create-icon" \
   --background enmanner/icon/rgba-background.png \
   --foreground enmanner/icon/icon-foreground.png \
-  --output enmanner/icon/Test.icon >"$test_root/create-icon.out"
+  --output enmanner/icon/Test.icon \
+  --legacy-output enmanner/icon/Test.icns >"$test_root/create-icon.out"
+test -s "$vite_target/enmanner/icon/Test.icns"
+/usr/bin/iconutil -c iconset "$vite_target/enmanner/icon/Test.icns" \
+  -o "$test_root/generated-legacy.iconset"
+test -s "$test_root/generated-legacy.iconset/icon_512x512@2x.png"
+if "$vite_target/.enmanner/scripts/create-icon" \
+  --background enmanner/icon/rgba-background.png \
+  --foreground enmanner/icon/icon-foreground.png \
+  --output enmanner/icon/WouldOverwrite.icon \
+  --legacy-output enmanner/icon/Test.icns \
+  >"$test_root/create-icon-overwrite.out" 2>&1; then
+  echo "Error: create-icon overwrote an existing legacy fallback." >&2
+  exit 1
+fi
+test ! -e "$vite_target/enmanner/icon/WouldOverwrite.icon"
+grep -Fq "refusing to overwrite existing legacy icon" \
+  "$test_root/create-icon-overwrite.out"
 foreground_checksum="$(
   /usr/bin/cksum "$vite_target/enmanner/icon/icon-foreground.png"
 )"
@@ -533,7 +550,8 @@ fi
   --json >"$test_root/preconfigured-icon-preview.json"
 jq -e '.valid and (.iconPath == "enmanner/icon/Test.icon")' \
   "$test_root/preconfigured-icon-preview.json" >/dev/null
-/usr/bin/plutil -insert icon -string "enmanner/icon/Test.icon" \
+/usr/bin/plutil -insert icon -json \
+  '{"modern":"enmanner/icon/Test.icon","legacy":"enmanner/icon/Test.icns"}' \
   "$vite_target/enmanner/enmanner.json"
 if "$vite_target/.enmanner/scripts/preview-icon" \
   --output .enmanner/icon-previews >"$test_root/preview-owned.out" 2>&1; then
