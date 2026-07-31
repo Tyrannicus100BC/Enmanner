@@ -27,6 +27,8 @@ legacy_target="$test_root/Legacy Project"
 damaged_target="$test_root/Damaged Project"
 root_manifest_target="$test_root/Root Manifest Project"
 source_collision_target="$test_root/Source Collision Project"
+checkout_collision_target="$test_root/Checkout Collision Project"
+service_workspace="$test_root/Service Workspace"
 adapter_root="$test_root/Adapter Projects"
 mkdir -p "$vite_target" "$generic_target" \
   "$express_target" "$cache_target/.enmanner/.build" \
@@ -35,8 +37,16 @@ mkdir -p "$vite_target" "$generic_target" \
   "$legacy_target/.enmanner/scripts" \
   "$damaged_target/.enmanner" \
   "$workspace_target/Backend/.git" "$workspace_target/Frontend/.git" \
-  "$root_manifest_target" "$source_collision_target" "$adapter_root"
+  "$root_manifest_target" "$source_collision_target" \
+  "$checkout_collision_target/enmanner" \
+  "$service_workspace/Frontend" "$service_workspace/Backend" "$adapter_root"
 ln -s "$repository_dir" "$source_collision_target/enmanner"
+git -C "$checkout_collision_target/enmanner" init -q
+git -C "$service_workspace/Frontend" init -q
+git -C "$service_workspace/Backend" init -q
+cp "$repository_dir/examples/vite-example/package.json" \
+  "$repository_dir/examples/vite-example/package-lock.json" \
+  "$service_workspace/Frontend/"
 cp "$repository_dir/examples/vite-example/package.json" \
   "$repository_dir/examples/vite-example/package-lock.json" \
   "$vite_target/"
@@ -189,6 +199,14 @@ fi
 grep -Fq "source code and project-owned configuration must be distinct" \
   "$test_root/source-collision.out"
 
+if "$repository_dir/integration/scripts/install" --plan \
+  "$checkout_collision_target" >"$test_root/checkout-collision.out" 2>&1; then
+  echo "Error: installer accepted a Git checkout at enmanner/." >&2
+  exit 1
+fi
+grep -Fq "enmanner/ configuration path is a Git checkout" \
+  "$test_root/checkout-collision.out"
+
 plan="$(
   "$repository_dir/integration/scripts/install" \
     --plan --json "$vite_target"
@@ -218,6 +236,36 @@ printf '%s\n' "$plan" | jq -e '
 ' >/dev/null
 test ! -e "$vite_target/.enmanner"
 test ! -e "$vite_target/enmanner"
+
+service_plan="$(
+  "$repository_dir/integration/scripts/install" \
+    --plan --json "$service_workspace/Frontend"
+)"
+service_workspace_physical="$(cd "$service_workspace" && /bin/pwd -P)"
+printf '%s\n' "$service_plan" | jq -e \
+  --arg workspace "$service_workspace_physical" '
+    (.targetScope.reviewRequired == true) and
+    (.targetScope.acknowledged == false) and
+    (.targetScope.candidateWorkspaceRoot == $workspace) and
+    (.installationApplicable == false) and
+    (.manifestStatus == "configurationRequired") and
+    ([.unresolvedChecks[].id] | index("integrationRoot")) and
+    ([.warnings[]] | any(contains("Possible service-subproject target")))
+  ' >/dev/null
+if "$repository_dir/integration/scripts/install" --no-build \
+  "$service_workspace/Frontend" >"$test_root/service-install.out" 2>&1; then
+  echo "Error: installer accepted an unacknowledged service subproject." >&2
+  exit 1
+fi
+grep -Fq -- "--allow-subproject" "$test_root/service-install.out"
+"$repository_dir/integration/scripts/install" --allow-subproject \
+  --plan --json "$service_workspace/Frontend" | jq -e '
+    (.targetScope.reviewRequired == true) and
+    (.targetScope.acknowledged == true) and
+    (.installationApplicable == true) and
+    (.manifestStatus == "inferred") and
+    (.unresolvedChecks | length == 0)
+  ' >/dev/null
 
 workspace_plan="$(
   "$repository_dir/integration/scripts/install" \

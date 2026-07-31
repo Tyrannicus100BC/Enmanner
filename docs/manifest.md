@@ -53,6 +53,25 @@ multi-process application. There is one lifecycle implementation.
 Use `components` when the application owns multiple processes, startup tasks,
 or observed external prerequisites:
 
+The integration root is a runtime boundary, not necessarily a repository. For
+example, sibling source repositories can form one application:
+
+```text
+StudioWorkspace/
+├── Frontend/.git/
+├── Backend/.git/
+├── Shared/.git/
+├── enmanner/enmanner.json
+└── .enmanner/
+```
+
+In that layout, the frontend can be the browser-facing `application`, the
+backend can be a managed `service`, and a separately administered PostgreSQL
+instance can be a `prerequisite`. The frontend depends on the backend and
+receives its allocated URL through an endpoint reference. Because the workspace
+root itself is unversioned, the user must either give the root repository
+ownership or explicitly accept unversioned Enmanner configuration.
+
 ```json
 {
   "version": 3,
@@ -247,6 +266,10 @@ restarting a failed service and its dependants does not rerun the task.
 `prerequisite` observes something Enmanner does not own. It has `check` rather
 than `command`; Enmanner never starts, adopts, restarts, or stops it. Docker
 Desktop, shared databases, and already-running infrastructure belong here.
+Classify by the intended lifecycle, not by repository boundaries: an HTTP API
+that opening the app should start is a `service` even when it lives in a sibling
+repository. If a required application service is declared as a prerequisite,
+the user must start it manually; confirm that product decision explicitly.
 
 Checks are startup gates. Enmanner treats an owned service process exiting as
 an ongoing failure signal, but it does not infer continuous health monitoring

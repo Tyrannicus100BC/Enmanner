@@ -4,18 +4,38 @@ Use this checklist to route an Enmanner integration; the installed
 `.enmanner/instructions/integration.md` is the sole normative step-by-step
 sequence.
 
-1. Confirm that the target has a human-facing local web interface. Ask before
+1. Before selecting a target, map the complete runtime needed for a useful
+   application session. Inspect the current repository root, its parent and
+   siblings, startup documentation, frontend proxy/API configuration, and
+   service definitions. Inventory every browser-facing process, API, worker,
+   startup task, datastore, container, and external dependency.
+2. Confirm that the product has a human-facing local web interface. Ask before
    wrapping a headless API, proxy, worker, daemon, CLI, or infrastructure
-   service.
-2. Inspect project ownership, Git state, runtime data, and existing services.
-3. Run `integration/scripts/install --plan --json /path/to/project`. Review
+   service as the application entrypoint. A headless service can still be a
+   launcher-owned component when the human-facing application depends on it.
+3. Decide the double-click ownership contract before installing. State which
+   processes Enmanner will start, which application services the user must
+   start manually, and which separately administered infrastructure Enmanner
+   will only observe. Confirm with the user if any required application service
+   remains manual. Repository boundaries do not determine process ownership.
+4. Establish the integration root: the common directory containing the
+   launcher-owned runtime, not necessarily a source repository or the
+   application entrypoint. Do not equate the current directory, nearest Git
+   root, or first detected web server with the whole product. When managed
+   services live in sibling repositories, their common workspace is normally
+   the integration root even when it is unversioned. Ask when scope is
+   ambiguous. Keep the Enmanner source checkout outside every candidate root;
+   on default macOS filesystems, `Enmanner/` conflicts with `enmanner/`.
+5. Run `integration/scripts/install --plan --json /path/to/integration-root`. Review
    `installationState`, `safeRecovery`, file operations, compatibility evidence,
-   and `requiredInstructions`.
-4. Apply the installation. For `cacheOnly`, the installer removes only known
+   `targetScope`, and `requiredInstructions`. If `targetScope.reviewRequired` is
+   true, correct the target or explicitly acknowledge an intentional nested app
+   with `--allow-subproject`.
+6. Apply the installation. For `cacheOnly`, the installer removes only known
    disposable build caches. For incomplete or receiptless framework state,
    review and explicitly use `--replace-incomplete`; it relocates the old
    framework before installing.
-5. Continue from the installed `.enmanner/instructions/integration.md`. Use
+7. Continue from the installed `.enmanner/instructions/integration.md`. Use
    `./.enmanner/scripts/doctor --next` for a project-specific Markdown summary
    of the remaining work and relevant focused references.
 
@@ -33,7 +53,8 @@ never stages or commits files. Overall `complete` requires both a verified final
 application and durable repository ownership, or an explicitly accepted
 unversioned workspace.
 
-Use inline `application` configuration for one frontend command. Use component
-graphs for multiple project-owned services, startup tasks, or observed
-prerequisites. Commands remain executable-plus-argument arrays; managed
-listeners bind loopback and use allocated endpoints.
+Use inline `application` configuration only when the entire useful session is
+one frontend process with no manually started application dependency. Use
+component graphs for multiple project-owned services, startup tasks, or
+observed prerequisites. Commands remain executable-plus-argument arrays;
+managed listeners bind loopback and use allocated endpoints.

@@ -8,6 +8,12 @@ routes to the focused rules below only when they apply.
 The installer plan's `requiredInstructions` array records this routing with a
 reason for each selected reference.
 
+Before installing or configuring, establish the product root and inventory the
+whole user-facing workflow. A frontend, backend, or other service repository is
+not automatically the application boundary merely because it has a runnable
+development server. Cooperating sibling repositories normally belong to one
+component graph rooted at their common workspace.
+
 Every file inside `.enmanner/` is vendored, framework-owned code. Do not add
 project overrides there or edit native internals during an integration. Keep
 the manifest, icon package, and icon source artwork in the visible, project-owned

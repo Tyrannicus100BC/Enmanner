@@ -18,6 +18,7 @@ Options:
   --allow-legacy-icon    Permit an intentional legacy icon fallback
   --replace-existing-app Replace an app only after explicit collision review
   --allow-unversioned    Acknowledge an intentionally unversioned workspace
+  --allow-subproject     Acknowledge an intentional nested/service-level app
 EOF
 }
 
@@ -38,6 +39,7 @@ replace_incomplete=false
 allow_legacy_icon=false
 replace_existing_app=false
 allow_unversioned=false
+allow_subproject=false
 explicit_upstream_url=""
 requested_name=""
 requested_identifier=""
@@ -57,6 +59,7 @@ while [[ "${1:-}" == --* ]]; do
     --allow-legacy-icon) allow_legacy_icon=true ;;
     --replace-existing-app) replace_existing_app=true ;;
     --allow-unversioned) allow_unversioned=true ;;
+    --allow-subproject) allow_subproject=true ;;
     --name)
       shift
       requested_name="${1:-}"
@@ -89,7 +92,7 @@ fi
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source_dir="$(cd "$script_dir/.." && pwd)"
 source_repository_dir="$(cd "$source_dir/.." && pwd)"
-target_dir="$(cd "$1" && pwd)"
+target_dir="$(cd "$1" && /bin/pwd -P)"
 destination="$target_dir/.enmanner"
 configuration_dir="$target_dir/enmanner"
 manifest_path="$configuration_dir/enmanner.json"
@@ -174,6 +177,12 @@ if [[ -e "$configuration_dir" &&
   echo "  source code and project-owned configuration must be distinct paths." >&2
   exit 1
 fi
+if [[ -e "$configuration_dir/.git" ]]; then
+  echo "Error: the project-owned enmanner/ configuration path is a Git checkout." >&2
+  echo "  Move that checkout outside $target_dir before installing; on" >&2
+  echo "  default macOS filesystems, Enmanner/ and enmanner/ collide." >&2
+  exit 1
+fi
 
 [[ -w "$target_dir" || "$plan" == true ]] || {
   echo "Error: The project directory is not writable: $target_dir" >&2
@@ -207,6 +216,54 @@ if command -v git >/dev/null 2>&1 &&
   fi
 elif [[ $nested_repositories -gt 0 ]]; then
   git_classification="workspace-with-nested-repositories"
+fi
+
+scope_review_required=false
+scope_reason="The proposed target has no strong service-subproject signal."
+candidate_workspace_root=""
+enclosing_enmanner_root=""
+scope_cursor="$(dirname "$target_dir")"
+while [[ "$scope_cursor" != "/" && "$scope_cursor" != "$target_dir" ]]; do
+  if [[ -f "$scope_cursor/enmanner/enmanner.json" ||
+    -f "$scope_cursor/.enmanner/INSTALLATION.json" ]]; then
+    enclosing_enmanner_root="$scope_cursor"
+    break
+  fi
+  next_scope_cursor="$(dirname "$scope_cursor")"
+  [[ "$next_scope_cursor" != "$scope_cursor" ]] || break
+  scope_cursor="$next_scope_cursor"
+done
+
+if [[ -n "$enclosing_enmanner_root" ]]; then
+  scope_review_required=true
+  candidate_workspace_root="$enclosing_enmanner_root"
+  scope_reason="An enclosing Enmanner integration already exists at $enclosing_enmanner_root."
+elif [[ "$git_classification" == "subdirectory-of-repository" ]]; then
+  scope_review_required=true
+  candidate_workspace_root="$git_root"
+  scope_reason="The proposed target is inside the repository rooted at $git_root."
+elif [[ "$git_classification" == "repository-root" ]]; then
+  repository_parent="$(dirname "$target_dir")"
+  target_role="$(basename "$target_dir" | tr '[:upper:]' '[:lower:]')"
+  service_role_repositories=0
+  while IFS= read -r -d '' sibling_git_marker; do
+    sibling_name="$(basename "$(dirname "$sibling_git_marker")" | tr '[:upper:]' '[:lower:]')"
+    case "$sibling_name" in
+      frontend|front-end|web|client|backend|back-end|api|server|worker|database|db)
+        service_role_repositories=$((service_role_repositories + 1))
+        ;;
+    esac
+  done < <(find "$repository_parent" -mindepth 2 -maxdepth 2 \
+    \( -type d -o -type f \) -name .git -print0 2>/dev/null)
+  case "$target_role" in
+    frontend|front-end|web|client|backend|back-end|api|server|worker|database|db)
+      if [[ $service_role_repositories -gt 1 ]]; then
+        scope_review_required=true
+        candidate_workspace_root="$repository_parent"
+        scope_reason="The proposed target and sibling Git repositories look like cooperating service repositories under $repository_parent."
+      fi
+      ;;
+  esac
 fi
 
 git_branch=""
@@ -574,6 +631,11 @@ elif [[ "$manifest_status" == "configurationRequired" &&
   $detected_stack_count -gt 0 ]]; then
   inference_reason="Detected ${detected_stacks[*]}, but no tested high-confidence adapter matched. Hand-author the manifest using the reported evidence and compatibility checks."
 fi
+if [[ "$scope_review_required" == true && "$allow_subproject" != true &&
+  "$manifest_status" == "inferred" ]]; then
+  manifest_status="configurationRequired"
+  inference_reason="$scope_reason Verify the product root before accepting the detected startup command."
+fi
 
 escaped_app_name="$project_name"
 escaped_app_name="${escaped_app_name//\\/\\\\}"
@@ -645,6 +707,9 @@ case "$installation_state" in
     [[ "$replace_incomplete" == true ]] && installation_applicable=true
     ;;
 esac
+if [[ "$scope_review_required" == true && "$allow_subproject" != true ]]; then
+  installation_applicable=false
+fi
 effective_agents_write=false
 effective_gitignore_write=false
 effective_manifest_write=false
@@ -714,6 +779,11 @@ emit_result() {
       "$([[ "$git_classification" == "workspace-with-nested-repositories" ]] && echo true || echo false)" \
       "$(json_escape "$git_branch")" "$git_dirty" \
       "$git_has_upstream" "$git_ahead" "$git_behind"
+    printf '"targetScope":{"reviewRequired":%s,"acknowledged":%s,"candidateWorkspaceRoot":%s,"enclosingEnmannerRoot":%s,"reason":"%s"},' \
+      "$scope_review_required" "$allow_subproject" \
+      "$([[ -n "$candidate_workspace_root" ]] && printf '"%s"' "$(json_escape "$candidate_workspace_root")" || printf 'null')" \
+      "$([[ -n "$enclosing_enmanner_root" ]] && printf '"%s"' "$(json_escape "$enclosing_enmanner_root")" || printf 'null')" \
+      "$(json_escape "$scope_reason")"
     printf '"detectedStacks":['
     detected_separator=""
     if [[ $detected_stack_count -gt 0 ]]; then
@@ -821,16 +891,23 @@ emit_result() {
     fi
     printf '],'
     printf '"unresolvedChecks":['
+    unresolved_separator=""
+    if [[ "$scope_review_required" == true && "$allow_subproject" != true ]]; then
+      printf '{"id":"integrationRoot","status":"reviewRequired","requirement":"the target contains the complete launcher-owned runtime","evidence":"%s","inspect":["%s"],"suggestedChange":"run the installer against the common product workspace, or use --allow-subproject only for an intentional self-contained nested app"}' \
+        "$(json_escape "$scope_reason")" \
+        "$(json_escape "${candidate_workspace_root:-$(dirname "$target_dir")}")"
+      unresolved_separator=","
+    fi
     if [[ "$manifest_status" == "configurationRequired" ]]; then
       inspect_json="[]"
       if [[ -n "$candidate_inspect_path" ]]; then
         inspect_json="[\"$(json_escape "$candidate_inspect_path")\"]"
       fi
       if [[ -n "$express_port_evidence" ]]; then
-        printf '{"id":"dynamicPort","status":"detected","requirement":"application uses its allocated endpoint port","evidence":"%s","inspect":["%s"],"suggestedChange":"confirm this static evidence with runtime validation"},' \
-          "$(json_escape "$express_port_evidence")" "$(json_escape "$express_source")"
+        printf '%s{"id":"dynamicPort","status":"detected","requirement":"application uses its allocated endpoint port","evidence":"%s","inspect":["%s"],"suggestedChange":"confirm this static evidence with runtime validation"},' \
+          "$unresolved_separator" "$(json_escape "$express_port_evidence")" "$(json_escape "$express_source")"
       else
-        printf '{"id":"dynamicPort","status":"unknown","requirement":"application uses its allocated endpoint port","evidence":"startup candidate found but dynamic-port behavior is unverified","inspect":%s,"suggestedChange":"use ${self.endpoints.http.port} in the application command"},' "$inspect_json"
+        printf '%s{"id":"dynamicPort","status":"unknown","requirement":"application uses its allocated endpoint port","evidence":"startup candidate found but dynamic-port behavior is unverified","inspect":%s,"suggestedChange":"use ${self.endpoints.http.port} in the application command"},' "$unresolved_separator" "$inspect_json"
       fi
       if [[ -n "$express_host_evidence" ]]; then
         printf '{"id":"loopbackBinding","status":"detected","requirement":"server binds only to loopback","evidence":"%s","inspect":["%s"],"suggestedChange":"confirm this static evidence with runtime validation"},' \
@@ -890,6 +967,11 @@ emit_result() {
       printf '%s"The workspace root is not versioned even though nested repositories exist; enmanner/ and .enmanner/ at the root will remain untracked unless the root becomes a repository"' "$warning_separator"
       warning_separator=","
     fi
+    if [[ "$scope_review_required" == true && "$allow_subproject" != true ]]; then
+      printf '%s"Possible service-subproject target: %s Map the complete runtime and use the common workspace root when opening the app should start sibling services"' \
+        "$warning_separator" "$(json_escape "$scope_reason")"
+      warning_separator=","
+    fi
     if [[ "$shared_git_metadata" == true ]]; then
       printf '%s"The Enmanner source checkout and target project share Git metadata; checkout remotes may not identify the Enmanner distribution, so use --upstream-url when declared distribution metadata is unavailable"' "$warning_separator"
     fi
@@ -899,6 +981,12 @@ emit_result() {
     echo "Enmanner $action for: $target_dir"
     echo "  Installation state: $installation_state"
     echo "  Git: $git_classification${git_root:+ ($git_root)}"
+    if [[ "$scope_review_required" == true ]]; then
+      echo "  Target scope: review required"
+      echo "  $scope_reason"
+      [[ "$allow_subproject" == true ]] ||
+        echo "  Use the common workspace root, or acknowledge an intentional nested app with --allow-subproject."
+    fi
     if [[ "$git_classification" == "workspace-with-nested-repositories" ]]; then
       echo "  Warning: root Enmanner configuration is not covered by the nested repositories."
       echo "  Initialize version control at the workspace root or explicitly accept unversioned configuration."
@@ -989,6 +1077,15 @@ if [[ "$git_classification" == "workspace-with-nested-repositories" &&
   echo "  Install into a designated repository, or rerun with" >&2
   echo "  --allow-unversioned after explicitly accepting that the launcher" >&2
   echo "  configuration will not be versioned at this workspace root." >&2
+  exit 1
+fi
+
+if [[ "$scope_review_required" == true && "$allow_subproject" != true ]]; then
+  echo "Error: the proposed target may be only one service of a larger application." >&2
+  echo "  $scope_reason" >&2
+  echo "  Run the plan against the common product workspace, or rerun with" >&2
+  echo "  --allow-subproject only after confirming this is an intentional" >&2
+  echo "  self-contained nested application." >&2
   exit 1
 fi
 

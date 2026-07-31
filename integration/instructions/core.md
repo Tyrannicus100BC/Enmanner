@@ -12,6 +12,10 @@
 - Give the user-facing application component meaningful startup readiness.
 - Treat shared or already-running infrastructure as observed prerequisites,
   never adopted services.
+- Treat a headless API or worker required by the human-facing application as a
+  managed component when the expected double-click experience should start it;
+  being headless or living in another repository does not make it an external
+  prerequisite.
 - Make browser clients recover after a managed-service restart.
 - Keep runtime data outside generated build output.
 - Keep secrets out of source, Git, logs, and `enmanner/enmanner.json`.

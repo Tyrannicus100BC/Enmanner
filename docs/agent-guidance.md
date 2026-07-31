@@ -16,6 +16,14 @@ capabilities rather than a reading prerequisite for every project.
 Installer plans expose `requiredInstructions` with a reason for each selected
 reference so agents can follow this routing mechanically.
 
+Product-scope discovery precedes framework detection. Agents inspect the
+proposed target's repository root, parent, and siblings and inventory the full
+human-facing workflow before choosing an installation root. This prevents a
+convincing frontend or backend development server from being mistaken for a
+complete multi-service application. Installer plans report `targetScope`; a
+likely repository subproject requires explicit `--allow-subproject`
+acknowledgement before files are installed.
+
 Native presentation is also agent-owned finishing work. The package tells
 agents that an existing flattened app icon is not necessarily reusable source
 artwork. Its hard preflight rejects baked squircles, transparent rounded

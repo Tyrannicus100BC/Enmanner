@@ -1,39 +1,50 @@
 # Enmanner
 
-Enmanner is an early, open-source macOS launcher for local web applications. It is
-for people who can describe the app they want to an AI coding agent but should
-not have to learn about terminals, ports, server processes, package managers,
-or native application bundles.
+**Your local web app should open like a Mac app, not a development
+environment.**
 
-Enmanner was created by James Marr in close collaboration with Codex, OpenAI's
-coding agent. That collaboration reflects a core project principle: agents are
-customers of the framework too, and their constraints, concerns, and experience
-deserve serious design attention.
+AI coding agents have made it easier than ever to build useful local web apps.
+But actually using one on macOS still feels like doing development work: find
+the project in Terminal, remember the right commands, start each service, keep
+the terminal windows open, and then find the right page in your browser. A
+frontend, backend, database, and worker can turn one app into four processes you
+have to start, watch, and stop yourself.
 
-The idea is simple:
+Enmanner turns that entire routine into a lightweight Mac app. Double-click it
+and Enmanner starts the project's services in the right order, waits until they
+are ready, and opens the interface. It keeps them running, makes failures
+understandable, and stops everything it started when you quit.
 
-> The repository is the source of truth. The `.app` is the front door.
+No terminal windows. No memorized commands. No wondering whether the app is
+running.
 
-Enmanner adds a transparent, project-local framework distribution, then builds a
-small native Mac app beside it. Opening that app starts the project's local
-server, waits until it is ready, and opens it in the default browser. An
-opt-in embedded WKWebView presentation is available for applications that pass
-its compatibility checklist. In browser mode the launcher stays in the Dock
-without showing a window during a healthy launch. The launcher
-captures logs, explains startup failures, supervises the server, recovers after
-restarts, and stops the server when the app quits. Generated apps also provide
-standard macOS menus, keyboard shortcuts, a small Settings window, a live
-Server Log window, and normal windowless/reopen behavior.
+Your repository remains the editable source of truth, including its source,
+dependencies, and local data. The generated `.app` is just the front door, so
+ordinary source changes do not require rebuilding it.
 
-Enmanner is an MVP, not a universal application platform. It currently targets one
-local server, one user, one Mac, and projects that already contain the runtime
-needed by their startup command.
+## Add it to your project
 
-Today, the coding agent is part of the product architecture: Enmanner is a
-packaging and lifecycle protocol that helps an agent turn a local web project
-into a well-behaved Mac app for normal human use.
+You do not need to integrate Enmanner by hand. Open your web app's project with
+a coding agent that can edit its files and run local commands, then paste this:
 
-## Agent fast path
+> Integrate Enmanner into this local web app. Follow the integration
+> instructions at https://github.com/Tyrannicus100BC/Enmanner, ask me when you
+> need a product decision, and continue through building and verifying the
+> finished Mac app.
+
+That is enough to get started. The repository guides the agent through checking
+whether Enmanner fits the project, installing it, configuring every component,
+testing startup and shutdown, creating the app icon, and verifying the finished
+app. You remain the product owner: the agent should bring you decisions it
+cannot safely make on your behalf.
+
+Enmanner is a good fit for a human-facing web app that runs locally on one Mac.
+It can manage a single server or a multi-component app with frontends, backends,
+workers, startup tasks, and existing prerequisites. It is currently an early
+open-source project, not a way to distribute a signed app to other people or
+turn a headless service into a user-facing product.
+
+## Integration guide for coding agents
 
 First decide whether the project is a good fit. Enmanner expects a
 human-facing local web interface that should become a Mac application. A
@@ -119,7 +130,7 @@ port, waits for the full graph, observes all managed services for five seconds,
 then stops it. It can mutate project runtime state; inspect databases,
 container volumes, and service ownership before running it.
 
-## Add Enmanner to an existing project
+## Installer reference
 
 This repository's installer copies normal tracked files into the target. It
 does not copy Enmanner's Git history or create a nested repository.
@@ -137,7 +148,11 @@ Preview an installation before changing the project:
 
 The plan performs local filesystem and Git inspection only. Its `ahead` and
 `behind` values come from existing local remote-tracking refs; it does not fetch
-or otherwise contact a Git remote.
+or otherwise contact a Git remote. Review `targetScope` before installing. A
+repository subdirectory, an enclosing Enmanner installation, or service-shaped
+sibling repositories can require choosing the common workspace instead. Use
+`--allow-subproject` only when the proposed nested target is intentionally the
+complete user-facing app.
 
 For a root Vite or Next.js project using npm, pnpm, Yarn, or Bun, the installer
 can infer a safe loopback startup command, create `enmanner/enmanner.json`,
@@ -177,6 +192,11 @@ folders, and workspaces containing nested repositories. A workspace containing
 sibling repositories needs an explicit choice: install in a designated
 existing repository, or knowingly keep the launcher configuration unversioned
 by passing `--allow-unversioned`.
+
+Keep the Enmanner source checkout outside every candidate integration root. On
+default macOS filesystems an `Enmanner/` checkout conflicts with the required
+project-owned `enmanner/` configuration directory, and the installer refuses a
+Git checkout at that path.
 
 It also classifies `.enmanner` as `notInstalled`, `cacheOnly`, `incomplete`,
 `legacyWithoutReceipt`, `installed`, or `damaged`. Cache-only build residue is removed
@@ -300,6 +320,10 @@ notarization, and distribution to other machines are future work.
 - `docs/future-validation.md` — decisions that need broader Mac testing
 
 ## Contributing
+
+Enmanner was created by James Marr in close collaboration with Codex, OpenAI's
+coding agent. Agents are customers of the framework too, and their constraints,
+concerns, and experience deserve serious design attention.
 
 Run:
 
