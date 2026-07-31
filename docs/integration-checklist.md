@@ -66,6 +66,12 @@ never stages or commits files. Overall `complete` requires both a verified final
 application and durable repository ownership, or a recorded unversioned
 workspace.
 
+The final user handoff must name managed services and observed prerequisites,
+state that the app runs the local source checkout, distinguish watched/HMR
+source from changes that require restart, point to **Window → Runtime Logs**,
+describe Quit ownership, and explain same-Mac folder moves versus unsupported
+cross-machine app copying.
+
 Use inline `application` configuration only when the entire useful session is
 one frontend process with no manually started application dependency. Use
 component graphs for multiple project-owned services, startup tasks, or

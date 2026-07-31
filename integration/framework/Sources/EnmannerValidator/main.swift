@@ -307,6 +307,20 @@ struct EnmannerValidatorCommand {
                     graph.components[graph.applicationComponent]?
                         .readiness?.timeoutSeconds ?? 30
                 )
+            case "managed-components":
+                let graph = try RuntimeGraph.make(from: manifest)
+                print(
+                    graph.startupOrder.filter {
+                        graph.components[$0]?.kind != .prerequisite
+                    }.joined(separator: ", ")
+                )
+            case "prerequisites":
+                let graph = try RuntimeGraph.make(from: manifest)
+                print(
+                    graph.startupOrder.filter {
+                        graph.components[$0]?.kind == .prerequisite
+                    }.joined(separator: ", ")
+                )
             default:
                 throw EnmannerError.invalidManifest(
                     ["Unknown build field \(printField)."]

@@ -3,6 +3,20 @@ import XCTest
 @testable import EnmannerCore
 
 final class ReadinessAndProcessTests: XCTestCase {
+    func testComponentLogsSurviveEvictionFromCombinedBuffer() {
+        let logs = LogBuffer(maximumEntries: 2)
+        logs.append("useful failure", stream: .stderr, component: "backend")
+        logs.append("statement 1", component: "postgres")
+        logs.append("statement 2", component: "postgres")
+        logs.append("statement 3", component: "postgres")
+
+        XCTAssertFalse(logs.snapshot().contains("useful failure"))
+        XCTAssertEqual(
+            logs.recentEntries(component: "backend", componentOnly: true).count,
+            1
+        )
+        XCTAssertTrue(logs.snapshot(component: "backend").contains("useful failure"))
+    }
     func testLogBufferCollapsesConsecutiveRepeatedLines() {
         let logs = LogBuffer()
         logs.append("noisy line", stream: .stdout)

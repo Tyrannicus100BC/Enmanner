@@ -171,7 +171,8 @@ configured. Before icon work, `build-app --development` can produce a
 separately named launcher with a `.development` bundle identifier and
 conspicuous DEV icon; `test-app --development` records provisional native
 lifecycle evidence. Neither the development artifact nor its receipt can
-satisfy `doctor.complete`.
+satisfy `doctor.complete`. Build output labels that bundle as an integration-test
+artifact and identifies the ordinary `.app` as the finished launcher.
 
 For other stacks it reports candidate package scripts, installs the framework,
 and stops with `configurationRequired`. It writes
@@ -292,9 +293,11 @@ service exits, Enmanner restarts it and its affected dependants with bounded
 backoff while leaving unrelated components running. More than five failures in
 60 seconds opens the circuit breaker. Enmanner opens a page automatically
 only on initial launch, never on recovery.
-Choose **Window → Server Log** or press **Command-Shift-L** to inspect the
+Choose **Window → Runtime Logs** or press **Command-Shift-L** to inspect the
 bounded live output while the app is starting, healthy, reconnecting, or
-failed. Logs remain memory-only and are not archived to disk.
+failed. Filter by component when a database or other service is noisy; hiding
+its output does not stop supervision. Logs remain memory-only and are not
+archived to disk.
 
 Enmanner runs project code with the current user's permissions. It is not a
 sandbox. Servers are loopback-only by default and the validator rejects public

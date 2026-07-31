@@ -118,6 +118,8 @@ validator="$validator_dir/enmanner-validator"
 manifest_app_name="$("$validator" --project "$project_dir" --print name)"
 app_name="$manifest_app_name"
 manifest_bundle_identifier="$("$validator" --project "$project_dir" --print identifier)"
+managed_components="$("$validator" --project "$project_dir" --print managed-components)"
+prerequisites="$("$validator" --project "$project_dir" --print prerequisites)"
 icon_path="$("$validator" --project "$project_dir" --print icon)"
 bundle_identifier="$manifest_bundle_identifier"
 if [[ "$development" == true ]]; then
@@ -366,7 +368,8 @@ else
       --warnings \
       --errors \
       --notices \
-      --output-format human-readable-text
+      --output-format human-readable-text \
+      3>&-
 
     if [[ ! -f "$icon_output/Assets.car" ]]; then
       echo "Error: actool did not produce Assets.car for $icon_path." >&2
@@ -431,8 +434,17 @@ app_size="$(du -sh "$app_path" | awk '{print $1}')"
 cache_size="$(du -sh "$framework_dir/.build" | awk '{print $1}')"
 echo "✓ Created $app_name.app beside the project source ($app_size)"
 if [[ "$development" == true ]]; then
-  echo "  Development-only: this bundle cannot satisfy doctor.complete."
+  echo "  Integration-test artifact: this DEV bundle cannot satisfy doctor.complete."
+  echo "  Use $manifest_app_name.app—not this bundle—as the finished app."
+elif [[ -d "$project_dir/$manifest_app_name Development.app" ]]; then
+  echo "  $manifest_app_name Development.app is a provisional integration-test artifact."
+  echo "  $manifest_app_name.app is the finished app; the DEV artifact preserves test evidence."
 fi
 echo "  Enmanner build cache: $cache_size (remove with ./.enmanner/scripts/clean)"
-echo "  Ordinary web changes appear without rebuilding this launcher."
+echo "  This launcher runs the local source checkout at: $project_dir"
+echo "  Managed runtime components: ${managed_components:-none}"
+echo "  Required external prerequisites: ${prerequisites:-none declared}"
+echo "  Source reload behavior comes from each component command; Enmanner adds no watcher."
+echo "  Runtime output appears under Window → Runtime Logs; Quit stops managed components."
+echo "  Move the whole project folder together on this Mac; rebuild on another Mac."
 build_succeeded=true

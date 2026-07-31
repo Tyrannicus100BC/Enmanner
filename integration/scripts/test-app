@@ -87,75 +87,105 @@ while read -r running_pid running_command; do
   fi
 done < <(/bin/ps -axo pid=,comm=)
 
-rm -f "$status_file"
-ENMANNER_TEST_STATUS_FILE="$status_file" \
-ENMANNER_TEST_SUPPRESS_BROWSER=1 \
-  "$launcher" >"$log_file" 2>&1 &
-launcher_pid="$!"
-
 timeout_seconds="$(
   "$validator" --project "$project_dir" --print readiness-timeout
 )"
-deadline="$(
-  /usr/bin/awk -v now="$(date +%s)" -v timeout="$timeout_seconds" \
-    'BEGIN { print int(now + timeout + 15) }'
-)"
-while [[ ! -s "$status_file" && "$(date +%s)" -lt "$deadline" ]]; do
-  if ! kill -0 "$launcher_pid" 2>/dev/null; then
-    echo "Error: generated app exited before reporting readiness." >&2
+readiness_urls=()
+selected_ports=()
+
+run_cycle() {
+  local cycle="$1"
+  local deadline
+  local readiness_url
+  local selected_port
+  rm -f "$status_file"
+  /usr/bin/env -i \
+    HOME="${HOME:-}" \
+    USER="${USER:-}" \
+    LOGNAME="${LOGNAME:-${USER:-}}" \
+    TMPDIR="${TMPDIR:-/tmp}" \
+    LANG="${LANG:-en_US.UTF-8}" \
+    PATH="/usr/bin:/bin:/usr/sbin:/sbin" \
+    ENMANNER_TEST_STATUS_FILE="$status_file" \
+    ENMANNER_TEST_SUPPRESS_BROWSER=1 \
+    "$launcher" >"$log_file" 2>&1 &
+  launcher_pid="$!"
+
+  deadline="$(
+    /usr/bin/awk -v now="$(date +%s)" -v timeout="$timeout_seconds" \
+      'BEGIN { print int(now + timeout + 15) }'
+  )"
+  while [[ ! -s "$status_file" && "$(date +%s)" -lt "$deadline" ]]; do
+    if ! kill -0 "$launcher_pid" 2>/dev/null; then
+      echo "Error: generated app exited before reporting readiness in cycle $cycle." >&2
+      tail -n 30 "$log_file" >&2
+      exit 1
+    fi
+    sleep 0.1
+  done
+  if [[ ! -s "$status_file" ]]; then
+    echo "Error: generated app did not become ready before the cycle $cycle deadline." >&2
     tail -n 30 "$log_file" >&2
     exit 1
   fi
-  sleep 0.1
-done
-if [[ ! -s "$status_file" ]]; then
-  echo "Error: generated app did not become ready before the test deadline." >&2
-  tail -n 30 "$log_file" >&2
-  exit 1
-fi
 
-readiness_url="$(/usr/bin/plutil -extract readinessURL raw "$status_file")"
-selected_port="$(/usr/bin/plutil -extract selectedPort raw "$status_file")"
-if ! /usr/bin/curl --silent --show-error --fail \
-  --max-time 2 "$readiness_url" >/dev/null; then
-  echo "Error: generated app reported readiness but its URL was unavailable." >&2
-  exit 1
-fi
+  readiness_url="$(/usr/bin/plutil -extract readinessURL raw "$status_file")"
+  selected_port="$(/usr/bin/plutil -extract selectedPort raw "$status_file")"
+  if ! /usr/bin/curl --silent --show-error --fail \
+    --max-time 2 "$readiness_url" >/dev/null; then
+    echo "Error: generated app reported readiness but its URL was unavailable." >&2
+    exit 1
+  fi
+  readiness_urls+=("$readiness_url")
+  selected_ports+=("$selected_port")
 
-/usr/bin/osascript - "$bundle_identifier" <<'APPLESCRIPT' >/dev/null
+  /usr/bin/osascript - "$bundle_identifier" <<'APPLESCRIPT' >/dev/null
 on run arguments
   tell application id (item 1 of arguments) to quit
 end run
 APPLESCRIPT
 
-for _ in {1..100}; do
-  kill -0 "$launcher_pid" 2>/dev/null || break
-  sleep 0.1
-done
-if kill -0 "$launcher_pid" 2>/dev/null; then
-  echo "Error: generated app did not quit cleanly." >&2
-  exit 1
-fi
-wait "$launcher_pid" || true
-launcher_pid=""
-
-readiness_unavailable=false
-for _ in {1..40}; do
-  if ! /usr/bin/curl --silent --max-time 0.25 "$readiness_url" >/dev/null 2>&1; then
-    readiness_unavailable=true
-    break
+  for _ in {1..100}; do
+    kill -0 "$launcher_pid" 2>/dev/null || break
+    sleep 0.1
+  done
+  if kill -0 "$launcher_pid" 2>/dev/null; then
+    echo "Error: generated app did not quit cleanly in cycle $cycle." >&2
+    exit 1
   fi
-  sleep 0.1
+  wait "$launcher_pid" || true
+  launcher_pid=""
+}
+
+# The second cycle starts immediately after the first launcher exits. This
+# deliberately exercises dependencies that may still be completing shutdown.
+run_cycle 1
+run_cycle 2
+
+for index in 0 1; do
+  readiness_url="${readiness_urls[$index]}"
+  selected_port="${selected_ports[$index]}"
+  readiness_unavailable=false
+  for _ in {1..40}; do
+    if ! /usr/bin/curl --silent --max-time 0.25 "$readiness_url" >/dev/null 2>&1; then
+      readiness_unavailable=true
+      break
+    fi
+    sleep 0.1
+  done
+  if [[ "$readiness_unavailable" != true ]]; then
+    echo "Error: readiness remained available after generated app cycle $((index + 1)) quit." >&2
+    exit 1
+  fi
+  if /usr/sbin/lsof -nP -iTCP:"$selected_port" -sTCP:LISTEN 2>/dev/null |
+    /usr/bin/grep -q .; then
+    echo "Error: selected port $selected_port still has a listener after app quit." >&2
+    exit 1
+  fi
 done
-if [[ "$readiness_unavailable" != true ]]; then
-  echo "Error: readiness remained available after the generated app quit." >&2
-  exit 1
-fi
-if /usr/sbin/lsof -nP -iTCP:"$selected_port" -sTCP:LISTEN 2>/dev/null |
-  /usr/bin/grep -q .; then
-  echo "Error: selected port $selected_port still has a listener after app quit." >&2
-  exit 1
-fi
+
+readiness_url="${readiness_urls[1]}"
+selected_port="${selected_ports[1]}"
 
 mkdir -p "$build_dir"
 app_modification_epoch="$(/usr/bin/stat -f %m "$app_path")"
@@ -163,7 +193,7 @@ app_executable_sha256="$(
   /usr/bin/shasum -a 256 "$launcher" | /usr/bin/awk '{print $1}'
 )"
 receipt="$build_dir/$receipt_name"
-printf '{"schemaVersion":1,"valid":true,"buildKind":"%s","bundleIdentifier":"%s","manifestBundleIdentifier":"%s","appModificationEpoch":%d,"appExecutableSHA256":"%s","selectedPort":%d,"readinessURL":"%s","readinessPassed":true,"quitCleanly":true,"readinessUnavailable":true,"portReleased":true}\n' \
+printf '{"schemaVersion":1,"valid":true,"buildKind":"%s","bundleIdentifier":"%s","manifestBundleIdentifier":"%s","appModificationEpoch":%d,"appExecutableSHA256":"%s","cyclesPassed":2,"finderEquivalentEnvironment":true,"immediateRelaunchPassed":true,"selectedPort":%d,"readinessURL":"%s","readinessPassed":true,"quitCleanly":true,"readinessUnavailable":true,"portReleased":true}\n' \
   "$build_kind" "$bundle_identifier" "$manifest_bundle_identifier" \
   "$app_modification_epoch" "$app_executable_sha256" "$selected_port" \
   "$readiness_url" > "$receipt"
@@ -171,6 +201,7 @@ printf '{"schemaVersion":1,"valid":true,"buildKind":"%s","bundleIdentifier":"%s"
 if [[ "$json" == true ]]; then
   /bin/cat "$receipt"
 else
-  echo "✓ Generated app launched and became ready at $readiness_url"
-  echo "✓ Normal app quit stopped the server and released port $selected_port"
+  echo "✓ Generated app passed two Finder-equivalent launch and quit cycles"
+  echo "✓ Immediate relaunch succeeded after the first shutdown"
+  echo "✓ Normal app quit stopped the server and released tested ports"
 fi

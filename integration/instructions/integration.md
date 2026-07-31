@@ -76,10 +76,16 @@ lifecycle behavior earlier, but cannot satisfy completion. Use this order:
 12. Run `build-app` and inspect the actual Finder/Dock result. The build verifies
    modern icon packaging, app ownership metadata, and the code signature. Run
    `test-app` to verify native launch, readiness, normal quit, and cleanup.
-13. Report the task complete only after the finished app passes. A development
-    app or development test receipt is never final evidence. Report local
-    technical completion separately when durable files remain untracked;
-    Enmanner never stages or commits them.
+13. Give the user a plain-language handoff after the finished app passes. Name
+    the services the app starts and the prerequisites it only observes; explain
+    that the app runs this local source checkout; identify which frontend and
+    backend edits reload automatically and which require an app restart; point
+    to **Window → Runtime Logs**; state what Quit stops; and explain that the
+    whole project folder may move together on this Mac but the generated app is
+    not a distributable copy for another machine. Report the task complete only
+    after this handoff. A development app or development test receipt is never
+    final evidence. Report local technical completion separately when durable
+    files remain untracked; Enmanner never stages or commits them.
 
 Ordinary web source edits do not require rebuilding the app.
 At any point, `./.enmanner/scripts/doctor --next` prints a tailored Markdown

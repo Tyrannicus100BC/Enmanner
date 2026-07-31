@@ -348,6 +348,21 @@ a shell. Relative executable paths resolve from the component's
 `workingDirectory`. Bare names use Enmanner's GUI-safe `PATH`; absolute
 executables are supported.
 
+When a project depends on an executable installed outside the standard macOS,
+Homebrew, or `/usr/local` locations, declare its directory once at the manifest
+root:
+
+```json
+{
+  "executableSearchPaths": ["~/.nix-profile/bin"]
+}
+```
+
+Entries must be absolute or home-relative (`~/…`) directories. Enmanner
+prepends them to the GUI-safe `PATH` before resolving command executables and
+passes that same `PATH` to child processes. This is an explicit per-project
+compatibility setting, not a global PATH change.
+
 Configured working directories and relative executables must remain inside the
 project. Every managed service must remain in the foreground, bind declared
 network listeners to loopback, and keep descendants in its owned process group.

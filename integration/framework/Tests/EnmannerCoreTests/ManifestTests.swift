@@ -11,6 +11,7 @@ final class ManifestTests: XCTestCase {
                   "version": 3,
                   "name": "Minimal",
                   "identifier": "local.enmanner.minimal",
+                  "executableSearchPaths": ["~/.nix-profile/bin"],
                   "application": {
                     "command": ["/usr/bin/true"],
                     "environment": {
@@ -36,9 +37,31 @@ final class ManifestTests: XCTestCase {
 
         XCTAssertEqual(manifest.version, 3)
         XCTAssertEqual(manifest.components, [:])
+        XCTAssertEqual(manifest.executableSearchPaths, ["~/.nix-profile/bin"])
         XCTAssertEqual(graph.applicationCommand, ["/usr/bin/true"])
         XCTAssertEqual(graph.applicationPreferredPort, 43120)
         XCTAssertEqual(graph.applicationComponent, "__application")
+    }
+
+    func testValidationRejectsMalformedExecutableSearchPaths() throws {
+        let directory = try temporaryDirectory()
+        let manifest = EnmannerManifest(
+            version: 3,
+            name: "Paths",
+            identifier: "local.enmanner.paths",
+            executableSearchPaths: ["relative/bin", "/one:/two", ""],
+            application: .init(
+                command: ["/usr/bin/true"],
+                readiness: .init(path: "/")
+            )
+        )
+
+        let issues = ManifestValidator.validate(manifest, projectURL: directory)
+
+        XCTAssertEqual(
+            issues.filter { $0.contains("executableSearchPaths") }.count,
+            3
+        )
     }
 
     func testDecodesComponentGraphAndOrdersDependencies() throws {

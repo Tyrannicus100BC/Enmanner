@@ -418,7 +418,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             } ?? [],
             workingDirectory: runtimeFailure?.workingDirectory,
             exitStatus: exitStatus ?? runtimeFailure?.exitStatus,
-            includesRecentOutput: settings.includesRecentOutputInErrors
+            includesRecentOutput: settings.includesRecentOutputInErrors,
+            recentOutput: runtimeFailure?.recentLogs
         )
         controller?.showWindow(nil)
     }
@@ -488,7 +489,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         logBuffer.onChange = { [weak self] snapshot in
             DispatchQueue.main.async {
                 self?.windowController?.updateLogs(snapshot)
-                self?.logWindowController?.updateLogs(snapshot)
+                if let self, let controller = self.logWindowController {
+                    controller.updateLogs(self.logs(for: controller.filterKey))
+                }
             }
         }
     }
@@ -533,12 +536,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     @objc private func showServerLog(_ sender: Any?) {
         if logWindowController == nil {
             let appName = manifest?.name ?? "Enmanner"
-            let controller = LogWindowController(appName: appName)
-            controller.updateLogs(logBuffer.snapshot())
+            let componentNames: [String]
+            if let manifest,
+               let graph = try? RuntimeGraph.make(from: manifest) {
+                componentNames = Array(graph.components.keys)
+            } else {
+                componentNames = []
+            }
+            let controller = LogWindowController(
+                appName: appName,
+                componentNames: componentNames
+            )
+            controller.onFilterChange = { [weak self, weak controller] key in
+                guard let self else { return }
+                controller?.updateLogs(self.logs(for: key))
+            }
+            controller.updateLogs(logs(for: "all"))
             logWindowController = controller
         }
         NSApplication.shared.activate(ignoringOtherApps: true)
         logWindowController?.showWindow(sender)
+    }
+
+    private func logs(for filterKey: String) -> String {
+        switch filterKey {
+        case "all":
+            return logBuffer.snapshot()
+        case "enmanner":
+            return logBuffer.snapshot(component: nil)
+        default:
+            return logBuffer.snapshot(component: filterKey)
+        }
     }
 
     @objc private func showAppHelp(_ sender: Any?) {
@@ -680,7 +708,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         windowMenu.addItem(.separator())
         windowMenu.addItem(
             item(
-                "Server Log",
+                "Runtime Logs",
                 action: #selector(showServerLog(_:)),
                 key: "l",
                 modifiers: [.command, .shift],

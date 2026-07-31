@@ -46,7 +46,9 @@ embedded.
   named sibling bundle with a `.development` identifier, explicit development
   ownership metadata, and a conspicuous framework-generated DEV icon. Its
   separate `test-app --development` receipt is diagnostic evidence only and
-  cannot satisfy final integration completion.
+  cannot satisfy final integration completion. Build output calls it an
+  integration-test artifact and identifies the ordinary bundle as the finished
+  app so the two siblings are not presented as interchangeable.
 
 The installed distribution includes `Package.swift` and `Sources`, but excludes
 the framework's own tests and installer. SwiftPM has no non-Apple dependencies.
@@ -69,8 +71,10 @@ while retaining several years of Mac coverage.
    dependencies are satisfied.
 6. Resolve relative executables from each component's working directory,
    absolute executables directly, and bare executable names from a GUI-safe
-   PATH made from the inherited value plus standard Apple Silicon and Intel
-   local runtime locations.
+   PATH made from explicit manifest search directories, the inherited value,
+   and standard Apple Silicon and Intel local runtime locations. Home-relative
+   manifest entries are expanded without a shell, and the same PATH reaches
+   child processes.
 7. Put each managed service in its own process group, label its captured output,
    and wait for its required HTTP, TCP, command, or process readiness probe.
 8. Remain windowless while keeping normal Dock presence.
@@ -158,8 +162,9 @@ reveals the native status window instead.
 The launcher constructs conventional Application, File, Edit, View, Window,
 and Help menus using the manifest name. Standard responder-chain actions cover
 Undo, Cut, Copy, Paste, Select All, Close Window, Minimize, and Full Screen.
-The Window menu opens a dedicated live Server Log window without revealing
-Terminal.
+The Window menu opens dedicated live Runtime Logs without revealing Terminal.
+The combined view can be filtered to Enmanner or one runtime component while
+all components remain supervised.
 
 The Settings window stores whether failure details include recent server output
 in `UserDefaults`. An optional manifest declaration adds project settings for
@@ -186,12 +191,15 @@ attention. Failure
 includes the failed component, resolved argument array, working directory,
 exit status when known, and recent output. Users can show the bounded inline
 log view, copy it, retry, or reveal the project without opening Terminal. A
-separate resizable Server Log window
-remains available while the server is healthy, starting, reconnecting, or
-failed and updates from the same in-memory buffer.
+separate resizable Runtime Logs window remains available while the server is
+healthy, starting, reconnecting, or failed. Its combined view updates from the
+shared rolling buffer; component views use independent bounded buffers so a
+noisy peer cannot evict the failed component's diagnostic tail.
 
-Logs are memory-only and capped at 500 entries. Enmanner does not create a hidden
-log archive or leak project output into Application Support.
+Logs are memory-only and capped at 500 entries for the combined view and for
+each component. Enmanner does not create a hidden log archive or leak project
+output into Application Support. Filtering hides noise without disabling
+capture, preserving failure diagnostics.
 
 Build and runtime-validation scripts inspect free space on the project
 filesystem before doing expensive work. `doctor` reports available bytes and
@@ -242,6 +250,13 @@ Ordinary web edits do not alter the bundle. Display name, identifier, icon,
 window configuration, launcher source, or native metadata changes do require a
 rebuild.
 
+Final build output also provides a compact handoff: managed components,
+observed prerequisites, the local source path, the boundary between Enmanner
+recovery and project-provided source watching, the Runtime Logs location, Quit
+ownership, and the same-Mac versus cross-machine movement contract. The
+integration instructions require the agent to make project-specific reload
+details explicit rather than guessing from a generic framework rule.
+
 ## Installation ownership and upgrades
 
 The installer first builds a non-mutating, schema-versioned plan. Only
@@ -254,9 +269,10 @@ normal allocated-port fallback.
 A final app build is a finishing operation. Lifecycle validation and the
 separate development app build can run without an icon, but the ordinary
 `build-app` requires a configured distinctive icon. `test-app` launches the
-selected development or final bundle with a private test-status file and
-browser suppression, verifies readiness, requests normal application quit, and
-records a build-matched ignored receipt only after cleanup and port release.
+selected development or final bundle with a private test-status file, browser
+suppression, and a sanitized Finder-equivalent environment. It verifies two
+readiness/quit cycles including an immediate relaunch, then records a
+build-matched ignored receipt only after cleanup and port release.
 Development and final receipts are separate; only the final receipt contributes
 to completion.
 `.enmanner/INSTALLATION.json` records the installed version, upstream commit,

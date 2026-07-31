@@ -166,4 +166,46 @@ final class PathAndEnvironmentTests: XCTestCase {
         XCTAssertTrue(paths?.contains("/Users/Test Person/.local/bin") == true)
         XCTAssertFalse(paths?.contains("~/.local/bin") == true)
     }
+
+    func testManifestSearchPathPrecedesInheritedPathAndResolvesExecutable() throws {
+        let directory = try temporaryDirectory()
+        let tools = directory.appendingPathComponent("custom tools", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: tools,
+            withIntermediateDirectories: true
+        )
+        let executable = tools.appendingPathComponent("custom-runtime")
+        XCTAssertTrue(FileManager.default.createFile(atPath: executable.path, contents: Data()))
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: executable.path
+        )
+        let manifest = EnmannerManifest(
+            version: 3,
+            name: "Search Paths",
+            identifier: "local.enmanner.search-paths",
+            executableSearchPaths: [tools.path],
+            application: .init(
+                command: ["custom-runtime"],
+                readiness: .init(path: "/")
+            )
+        )
+        let plan = try RuntimePlan.make(manifest: manifest)
+        let componentName = plan.graph.applicationComponent
+        let component = try XCTUnwrap(plan.graph.components[componentName])
+
+        let configuration = try ProcessConfigurationBuilder.make(
+            componentName: componentName,
+            component: component,
+            plan: plan,
+            projectURL: directory,
+            baseEnvironment: ["PATH": "/usr/bin:/bin"]
+        )
+
+        XCTAssertEqual(configuration.executableURL.path, executable.path)
+        XCTAssertEqual(
+            configuration.environment["PATH"]?.split(separator: ":").first,
+            Substring(tools.path)
+        )
+    }
 }

@@ -77,7 +77,8 @@ final class MainWindowController: NSWindowController {
         command: [String],
         workingDirectory: String? = nil,
         exitStatus: Int32? = nil,
-        includesRecentOutput: Bool = true
+        includesRecentOutput: Bool = true,
+        recentOutput: [String]? = nil
     ) {
         openButton.isHidden = true
         var detail = message
@@ -90,8 +91,9 @@ final class MainWindowController: NSWindowController {
         if let exitStatus {
             detail += "\nExit status: \(exitStatus)"
         }
-        if includesRecentOutput, !currentLogs.isEmpty {
-            let recent = currentLogs.split(separator: "\n").suffix(6).joined(separator: "\n")
+        let selectedOutput = recentOutput?.joined(separator: "\n") ?? currentLogs
+        if includesRecentOutput, !selectedOutput.isEmpty {
+            let recent = selectedOutput.split(separator: "\n").suffix(6).joined(separator: "\n")
             detail += "\n\nRecent output:\n\(recent)"
         }
         configureState(
