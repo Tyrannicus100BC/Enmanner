@@ -20,9 +20,10 @@ your project changes.
 You do not integrate Enmanner yourself. Open your project with a coding agent
 that can edit its files and run commands, then paste this:
 
-> Integrate Enmanner into this local web app using the instructions at
-> https://github.com/Tyrannicus100BC/Enmanner. Continue until the finished Mac
-> app is built and verified.
+```text
+Integrate Enmanner into this local web app using the instructions at
+https://github.com/Tyrannicus100BC/Enmanner
+```
 
 The agent handles setup and verification, bringing product decisions back to
 you. Enmanner is for human-facing web apps that run locally on one Mac, whether
