@@ -1,48 +1,32 @@
 # Enmanner
 
-**Your local web app should open like a Mac app, not a development
-environment.**
+**Good Mac manners for local web apps.**
 
-AI coding agents have made it easier than ever to build useful local web apps.
-But actually using one on macOS still feels like doing development work: find
-the project in Terminal, remember the right commands, start each service, keep
-the terminal windows open, and then find the right page in your browser. A
-frontend, backend, database, and worker can turn one app into four processes you
-have to start, watch, and stop yourself.
+AI coding agents make it easy to build useful local web apps, but running one
+on macOS is not. You have to open Terminal, remember the right commands, and
+keep several services running.
 
-Enmanner turns that entire routine into a lightweight Mac app. Double-click it
-and Enmanner starts the project's services in the right order, waits until they
-are ready, and opens the interface. It keeps them running, makes failures
-understandable, and stops everything it started when you quit.
+Enmanner turns that routine into a lightweight Mac app. Double-click to start
+your project; quit to stop it.
 
 No terminal windows. No memorized commands. No wondering whether the app is
 running.
 
-Your repository remains the editable source of truth, including its source,
-dependencies, and local data. The generated `.app` is just the front door, so
-ordinary source changes do not require rebuilding it.
+Then keep building with your coding agent as usual. The Mac app keeps up as
+your project changes.
 
 ## Add it to your project
 
-You do not need to integrate Enmanner by hand. Open your web app's project with
-a coding agent that can edit its files and run local commands, then paste this:
+You do not integrate Enmanner yourself. Open your project with a coding agent
+that can edit its files and run commands, then paste this:
 
-> Integrate Enmanner into this local web app. Follow the integration
-> instructions at https://github.com/Tyrannicus100BC/Enmanner, ask me when you
-> need a product decision, and continue through building and verifying the
-> finished Mac app.
+> Integrate Enmanner into this local web app using the instructions at
+> https://github.com/Tyrannicus100BC/Enmanner. Continue until the finished Mac
+> app is built and verified.
 
-That is enough to get started. The repository guides the agent through checking
-whether Enmanner fits the project, installing it, configuring every component,
-testing startup and shutdown, creating the app icon, and verifying the finished
-app. You remain the product owner: the agent should bring you decisions it
-cannot safely make on your behalf.
-
-Enmanner is a good fit for a human-facing web app that runs locally on one Mac.
-It can manage a single server or a multi-component app with frontends, backends,
-workers, startup tasks, and existing prerequisites. It is currently an early
-open-source project, not a way to distribute a signed app to other people or
-turn a headless service into a user-facing product.
+The agent handles setup and verification, bringing product decisions back to
+you. Enmanner is for human-facing web apps that run locally on one Mac, whether
+they use one server or several services.
 
 ## Integration guide for coding agents
 
