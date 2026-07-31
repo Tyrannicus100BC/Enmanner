@@ -9,6 +9,7 @@ usage() {
   echo "    --foreground-scale NUMBER" >&2
   echo "    --foreground-offset-x PIXELS" >&2
   echo "    --foreground-offset-y PIXELS" >&2
+  echo "    --replace" >&2
 }
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -20,6 +21,7 @@ legacy_output_path=""
 foreground_scale="1"
 foreground_offset_x="0"
 foreground_offset_y="0"
+replace=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -38,6 +40,10 @@ while [[ $# -gt 0 ]]; do
         --foreground-offset-y) foreground_offset_y="$2" ;;
       esac
       shift 2
+      ;;
+    --replace)
+      replace=true
+      shift
       ;;
     *)
       usage
@@ -101,13 +107,51 @@ if [[ "${background_source##*.}" != "png" || "${foreground_source##*.}" != "png"
   echo "Error: both source layers must use the .png extension." >&2
   exit 1
 fi
+is_generated_icon_package() {
+  local package="$1"
+  local contents
+  [[ -d "$package" && ! -L "$package" ]] || return 1
+  contents="$(
+    cd "$package"
+    find . \( -type f -o -type l \) -print | LC_ALL=C sort
+  )"
+  [[ "$contents" == $'./Assets/background.png\n./Assets/foreground.png\n./icon.json' ]] ||
+    return 1
+  [[ -f "$package/Assets/background.png" &&
+    ! -L "$package/Assets/background.png" &&
+    -f "$package/Assets/foreground.png" &&
+    ! -L "$package/Assets/foreground.png" &&
+    -f "$package/icon.json" && ! -L "$package/icon.json" ]] || return 1
+  [[ "$(/usr/bin/plutil -extract groups.0.layers.0.image-name raw \
+    "$package/icon.json" 2>/dev/null || true)" == "foreground.png" ]] || return 1
+  [[ "$(/usr/bin/plutil -extract groups.0.layers.1.image-name raw \
+    "$package/icon.json" 2>/dev/null || true)" == "background.png" ]] || return 1
+}
+
+existing_package_is_generated=false
 if [[ -e "$output" ]]; then
-  echo "Error: refusing to overwrite existing icon package: $output_path" >&2
-  exit 1
+  if [[ "$replace" != true ]]; then
+    echo "Error: refusing to overwrite existing icon package: $output_path" >&2
+    echo "  Use --replace only for an unchanged package created by this command." >&2
+    exit 1
+  fi
+  if ! is_generated_icon_package "$output"; then
+    echo "Error: --replace requires an unchanged Enmanner-generated icon package: $output_path" >&2
+    exit 1
+  fi
+  existing_package_is_generated=true
 fi
 if [[ -n "$legacy_output" && -e "$legacy_output" ]]; then
-  echo "Error: refusing to overwrite existing legacy icon: $legacy_output_path" >&2
-  exit 1
+  if [[ "$replace" != true ]]; then
+    echo "Error: refusing to overwrite existing legacy icon: $legacy_output_path" >&2
+    exit 1
+  fi
+  if [[ "$existing_package_is_generated" != true ||
+    ! -f "$legacy_output" || -L "$legacy_output" ||
+    "$(LC_ALL=C head -c 4 "$legacy_output")" != "icns" ]]; then
+    echo "Error: --replace can replace a legacy icon only beside a validated Enmanner-generated package." >&2
+    exit 1
+  fi
 fi
 if [[ -n "$legacy_output" ]] &&
   { ! command -v xcrun >/dev/null 2>&1 ||
@@ -228,16 +272,22 @@ if [[ -n "$legacy_output" ]]; then
 fi
 mkdir -p "$output_parent"
 [[ -n "$legacy_output_parent" ]] && mkdir -p "$legacy_output_parent"
-stage_dir="$(mktemp -d "${TMPDIR:-/tmp}/enmanner-icon.XXXXXX")"
+stage_dir="$(mktemp -d "$output_parent/.enmanner-icon.XXXXXX")"
 completed=false
 published_modern=false
 published_legacy=false
+previous_modern=""
+previous_legacy=""
 cleanup() {
-  rm -rf "$stage_dir"
   if [[ "$completed" != true ]]; then
     [[ "$published_modern" == true ]] && rm -rf "$output"
     [[ "$published_legacy" == true ]] && rm -f "$legacy_output"
+    [[ -n "$previous_modern" && -e "$previous_modern" ]] &&
+      mv "$previous_modern" "$output"
+    [[ -n "$previous_legacy" && -e "$previous_legacy" ]] &&
+      mv "$previous_legacy" "$legacy_output"
   fi
+  rm -rf "$stage_dir"
 }
 trap cleanup EXIT
 
@@ -350,6 +400,14 @@ if [[ -n "$legacy_output" ]]; then
   cp "$generated_legacy" "$staged_legacy"
 fi
 
+if [[ -e "$output" ]]; then
+  previous_modern="$stage_dir/previous.icon"
+  mv "$output" "$previous_modern"
+fi
+if [[ -n "$legacy_output" && -e "$legacy_output" ]]; then
+  previous_legacy="$stage_dir/previous.icns"
+  mv "$legacy_output" "$previous_legacy"
+fi
 mv "$staged_icon" "$output"
 published_modern=true
 if [[ -n "$staged_legacy" ]]; then
@@ -357,6 +415,9 @@ if [[ -n "$staged_legacy" ]]; then
   published_legacy=true
 fi
 completed=true
+if [[ "$replace" == true && -n "$previous_modern" ]]; then
+  echo "✓ Atomically replaced $output_path"
+fi
 echo "✓ Created $output_path from separate full-canvas layers"
 if [[ -n "$legacy_output_path" ]]; then
   echo "✓ Created $legacy_output_path from actool's legacy fallback"
@@ -364,11 +425,12 @@ fi
 if [[ "$foreground_scale" != "1" ||
   "$foreground_offset_x" != "0" ||
   "$foreground_offset_y" != "0" ]]; then
-  echo "  Embedded foreground transform: scale $foreground_scale, x $foreground_offset_x px, y $foreground_offset_y px"
+  echo "  Applied foreground transform: scale $foreground_scale, x $foreground_offset_x px, y $foreground_offset_y px"
 fi
 if [[ -n "$legacy_output_path" ]]; then
-  echo "  Configure icon.modern and icon.legacy in enmanner/enmanner.json,"
-  echo "  then run ./.enmanner/scripts/preview-icon."
+  echo "  Run ./.enmanner/scripts/preview-icon --package $output_path,"
+  echo "  then configure icon.modern and icon.legacy in enmanner/enmanner.json."
 else
-  echo "  Configure it in enmanner/enmanner.json, then run ./.enmanner/scripts/preview-icon."
+  echo "  Run ./.enmanner/scripts/preview-icon --package $output_path,"
+  echo "  then configure it in enmanner/enmanner.json."
 fi

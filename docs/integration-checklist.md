@@ -16,19 +16,32 @@ sequence.
 3. Decide the double-click ownership contract before installing. State which
    processes Enmanner will start, which application services the user must
    start manually, and which separately administered infrastructure Enmanner
-   will only observe. Confirm with the user if any required application service
-   remains manual. Repository boundaries do not determine process ownership.
+   will only observe. Default an existing datastore, broker, container, Docker
+   Desktop instance, or other persistent infrastructure process to an observed
+   prerequisite without asking when it predates the integration, runs
+   independently or detached, uses persistent external state, or project docs
+   treat startup as environment setup. State that decision non-blockingly.
+   Confirm with the user only if a required application service remains manual
+   or contrary evidence makes infrastructure ownership ambiguous. Repository
+   boundaries do not determine process ownership.
 4. Establish the integration root: the common directory containing the
    launcher-owned runtime, not necessarily a source repository or the
    application entrypoint. Do not equate the current directory, nearest Git
    root, or first detected web server with the whole product. When managed
    services live in sibling repositories, their common workspace is normally
-   the integration root even when it is unversioned. Ask when scope is
-   ambiguous. Keep the Enmanner source checkout outside every candidate root;
+   the integration root even when it is unversioned. Select that root
+   automatically when it contains the cooperating services and no plausible
+   alternative application boundary exists. If the installer reports
+   `canProceedWithoutProductDecision: true`, use any required mechanical
+   acknowledgement such as `--allow-unversioned`, state the decision, and do
+   not ask. Ask only when scope remains materially ambiguous. Keep the Enmanner
+   source checkout outside every candidate root;
    on default macOS filesystems, `Enmanner/` conflicts with `enmanner/`.
 5. Run `integration/scripts/install --plan --json /path/to/integration-root`. Review
-   `installationState`, `safeRecovery`, file operations, compatibility evidence,
-   `targetScope`, and `requiredInstructions`. If `targetScope.reviewRequired` is
+   `installationState`, `safeRecovery`, `recommendedIntegrationRoot`,
+   `rootSelectionConfidence`, `configurationDurability`, file operations,
+   compatibility evidence, `targetScope`, and `requiredInstructions`. If
+   `targetScope.reviewRequired` is
    true, correct the target or explicitly acknowledge an intentional nested app
    with `--allow-subproject`.
 6. Apply the installation. For `cacheOnly`, the installer removes only known
@@ -50,8 +63,8 @@ Enmanner reports completion as evidence milestones:
 
 Local technical completion and repository readiness are separate. Enmanner
 never stages or commits files. Overall `complete` requires both a verified final
-application and durable repository ownership, or an explicitly accepted
-unversioned workspace.
+application and durable repository ownership, or a recorded unversioned
+workspace.
 
 Use inline `application` configuration only when the entire useful session is
 one frontend process with no manually started application dependency. Use

@@ -16,7 +16,6 @@
     }
   },
   "window": {
-    "mode": "browser",
     "width": 900,
     "height": 700,
     "resizable": true

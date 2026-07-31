@@ -275,7 +275,11 @@ printf '%s\n' "$workspace_plan" | jq -e '
   (.git.classification == "workspace-with-nested-repositories") and
   (.git.nestedRepositories == 2) and
   (.git.projectRootConfigurationTracked == false) and
-  (.git.requiresExplicitUnversionedChoice == true) and
+  (.git.requiresUnversionedAcknowledgement == true) and
+  (.recommendedIntegrationRoot == .target) and
+  (.rootSelectionConfidence == "high") and
+  (.configurationDurability == "unversioned") and
+  (.canProceedWithoutProductDecision == true) and
   ([.warnings[]] | any(contains("workspace root is not versioned")))
 ' >/dev/null
 if "$repository_dir/integration/scripts/install" --no-build \
@@ -366,12 +370,12 @@ incomplete_backup="$(
 )"
 test -f "$incomplete_backup/VERSION"
 test -f "$incomplete_target/.enmanner/INSTALLATION.json"
-jq -e '.unversionedAccepted == true' \
+jq -e '.unversionedAcknowledged == true' \
   "$incomplete_target/.enmanner/INSTALLATION.json" >/dev/null
 "$incomplete_target/.enmanner/scripts/doctor" --json |
   jq -e '
     .doctor.milestones.repositoryReady and
-    (.doctor.workspace.status == "explicitlyUnversioned")
+    (.doctor.workspace.status == "acknowledgedUnversioned")
   ' >/dev/null
 
 "$repository_dir/integration/scripts/install" --plan --json "$legacy_target" |
@@ -404,7 +408,7 @@ printf '%s\n' "$vite_result" | jq -e '
   ' >/dev/null
 jq -e '
   (.version == 3) and
-  (.window.mode == "browser") and
+  (.window | has("mode") | not) and
   (.application.preferredPort >= 42000) and
   (.application.preferredPort < 48000)
 ' "$vite_target/enmanner/enmanner.json" >/dev/null
@@ -572,6 +576,43 @@ fi
 test ! -e "$vite_target/enmanner/icon/WouldOverwrite.icon"
 grep -Fq "refusing to overwrite existing legacy icon" \
   "$test_root/create-icon-overwrite.out"
+original_generated_foreground="$test_root/original-generated-foreground.png"
+cp "$vite_target/enmanner/icon/Test.icon/Assets/foreground.png" \
+  "$original_generated_foreground"
+"$vite_target/.enmanner/scripts/create-icon" \
+  --background enmanner/icon/rgba-background.png \
+  --foreground enmanner/icon/icon-foreground.png \
+  --foreground-scale 0.84 \
+  --output enmanner/icon/Test.icon \
+  --legacy-output enmanner/icon/Test.icns \
+  --replace >"$test_root/create-icon-replace.out"
+grep -Fq "Atomically replaced enmanner/icon/Test.icon" \
+  "$test_root/create-icon-replace.out"
+if cmp -s "$original_generated_foreground" \
+  "$vite_target/enmanner/icon/Test.icon/Assets/foreground.png"; then
+  echo "Error: create-icon --replace did not publish the new package." >&2
+  exit 1
+fi
+test -s "$vite_target/enmanner/icon/Test.icns"
+if find "$vite_target/enmanner/icon" -maxdepth 1 \
+  -name '.enmanner-icon.*' | grep -q .; then
+  echo "Error: create-icon --replace left a staging directory behind." >&2
+  exit 1
+fi
+cp -R "$vite_target/enmanner/icon/Test.icon" \
+  "$vite_target/enmanner/icon/Edited.icon"
+touch "$vite_target/enmanner/icon/Edited.icon/manual-edit"
+if "$vite_target/.enmanner/scripts/create-icon" \
+  --background enmanner/icon/rgba-background.png \
+  --foreground enmanner/icon/icon-foreground.png \
+  --output enmanner/icon/Edited.icon \
+  --replace >"$test_root/create-icon-edited-replace.out" 2>&1; then
+  echo "Error: create-icon --replace overwrote an edited package." >&2
+  exit 1
+fi
+test -f "$vite_target/enmanner/icon/Edited.icon/manual-edit"
+grep -Fq "requires an unchanged Enmanner-generated icon package" \
+  "$test_root/create-icon-edited-replace.out"
 foreground_checksum="$(
   /usr/bin/cksum "$vite_target/enmanner/icon/icon-foreground.png"
 )"
@@ -721,7 +762,7 @@ jq -e '
   (.upstreamURL == "git@github.com:Tyrannicus100BC/Enmanner.git") and
   (.sourceCheckoutURL | type == "string") and
   (.provenanceConfidence == "declared") and
-  (.unversionedAccepted == false) and
+  (.unversionedAcknowledged == false) and
   (.manifestStatus == "inferred") and
   (.inferredManifestFields | index("application.command")) and
   ([.files[].path] | any(startswith("framework/Sources/"))) and

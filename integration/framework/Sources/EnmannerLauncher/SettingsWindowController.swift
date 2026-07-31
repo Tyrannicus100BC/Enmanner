@@ -4,20 +4,13 @@ import EnmannerCore
 @MainActor
 final class SettingsWindowController: NSWindowController {
     private let settings: AppSettings
-    private let mode: EnmannerManifest.Window.Mode
     private let projectURL: URL
     private let userConfiguration: EnmannerManifest.UserConfiguration?
-    private let externalLinksCheckbox = NSButton(
-        checkboxWithTitle: "Open links to other websites in the default browser",
-        target: nil,
-        action: nil
-    )
     private let recentOutputCheckbox = NSButton(
         checkboxWithTitle: "Include recent server output in error messages",
         target: nil,
         action: nil
     )
-    private let zoomPopup = NSPopUpButton()
     private let projectStatusLabel = NSTextField(
         wrappingLabelWithString: ""
     )
@@ -28,17 +21,14 @@ final class SettingsWindowController: NSWindowController {
     ] = [:]
     private var saveAndRestartButton: NSButton?
 
-    var onChange: (() -> Void)?
     var onSaveAndRestart: (() -> Void)?
 
     init(
         settings: AppSettings,
-        mode: EnmannerManifest.Window.Mode,
         projectURL: URL,
         userConfiguration: EnmannerManifest.UserConfiguration?
     ) {
         self.settings = settings
-        self.mode = mode
         self.projectURL = projectURL
         self.userConfiguration = userConfiguration
 
@@ -86,67 +76,29 @@ final class SettingsWindowController: NSWindowController {
         window.contentView = contentView
 
         if let userConfiguration {
-            if mode == .browser {
-                let projectView = makeProjectView(
-                    configuration: userConfiguration
-                )
-                projectView.translatesAutoresizingMaskIntoConstraints = false
-                contentView.addSubview(projectView)
-                NSLayoutConstraint.activate([
-                    projectView.leadingAnchor.constraint(
-                        equalTo: contentView.leadingAnchor
-                    ),
-                    projectView.trailingAnchor.constraint(
-                        equalTo: contentView.trailingAnchor
-                    ),
-                    projectView.topAnchor.constraint(
-                        equalTo: contentView.topAnchor
-                    ),
-                    projectView.bottomAnchor.constraint(
-                        equalTo: contentView.bottomAnchor
-                    )
-                ])
-                return
-            }
-
-            let tabView = NSTabView()
-            tabView.translatesAutoresizingMaskIntoConstraints = false
-            contentView.addSubview(tabView)
-
-            let projectItem = NSTabViewItem(identifier: "project")
-            projectItem.label = "Project"
-            projectItem.view = makeProjectView(
+            let projectView = makeProjectView(
                 configuration: userConfiguration
             )
-            tabView.addTabViewItem(projectItem)
-
-            let appItem = NSTabViewItem(identifier: "app")
-            appItem.label = "App"
-            appItem.view = makeGeneralView(includesDiagnostics: false)
-            tabView.addTabViewItem(appItem)
-
+            projectView.translatesAutoresizingMaskIntoConstraints = false
+            contentView.addSubview(projectView)
             NSLayoutConstraint.activate([
-                tabView.leadingAnchor.constraint(
-                    equalTo: contentView.leadingAnchor,
-                    constant: 16
+                projectView.leadingAnchor.constraint(
+                    equalTo: contentView.leadingAnchor
                 ),
-                tabView.trailingAnchor.constraint(
-                    equalTo: contentView.trailingAnchor,
-                    constant: -16
+                projectView.trailingAnchor.constraint(
+                    equalTo: contentView.trailingAnchor
                 ),
-                tabView.topAnchor.constraint(
-                    equalTo: contentView.topAnchor,
-                    constant: 16
+                projectView.topAnchor.constraint(
+                    equalTo: contentView.topAnchor
                 ),
-                tabView.bottomAnchor.constraint(
-                    equalTo: contentView.bottomAnchor,
-                    constant: -16
+                projectView.bottomAnchor.constraint(
+                    equalTo: contentView.bottomAnchor
                 )
             ])
             return
         }
 
-        let generalView = makeGeneralView(includesDiagnostics: true)
+        let generalView = makeGeneralView()
         generalView.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(generalView)
         NSLayoutConstraint.activate([
@@ -165,48 +117,15 @@ final class SettingsWindowController: NSWindowController {
         ])
     }
 
-    private func makeGeneralView(includesDiagnostics: Bool) -> NSView {
+    private func makeGeneralView() -> NSView {
         let view = NSView()
         let titleLabel = NSTextField(labelWithString: "App Settings")
         titleLabel.font = .systemFont(ofSize: 20, weight: .semibold)
 
-        let zoomLabel = NSTextField(labelWithString: "Default page zoom:")
-        zoomLabel.alignment = .right
-        zoomPopup.addItems(
-            withTitles: ["75%", "90%", "100%", "110%", "125%", "150%"]
-        )
-        zoomPopup.target = self
-        zoomPopup.action = #selector(settingChanged)
-
-        externalLinksCheckbox.target = self
-        externalLinksCheckbox.action = #selector(settingChanged)
         recentOutputCheckbox.target = self
         recentOutputCheckbox.action = #selector(settingChanged)
 
-        let browserNote = NSTextField(
-            wrappingLabelWithString: mode == .embedded
-                ? "Browser settings apply to the embedded app window."
-                : "Browser display settings apply only when this app uses an embedded window."
-        )
-        browserNote.textColor = .secondaryLabelColor
-        browserNote.font = .systemFont(ofSize: 11)
-
-        let zoomRow = NSStackView(views: [zoomLabel, zoomPopup])
-        zoomRow.orientation = .horizontal
-        zoomRow.alignment = .centerY
-        zoomRow.spacing = 8
-
-        var arrangedViews: [NSView] = [titleLabel]
-        if mode == .embedded {
-            arrangedViews.append(externalLinksCheckbox)
-            arrangedViews.append(zoomRow)
-            arrangedViews.append(browserNote)
-        }
-        if includesDiagnostics {
-            arrangedViews.append(recentOutputCheckbox)
-        }
-
-        let stack = NSStackView(views: arrangedViews)
+        let stack = NSStackView(views: [titleLabel, recentOutputCheckbox])
         stack.translatesAutoresizingMaskIntoConstraints = false
         stack.orientation = .vertical
         stack.alignment = .leading
@@ -225,8 +144,7 @@ final class SettingsWindowController: NSWindowController {
             stack.topAnchor.constraint(
                 equalTo: view.topAnchor,
                 constant: 28
-            ),
-            zoomLabel.widthAnchor.constraint(equalToConstant: 150)
+            )
         ])
         return view
     }
@@ -476,17 +394,8 @@ final class SettingsWindowController: NSWindowController {
     }
 
     private func refresh() {
-        externalLinksCheckbox.state =
-            settings.opensExternalLinksInBrowser ? .on : .off
         recentOutputCheckbox.state =
             settings.includesRecentOutputInErrors ? .on : .off
-
-        let percentage = Int((settings.pageZoom * 100).rounded())
-        if let item = zoomPopup.itemTitles.firstIndex(of: "\(percentage)%") {
-            zoomPopup.selectItem(at: item)
-        } else {
-            zoomPopup.selectItem(withTitle: "100%")
-        }
         loadProjectConfiguration()
     }
 
@@ -555,14 +464,8 @@ final class SettingsWindowController: NSWindowController {
     }
 
     @objc private func settingChanged() {
-        settings.opensExternalLinksInBrowser =
-            externalLinksCheckbox.state == .on
         settings.includesRecentOutputInErrors =
             recentOutputCheckbox.state == .on
-        let percentage =
-            Double(zoomPopup.titleOfSelectedItem?.dropLast() ?? "") ?? 100
-        settings.pageZoom = percentage / 100
-        onChange?()
     }
 
     @objc private func choosePath(_ sender: NSButton) {

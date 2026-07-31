@@ -488,11 +488,8 @@
     "window": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["mode", "width", "height", "resizable"],
+      "required": ["width", "height", "resizable"],
       "properties": {
-        "mode": {
-          "enum": ["browser", "embedded"]
-        },
         "width": {
           "type": "number",
           "minimum": 320,

@@ -75,7 +75,7 @@ The generated application bundle should contain only what is needed to:
 * behave like a native macOS application
 * show a Dock icon
 * participate in normal application switching
-* open an embedded web interface
+* open the web interface in the default browser
 * start and supervise the project’s local server
 * display useful startup and failure states
 * stop the server when the app quits
@@ -213,12 +213,9 @@ Enmanner should allow a project to produce a small native macOS .app that:
 7. Shows useful native UI when startup fails.
 8. surfaces relevant process output without requiring Terminal.
 9. recovers gracefully when the server process restarts.
-10. restores or refreshes the browser endpoint when required.
+10. keeps the browser endpoint available through managed server recovery.
 11. allows ordinary source changes to appear without rebuilding the .app.
 12. can be generated from source using a simple build script.
-
-Enmanner should also support an opt-in embedded native web view for applications
-that pass its compatibility checklist.
 
 ⸻
 
@@ -235,7 +232,6 @@ The first version should target:
 * one local web application at a time
 * one child server process
 * JSON configuration
-* optional embedded WKWebView mode
 * simple HTTP readiness checking
 * standard output and standard error capture
 * graceful shutdown
@@ -408,7 +404,6 @@ A starting design might be:
     }
   },
   "window": {
-    "mode": "browser",
     "width": 1200,
     "height": 800,
     "resizable": true
@@ -459,7 +454,7 @@ When launched:
 7. capture standard output and standard error.
 8. display a native startup window or loading state.
 9. poll the readiness URL.
-10. after readiness succeeds, navigate the embedded WKWebView to the application URL.
+10. after readiness succeeds, open the application URL in the default browser.
 
 Process supervision
 
@@ -504,26 +499,10 @@ A startup error screen should include:
 
 Avoid exposing only raw stack traces.
 
-Embedded browser
+Browser presentation
 
-Use WKWebView.
-
-The embedded browser should:
-
-* load the app URL after readiness
-* display a loading state before readiness
-* display an offline/restarting state during server restarts
-* reload when the server becomes ready again
-* retain normal macOS app focus and Dock behavior
-* support opening external links in the user’s normal browser when appropriate
-
-Use sensible security defaults for web navigation.
-
-External browser mode
-
-Support a manifest option that launches the application URL in the default browser.
-
-In this mode, the native launcher should remain responsible for the server process.
+Open the application URL in the default browser after readiness. The native
+launcher remains responsible for the server process.
 
 It may show a small status window or menu item, but do not overbuild the UX.
 
@@ -547,21 +526,21 @@ Do not restart the native .app for ordinary source changes.
 
 Layer 2: server restart recovery
 
-When the child server exits and restarts, the embedded browser must recover.
+When the child server exits and restarts, the launcher must recover it.
 
 For the MVP, it is acceptable for the launcher to:
 
 1. detect server loss
 2. show a reconnecting state
 3. wait for readiness
-4. perform a full page reload
+4. leave the existing browser page able to reconnect
 
 A more sophisticated launcher-owned reverse proxy or WebSocket/SSE reload bridge may be designed in the architecture, but only implement it now if it simplifies the overall system rather than expanding scope.
 
 The first version must prove that:
 
 * frontend source edits appear through Vite HMR
-* server restart does not leave the embedded web view permanently broken
+* server restart does not leave the browser endpoint permanently unavailable
 * once the server is ready again, the app recovers without requiring the user to quit and reopen the .app
 
 ⸻
@@ -835,7 +814,7 @@ Create a minimal Vite example that demonstrates:
 * installation of Enmanner inside a project
 * a working enmanner/enmanner.json
 * generated .app
-* embedded WKWebView
+* default-browser opening
 * frontend hot reload
 * server process supervision
 * readiness detection
@@ -1003,7 +982,7 @@ Investigate and document the answers to these questions while building.
 
 1. Can the Swift launcher be compiled reliably using Command Line Tools without full Xcode?
 2. What minimum macOS deployment version is sensible?
-3. What is the cleanest SwiftPM structure for an AppKit or SwiftUI application using WKWebView?
+3. What is the cleanest SwiftPM structure for a small AppKit or SwiftUI launcher?
 4. Is a small SwiftUI shell sufficient, or is direct AppKit control cleaner?
 5. How should the build script assemble Info.plist, icons, and bundle metadata?
 6. Is ad-hoc signing necessary for the local workflow?
@@ -1012,7 +991,7 @@ Investigate and document the answers to these questions while building.
 9. How should Enmanner avoid orphaning package-manager child processes?
 10. How should readiness polling handle redirects and transient errors?
 11. How should it distinguish expected shutdown from crashes?
-12. How should the WebView recover after a server restart?
+12. How should the launcher communicate server recovery to the browser?
 13. Can the launcher use an automatically chosen port while still supporting Vite HMR correctly?
 14. Is a launcher-owned reverse proxy necessary for a robust first version?
 15. What manifest fields are truly required for the MVP?
@@ -1032,7 +1011,7 @@ Phase 1: architecture and skeleton
 * Create repository structure.
 * Write initial architecture notes.
 * Define manifest schema.
-* Build a minimal Swift launcher that opens a fixed URL in WKWebView.
+* Build a minimal Swift launcher that opens a fixed URL in the default browser.
 * Add unit tests for manifest parsing.
 
 Phase 2: process launch
@@ -1078,7 +1057,7 @@ Phase 7: polish
 
 * improve errors
 * improve logs
-* add opt-in embedded-browser mode
+* refine default-browser lifecycle behavior
 * add tests
 * tighten documentation
 * remove unnecessary complexity
@@ -1142,7 +1121,7 @@ The MVP is successful when all of the following are true.
 3. The build does not require a paid Apple developer account.
 4. Double-clicking the .app starts the Vite server without Terminal.
 5. The app shows a native loading state.
-6. The app opens the Vite UI inside WKWebView.
+6. The app opens the Vite UI in the default browser.
 7. Editing frontend source causes the visible app to update through Vite HMR.
 8. Quitting the .app terminates the server process.
 9. A failed startup produces a useful native error screen.

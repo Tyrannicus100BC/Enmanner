@@ -161,7 +161,7 @@ private struct DoctorReport: Codable {
         let manifestTracked: Bool
         let frameworkTracked: Bool
         let durablePathsTracked: Bool
-        let explicitlyUnversioned: Bool
+        let unversionedAcknowledged: Bool
         let recommendation: String?
     }
 
@@ -349,9 +349,8 @@ struct EnmannerValidatorCommand {
             )
             return
         }
-        var warnings = diagnosticPlan.graph.applicationPreferredPort == nil &&
-            manifest.window.mode == .browser
-            ? ["browser mode has no preferred port; origin-scoped state may move between launches"]
+        var warnings = diagnosticPlan.graph.applicationPreferredPort == nil
+            ? ["application endpoint has no preferred port; origin-scoped state may move between launches"]
             : []
         if doctorReport?.staleDraftManifest == true {
             warnings.append(
@@ -666,11 +665,11 @@ struct EnmannerValidatorCommand {
             gitTracks("AGENTS.md") &&
             gitTracks(".gitignore") &&
             (manifest.icon == nil || iconTracked)
-        let explicitlyUnversioned =
-            installation?["unversionedAccepted"] as? Bool == true
+        let unversionedAcknowledged =
+            installation?["unversionedAcknowledged"] as? Bool == true
         let repositoryReady =
             durablePathsTracked ||
-            (projectGitRoot == nil && explicitlyUnversioned)
+            (projectGitRoot == nil && unversionedAcknowledged)
         let nestedRepositoryCount = nestedRepositoryCount(
             inside: projectURL
         )
@@ -679,8 +678,8 @@ struct EnmannerValidatorCommand {
         if durablePathsTracked {
             workspaceStatus = "tracked"
             workspaceRecommendation = nil
-        } else if projectGitRoot == nil && explicitlyUnversioned {
-            workspaceStatus = "explicitlyUnversioned"
+        } else if projectGitRoot == nil && unversionedAcknowledged {
+            workspaceStatus = "acknowledgedUnversioned"
             workspaceRecommendation = nil
         } else if projectGitRoot != nil {
             if !manifestTracked {
@@ -699,7 +698,7 @@ struct EnmannerValidatorCommand {
         } else if nestedRepositoryCount > 0 {
             workspaceStatus = "unversionedRootWithNestedRepositories"
             workspaceRecommendation =
-                "The workspace root is unversioned; initialize version control there or explicitly accept that root Enmanner configuration has no repository owner."
+                "The workspace root is unversioned; initialize version control there or record its durability with install --allow-unversioned."
         } else {
             workspaceStatus = "unversioned"
             workspaceRecommendation =
@@ -780,7 +779,7 @@ struct EnmannerValidatorCommand {
                 manifestTracked: manifestTracked,
                 frameworkTracked: frameworkTracked,
                 durablePathsTracked: durablePathsTracked,
-                explicitlyUnversioned: explicitlyUnversioned,
+                unversionedAcknowledged: unversionedAcknowledged,
                 recommendation: workspaceRecommendation
             ),
             completionEvidence: completionEvidence
@@ -814,7 +813,7 @@ struct EnmannerValidatorCommand {
         print("")
         print("**Project:** \(manifest.name)")
         print("**Runtime:** \(graph.components.count == 1 ? "one \(stack) service" : "\(graph.components.count) project-defined components")")
-        print("**Presentation:** \(manifest.window.mode.rawValue)")
+        print("**Presentation:** default browser")
         print("")
         print("## Current evidence")
         print("")
@@ -828,7 +827,7 @@ struct EnmannerValidatorCommand {
         print("## Next actions")
         print("")
         if !report.milestones.lifecycleVerified {
-            print("1. Review project state ownership, then run `./.enmanner/scripts/validate --runtime --json-lines`.")
+            print("1. Review project state ownership, then run `./.enmanner/scripts/validate --runtime --json`.")
             print("2. Run `./.enmanner/scripts/build-app --development` and `./.enmanner/scripts/test-app --development` if native proof is needed before icon work.")
         }
         if !report.milestones.presentationReady {

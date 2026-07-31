@@ -30,9 +30,9 @@ embedded.
 - `EnmannerCore` owns manifest decoding and validation, controlled interpolation,
   path containment, free-port allocation, process configuration/supervision,
   bounded logs, and readiness polling.
-- `EnmannerLauncher` is a direct AppKit shell around WKWebView. Direct AppKit keeps
-  lifecycle ownership explicit and avoids a SwiftUI state bridge for a small
-  window.
+- `EnmannerLauncher` is a direct AppKit shell. It opens the application in the
+  default browser and keeps lifecycle ownership explicit without a SwiftUI
+  state bridge for its small native status and settings windows.
 - `enmanner-validator` reuses the exact core types for script-facing static and
   runtime validation.
 - `build-app` compiles in release mode, creates a conventional app bundle with
@@ -51,7 +51,7 @@ embedded.
 The installed distribution includes `Package.swift` and `Sources`, but excludes
 the framework's own tests and installer. SwiftPM has no non-Apple dependencies.
 The package targets macOS 13, a practical baseline for structured concurrency
-and current WKWebView behavior while retaining several years of Mac coverage.
+while retaining several years of Mac coverage.
 
 ## Startup sequence
 
@@ -73,10 +73,9 @@ and current WKWebView behavior while retaining several years of Mac coverage.
    local runtime locations.
 7. Put each managed service in its own process group, label its captured output,
    and wait for its required HTTP, TCP, command, or process readiness probe.
-8. In browser mode, the default, remain windowless while keeping normal Dock
-   presence. Embedded mode displays the native starting state.
-9. Once the configured application component is ready, load its named HTTP
-   endpoint in WKWebView or ask the default browser to open it.
+8. Remain windowless while keeping normal Dock presence.
+9. Once the configured application component is ready, ask the default browser
+   to open its named HTTP endpoint.
 
 Port-selection sockets are closed before launch. This leaves a small allocation
 race for each allocated endpoint, but `--strictPort` makes the Vite example fail
@@ -143,14 +142,9 @@ remains as a deprecated compatibility alias for one release.
 External containers, daemons, and deliberately detached processes remain
 project-owned and are reported as outside the proof boundary.
 
-## Browser lifecycle and navigation
+## Browser lifecycle
 
-Embedded mode uses a persistent WKWebView with the default website data store.
-The main interface remains hidden until readiness. User-activated links to
-other hosts and links requesting a new window open in the default browser.
-Server restarts hide the broken page and reload only after readiness returns.
-
-Browser mode keeps the launcher in the Dock but does not show a native window
+The launcher stays in the Dock but does not show a native window
 during a healthy launch. Once initial readiness succeeds, it opens the URL
 through `NSWorkspace` in the default browser and continues to own the server.
 Automatic recovery never opens another browser window. A Dock click from
@@ -164,15 +158,12 @@ reveals the native status window instead.
 The launcher constructs conventional Application, File, Edit, View, Window,
 and Help menus using the manifest name. Standard responder-chain actions cover
 Undo, Cut, Copy, Paste, Select All, Close Window, Minimize, and Full Screen.
-Embedded browser commands add Back, Forward, Reload, Stop, and page zoom. The
-Window menu opens a dedicated live Server Log window in either presentation
-mode without revealing Terminal.
+The Window menu opens a dedicated live Server Log window without revealing
+Terminal.
 
-The Settings window stores a small set of launcher preferences in `UserDefaults`:
-embedded page zoom, external-link handling, and whether failure details include
-recent server output. An optional manifest declaration adds project settings for
-explicitly selected dotenv keys. Browser-mode projects present that form
-directly instead of reserving a tab for embedded-browser preferences. The UI
+The Settings window stores whether failure details include recent server output
+in `UserDefaults`. An optional manifest declaration adds project settings for
+explicitly selected dotenv keys. The UI
 supports text, revealable masked secrets, booleans, files, and directories.
 Field descriptions wrap within at most two lines instead of truncating.
 Secret reveal controls sit above the text inside their fields, disappear while
@@ -190,8 +181,8 @@ starting a server known to be misconfigured.
 ## Failure UI and logs
 
 The native state panel distinguishes starting, reconnecting, running in the browser,
-and failed. Embedded mode presents it during startup. Browser mode presents it
-only after an explicit Dock reopen or when a failure needs attention. Failure
+and failed. It appears after an explicit Dock reopen or when a failure needs
+attention. Failure
 includes the failed component, resolved argument array, working directory,
 exit status when known, and recent output. Users can show the bounded inline
 log view, copy it, retry, or reveal the project without opening Terminal. A
@@ -289,8 +280,8 @@ remain in their ordinary project paths.
 Doctor reports installed, configured, lifecycle, development-native,
 presentation, final-native, and repository-ready milestones. Local integration
 can be technically complete while repository recording remains a user-owned
-action; overall completion requires both unless an unversioned workspace was
-explicitly accepted.
+action; overall completion requires both unless unversioned workspace
+durability was explicitly recorded.
 
 ## Why there is no reverse proxy
 

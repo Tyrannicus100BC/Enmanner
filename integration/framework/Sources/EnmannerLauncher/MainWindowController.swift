@@ -1,12 +1,9 @@
 import AppKit
-import WebKit
 import EnmannerCore
 
 @MainActor
-final class MainWindowController: NSWindowController, WKNavigationDelegate {
-    private let settings: AppSettings
+final class MainWindowController: NSWindowController {
     private let rootView = NSView()
-    private let webView: WKWebView?
     private let statePanel = NSVisualEffectView()
     private let titleLabel = NSTextField(labelWithString: "")
     private let messageLabel = NSTextField(wrappingLabelWithString: "")
@@ -25,16 +22,7 @@ final class MainWindowController: NSWindowController, WKNavigationDelegate {
     var onRetry: (() -> Void)?
     var onRevealProject: (() -> Void)?
 
-    init(manifest: EnmannerManifest, settings: AppSettings) {
-        self.settings = settings
-        if manifest.window.mode == .embedded {
-            let configuration = WKWebViewConfiguration()
-            configuration.websiteDataStore = .default()
-            webView = WKWebView(frame: .zero, configuration: configuration)
-        } else {
-            webView = nil
-        }
-
+    init(manifest: EnmannerManifest) {
         var style: NSWindow.StyleMask = [.titled, .closable, .miniaturizable]
         if manifest.window.resizable {
             style.insert(.resizable)
@@ -57,7 +45,6 @@ final class MainWindowController: NSWindowController, WKNavigationDelegate {
         super.init(window: window)
 
         configureViews()
-        applySettings()
         showStarting()
     }
 
@@ -66,7 +53,6 @@ final class MainWindowController: NSWindowController, WKNavigationDelegate {
     }
 
     func showStarting() {
-        webView?.isHidden = true
         openButton.isHidden = true
         configureState(
             title: "Starting your app…",
@@ -77,7 +63,6 @@ final class MainWindowController: NSWindowController, WKNavigationDelegate {
     }
 
     func showReconnecting() {
-        webView?.isHidden = true
         openButton.isHidden = true
         configureState(
             title: "Reconnecting…",
@@ -94,7 +79,6 @@ final class MainWindowController: NSWindowController, WKNavigationDelegate {
         exitStatus: Int32? = nil,
         includesRecentOutput: Bool = true
     ) {
-        webView?.isHidden = true
         openButton.isHidden = true
         var detail = message
         if !command.isEmpty {
@@ -118,20 +102,8 @@ final class MainWindowController: NSWindowController, WKNavigationDelegate {
         )
     }
 
-    func showEmbeddedApplication(at url: URL) {
-        applicationURL = url
-        activityIndicator.stopAnimation(nil)
-        guard let webView else { return }
-        statePanel.isHidden = true
-        openButton.isHidden = true
-        webView.isHidden = false
-        applySettings()
-        webView.load(URLRequest(url: url))
-    }
-
     func showBrowserRunning(at url: URL) {
         applicationURL = url
-        webView?.isHidden = true
         statePanel.isHidden = false
         openButton.isHidden = false
         configureState(
@@ -154,89 +126,15 @@ final class MainWindowController: NSWindowController, WKNavigationDelegate {
         }
     }
 
-    func applySettings() {
-        webView?.pageZoom = settings.pageZoom
-    }
-
-    func reloadApplication() {
-        webView?.reload()
-    }
-
-    func stopLoading() {
-        webView?.stopLoading()
-    }
-
-    func goBack() {
-        webView?.goBack()
-    }
-
-    func goForward() {
-        webView?.goForward()
-    }
-
-    func resetZoom() {
-        settings.pageZoom = 1
-        applySettings()
-    }
-
-    func zoomIn() {
-        settings.pageZoom = min(settings.pageZoom + 0.1, 2)
-        applySettings()
-    }
-
-    func zoomOut() {
-        settings.pageZoom = max(settings.pageZoom - 0.1, 0.5)
-        applySettings()
-    }
-
-    var canGoBack: Bool {
-        webView?.canGoBack ?? false
-    }
-
-    var canGoForward: Bool {
-        webView?.canGoForward ?? false
-    }
-
-    var hasEmbeddedBrowser: Bool {
-        webView != nil
-    }
-
-    func webView(
-        _ webView: WKWebView,
-        decidePolicyFor navigationAction: WKNavigationAction,
-        decisionHandler: @escaping @MainActor (WKNavigationActionPolicy) -> Void
-    ) {
-        guard let destination = navigationAction.request.url,
-              let applicationURL else {
-            decisionHandler(.allow)
-            return
-        }
-
-        let isUserLink = navigationAction.navigationType == .linkActivated
-        let isExternal = destination.host != applicationURL.host
-        let shouldOpenExternally = navigationAction.targetFrame == nil ||
-            (isExternal && settings.opensExternalLinksInBrowser)
-        if isUserLink && shouldOpenExternally {
-            NSWorkspace.shared.open(destination)
-            decisionHandler(.cancel)
-        } else {
-            decisionHandler(.allow)
-        }
-    }
-
     private func configureViews() {
         guard let window else { return }
         window.contentView = rootView
-        webView?.navigationDelegate = self
 
-        var views = [
+        let views = [
             statePanel, titleLabel, messageLabel, activityIndicator,
             retryButton, logsButton, copyButton, revealButton, openButton,
             logsScrollView, logsTextView
         ]
-        if let webView {
-            views.append(webView)
-        }
         views.forEach {
             $0.translatesAutoresizingMaskIntoConstraints = false
         }
@@ -297,14 +195,11 @@ final class MainWindowController: NSWindowController, WKNavigationDelegate {
         logsScrollView.hasVerticalScroller = true
         logsScrollView.borderType = .bezelBorder
 
-        if let webView {
-            rootView.addSubview(webView)
-        }
         rootView.addSubview(statePanel)
         rootView.addSubview(logsScrollView)
         logsHeightConstraint = logsScrollView.heightAnchor.constraint(equalToConstant: 0)
 
-        var constraints: [NSLayoutConstraint] = [
+        let constraints: [NSLayoutConstraint] = [
             statePanel.centerXAnchor.constraint(equalTo: rootView.centerXAnchor),
             statePanel.centerYAnchor.constraint(equalTo: rootView.centerYAnchor, constant: -20),
             statePanel.widthAnchor.constraint(greaterThanOrEqualToConstant: 440),
@@ -321,14 +216,6 @@ final class MainWindowController: NSWindowController, WKNavigationDelegate {
             logsScrollView.bottomAnchor.constraint(equalTo: rootView.bottomAnchor),
             logsHeightConstraint
         ]
-        if let webView {
-            constraints += [
-                webView.leadingAnchor.constraint(equalTo: rootView.leadingAnchor),
-                webView.trailingAnchor.constraint(equalTo: rootView.trailingAnchor),
-                webView.topAnchor.constraint(equalTo: rootView.topAnchor),
-                webView.bottomAnchor.constraint(equalTo: logsScrollView.topAnchor)
-            ]
-        }
         NSLayoutConstraint.activate(constraints)
         logsScrollView.isHidden = true
     }

@@ -16,20 +16,32 @@ lifecycle behavior earlier, but cannot satisfy completion. Use this order:
    depends on it.
 3. Decide and state the double-click ownership contract: processes Enmanner
    will start, application services the user must start manually, and separately
-   administered infrastructure Enmanner will only observe. Confirm with the
-   user if any required application service remains manual. Repository
-   boundaries do not determine process ownership. Do not run another copy
-   concurrently when both would mutate the same local data.
+   administered infrastructure Enmanner will only observe. Default an existing
+   datastore, broker, container, Docker Desktop instance, or other persistent
+   infrastructure process to an observed prerequisite without asking when it
+   predates the integration, runs independently or detached, uses persistent
+   external state, or project docs treat startup as environment setup. State
+   that decision non-blockingly. Confirm with the user only if a required
+   application service remains manual or contrary evidence makes ownership
+   ambiguous. Repository boundaries do not determine process ownership. Do not
+   run another copy concurrently when both would mutate the same local data.
 4. Choose the integration root: the common directory containing the
    launcher-owned runtime, not necessarily a source repository or the
    application entrypoint. Do not treat the current directory, nearest Git
    root, first package manifest, or first runnable web server as proof that you
    found the whole product. Managed sibling repositories normally use their
-   common workspace even when it is unversioned. Ask if scope remains
-   ambiguous. Keep the Enmanner source checkout outside every candidate root;
+   common workspace even when it is unversioned. Select it automatically when
+   it contains the cooperating services and no plausible alternative
+   application boundary exists. If the installer reports
+   `canProceedWithoutProductDecision: true`, use any required mechanical
+   acknowledgement such as `--allow-unversioned`, state the decision, and do
+   not ask. Ask only when scope remains materially ambiguous. Keep the Enmanner
+   source checkout outside every candidate root;
    on default macOS filesystems, `Enmanner/` conflicts with `enmanner/`.
 5. Run the installer JSON plan against that integration root and review
-   `targetScope`, exact file operations, and unresolved checks. If
+   `recommendedIntegrationRoot`, `rootSelectionConfidence`,
+   `configurationDurability`, `targetScope`, exact file operations, and
+   unresolved checks. If
    `targetScope.reviewRequired` is true, correct the target or use
    `--allow-subproject` only after confirming that the nested service is itself
    the complete user-facing app.
@@ -48,7 +60,9 @@ lifecycle behavior earlier, but cannot satisfy completion. Use this order:
    does not, prefer 45 characters or fewer, never exceed 60, and omit one that
    would merely restate the label.
 9. Run static validation. Review state ownership before opting into runtime
-   validation.
+   validation, then use `./.enmanner/scripts/validate --runtime --json` for the
+   normal bounded result. Reserve `--json-lines` for active diagnostics where
+   streaming component output is intentionally being consumed.
 10. When native launcher behavior needs verification before icon work, run
    `build-app --development` and `test-app --development`. Treat the separate
    app, bundle identifier, DEV icon, and doctor evidence as provisional.

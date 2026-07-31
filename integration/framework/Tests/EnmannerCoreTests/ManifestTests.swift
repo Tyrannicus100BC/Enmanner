@@ -23,7 +23,6 @@ final class ManifestTests: XCTestCase {
                     }
                   },
                   "window": {
-                    "mode": "browser",
                     "width": 800,
                     "height": 600,
                     "resizable": true
@@ -102,7 +101,6 @@ final class ManifestTests: XCTestCase {
                     "endpoint": "web"
                   },
                   "window": {
-                    "mode": "embedded",
                     "width": 1200,
                     "height": 800,
                     "resizable": true
@@ -267,7 +265,6 @@ final class ManifestTests: XCTestCase {
               },
               "application": {"component": "web", "endpoint": "http"},
               "window": {
-                "mode": "browser",
                 "width": 1200,
                 "height": 800,
                 "resizable": true
@@ -315,7 +312,6 @@ final class ManifestTests: XCTestCase {
               },
               "application": {"component": "web", "endpoint": "http"},
               "window": {
-                "mode": "browser",
                 "width": 800,
                 "height": 600,
                 "resizable": true
@@ -370,12 +366,10 @@ final class ManifestTests: XCTestCase {
         }
     }
 
-    func testWindowModeLifecycleBehavior() {
-        XCTAssertEqual(EnmannerManifest.Window().mode, .browser)
-        XCTAssertFalse(EnmannerManifest.Window.Mode.embedded.launchesWindowless)
-        XCTAssertTrue(
-            EnmannerManifest.Window.Mode.browser.keepsRunningAfterLastWindowClosed
-        )
+    func testWindowDefaults() {
+        XCTAssertEqual(EnmannerManifest.Window().width, 1200)
+        XCTAssertEqual(EnmannerManifest.Window().height, 800)
+        XCTAssertTrue(EnmannerManifest.Window().resizable)
     }
 
     func testValidationRejectsWrongManifestVersion() {
@@ -464,7 +458,6 @@ final class ManifestTests: XCTestCase {
                     "readiness": {"path": "/"}
                   },
                   "window": {
-                    "mode": "browser",
                     "width": 800,
                     "height": 600,
                     "resizable": true

@@ -23,6 +23,10 @@ convincing frontend or backend development server from being mistaken for a
 complete multi-service application. Installer plans report `targetScope`; a
 likely repository subproject requires explicit `--allow-subproject`
 acknowledgement before files are installed.
+Conversely, a high-confidence common workspace reports its recommended root,
+durability, and `canProceedWithoutProductDecision`. The agent uses
+`--allow-unversioned` as a mechanical acknowledgement in that case and informs
+the user without turning it into a question.
 
 Native presentation is also agent-owned finishing work. The package tells
 agents that an existing flattened app icon is not necessarily reusable source

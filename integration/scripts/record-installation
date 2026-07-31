@@ -2,13 +2,13 @@
 set -euo pipefail
 
 usage() {
-  echo "Usage: $0 --source /path/to/framework [--manifest-status STATUS] [--upstream-url URL] [--unversioned-accepted]" >&2
+  echo "Usage: $0 --source /path/to/framework [--manifest-status STATUS] [--upstream-url URL] [--unversioned-acknowledged]" >&2
 }
 
 source_root=""
 manifest_status=""
 explicit_upstream_url=""
-unversioned_accepted=false
+unversioned_acknowledged=false
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --source)
@@ -24,8 +24,8 @@ while [[ $# -gt 0 ]]; do
       explicit_upstream_url="${1:-}"
       [[ -n "$explicit_upstream_url" ]] || { usage; exit 64; }
       ;;
-    --unversioned-accepted)
-      unversioned_accepted=true
+    --unversioned-acknowledged)
+      unversioned_acknowledged=true
       ;;
     *) usage; exit 64 ;;
   esac
@@ -47,9 +47,9 @@ if [[ -f "$output" ]]; then
       /usr/bin/plutil -extract upstreamURL raw "$output" 2>/dev/null || true
     )"
   fi
-  if [[ "$unversioned_accepted" == false &&
-    "$(/usr/bin/plutil -extract unversionedAccepted raw "$output" 2>/dev/null || true)" == "true" ]]; then
-    unversioned_accepted=true
+  if [[ "$unversioned_acknowledged" == false &&
+    "$(/usr/bin/plutil -extract unversionedAcknowledged raw "$output" 2>/dev/null || true)" == "true" ]]; then
+    unversioned_acknowledged=true
   fi
 fi
 if [[ -z "$manifest_status" && -f "$output" ]]; then
@@ -96,8 +96,8 @@ fi
 /usr/bin/plutil -insert sourceCheckoutURL -string "$checkout_url" "$temporary"
 /usr/bin/plutil -insert provenanceConfidence -string \
   "$provenance_confidence" "$temporary"
-/usr/bin/plutil -insert unversionedAccepted -bool \
-  "$unversioned_accepted" "$temporary"
+/usr/bin/plutil -insert unversionedAcknowledged -bool \
+  "$unversioned_acknowledged" "$temporary"
 /usr/bin/plutil -insert upstreamDirty -bool "$(
   if command -v git >/dev/null 2>&1 &&
     [[ -n "$(git -C "$source_root" status --porcelain -- . 2>/dev/null)" ]]; then

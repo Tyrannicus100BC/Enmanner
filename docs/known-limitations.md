@@ -26,7 +26,7 @@
 - Restart recovery is bounded and does not preserve in-memory server state.
 - No code sandbox, encrypted secret store, data migration framework, backup service,
   project upgrade manager, auto-updater, notarization, or public distribution.
-- Browser mode keeps a native status window but is intentionally basic.
+- The native status window is intentionally basic.
 - Installer inference completes configuration for tested root Vite and Next.js
   projects using npm, pnpm, Yarn, or Bun, plus narrowly matched direct Express
   entry points whose `PORT`, `HOST`, and `listen` flow agree. Custom scripts,

@@ -37,7 +37,6 @@ without exposing graph configuration:
     }
   },
   "window": {
-    "mode": "browser",
     "width": 1200,
     "height": 800,
     "resizable": true
@@ -69,8 +68,11 @@ In that layout, the frontend can be the browser-facing `application`, the
 backend can be a managed `service`, and a separately administered PostgreSQL
 instance can be a `prerequisite`. The frontend depends on the backend and
 receives its allocated URL through an endpoint reference. Because the workspace
-root itself is unversioned, the user must either give the root repository
-ownership or explicitly accept unversioned Enmanner configuration.
+root itself is unversioned, the integration should either give the root
+repository ownership or record its unversioned durability with
+`--allow-unversioned`. When this common workspace is the high-confidence root
+of a user-requested integration, that flag is an agent acknowledgement rather
+than a separate product question.
 
 ```json
 {
@@ -217,7 +219,6 @@ ownership or explicitly accept unversioned Enmanner configuration.
     "path": "/"
   },
   "window": {
-    "mode": "browser",
     "width": 1440,
     "height": 900,
     "resizable": true
@@ -258,8 +259,9 @@ typical task. A task that must temporarily run a server may instead declare
 endpoints and a `completion` probe. Enmanner waits for that probe, terminates
 the task's process group, and then starts dependents. This covers first-run
 preparation without a project-authored supervisor script. Probe timeouts may be
-as long as 86400 seconds, and `validate --runtime --json-lines` streams the
-task's labelled stdout and stderr as progress while it waits.
+as long as 86400 seconds. Normal automation uses `validate --runtime --json`
+for a bounded final result; during active diagnosis, `--json-lines` streams the
+task's labelled stdout and stderr as progress.
 After a task succeeds, recovery retains that result for the launcher session;
 restarting a failed service and its dependants does not rerun the task.
 
@@ -419,12 +421,9 @@ values and never enter the manifest, app bundle, logs, or diagnostics.
 
 The referenced application endpoint must use HTTP or HTTPS. Enmanner appends
 the configured application path, waits for the component's startup readiness,
-then loads that URL in embedded mode or opens it in browser mode.
-
-Browser mode is the conservative default. It remains windowless while healthy
-and keeps the runtime owned by the Dock application. Embedded mode owns a
-WKWebView. Dimensions and resizability affect native windows and require an app
-rebuild.
+then opens it in the default browser. The launcher remains windowless while
+healthy and keeps the runtime owned by the Dock application. Dimensions and
+resizability affect native status windows and require an app rebuild.
 
 ## Icon
 

@@ -48,7 +48,7 @@
 
 - Use commands already present in the project's dependency system. Do not
   unwrap package-manager commands in ways that skip lifecycle hooks.
-- Give the application endpoint a preferred port in browser mode so
+- Give the application endpoint a preferred port so
   origin-scoped state stays stable when possible.
 - Before starting a stateful application, confirm that a separately
   terminal-started copy is not already using the same project data.

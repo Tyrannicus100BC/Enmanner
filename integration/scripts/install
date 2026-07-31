@@ -17,7 +17,7 @@ Options:
   --identifier ID        Set the generated bundle identifier
   --allow-legacy-icon    Permit an intentional legacy icon fallback
   --replace-existing-app Replace an app only after explicit collision review
-  --allow-unversioned    Acknowledge an intentionally unversioned workspace
+  --allow-unversioned    Record an intentionally unversioned workspace
   --allow-subproject     Acknowledge an intentional nested/service-level app
 EOF
 }
@@ -772,13 +772,22 @@ emit_result() {
     else
       printf '"blockedBy":null},'
     fi
-    printf '"git":{"classification":"%s","root":"%s","nestedRepositories":%d,"projectRootConfigurationTracked":%s,"requiresExplicitUnversionedChoice":%s,"branch":"%s","dirty":%s,"hasUpstream":%s,"ahead":%d,"behind":%d,"aheadBehindSource":"localRemoteTrackingRefs","networkAccessed":false},' \
+    printf '"git":{"classification":"%s","root":"%s","nestedRepositories":%d,"projectRootConfigurationTracked":%s,"requiresUnversionedAcknowledgement":%s,"branch":"%s","dirty":%s,"hasUpstream":%s,"ahead":%d,"behind":%d,"aheadBehindSource":"localRemoteTrackingRefs","networkAccessed":false},' \
       "$(json_escape "$git_classification")" "$(json_escape "$git_root")" \
       "$nested_repositories" \
       "$([[ "$git_classification" == "repository-root" || "$git_classification" == "subdirectory-of-repository" ]] && echo true || echo false)" \
       "$([[ "$git_classification" == "workspace-with-nested-repositories" ]] && echo true || echo false)" \
       "$(json_escape "$git_branch")" "$git_dirty" \
       "$git_has_upstream" "$git_ahead" "$git_behind"
+    printf '"recommendedIntegrationRoot":"%s",' "$(json_escape "${candidate_workspace_root:-$target_dir}")"
+    printf '"rootSelectionConfidence":"%s",' \
+      "$([[ "$scope_review_required" == false && \
+        ( "$git_classification" == "workspace-with-nested-repositories" || \
+          "$git_classification" == "repository-root" ) ]] && echo high || echo medium)"
+    printf '"configurationDurability":"%s",' \
+      "$([[ "$git_classification" == "repository-root" || "$git_classification" == "subdirectory-of-repository" ]] && echo versioned || echo unversioned)"
+    printf '"canProceedWithoutProductDecision":%s,' \
+      "$([[ "$scope_review_required" == true ]] && echo false || echo true)"
     printf '"targetScope":{"reviewRequired":%s,"acknowledged":%s,"candidateWorkspaceRoot":%s,"enclosingEnmannerRoot":%s,"reason":"%s"},' \
       "$scope_review_required" "$allow_subproject" \
       "$([[ -n "$candidate_workspace_root" ]] && printf '"%s"' "$(json_escape "$candidate_workspace_root")" || printf 'null')" \
@@ -989,7 +998,7 @@ emit_result() {
     fi
     if [[ "$git_classification" == "workspace-with-nested-repositories" ]]; then
       echo "  Warning: root Enmanner configuration is not covered by the nested repositories."
-      echo "  Initialize version control at the workspace root or explicitly accept unversioned configuration."
+      echo "  Initialize version control there, or record the unversioned workspace with --allow-unversioned."
     fi
     echo "  Manifest: $manifest_status"
     if [[ $detected_stack_count -gt 0 ]]; then
@@ -1075,8 +1084,9 @@ if [[ "$git_classification" == "workspace-with-nested-repositories" &&
   "$allow_unversioned" != true ]]; then
   echo "Error: this target is a workspace containing nested repositories." >&2
   echo "  Install into a designated repository, or rerun with" >&2
-  echo "  --allow-unversioned after explicitly accepting that the launcher" >&2
-  echo "  configuration will not be versioned at this workspace root." >&2
+  echo "  --allow-unversioned to record that the launcher configuration will" >&2
+  echo "  be unversioned at this workspace root. When root selection is" >&2
+  echo "  high-confidence, this acknowledgement needs no separate user decision." >&2
   exit 1
 fi
 
@@ -1163,7 +1173,6 @@ if [[ ! -e "$manifest_path" && "$manifest_status" == "inferred" ]]; then
     echo '    }'
     echo '  },'
     echo '  "window": {'
-    echo '    "mode": "browser",'
     echo '    "width": 1200,'
     echo '    "height": 800,'
     echo '    "resizable": true'
@@ -1206,7 +1215,6 @@ if [[ ! -e "$manifest_path" &&
     echo '    }'
     echo '  },'
     echo '  "window": {'
-    echo '    "mode": "browser",'
     echo '    "width": 1200,'
     echo '    "height": 800,'
     echo '    "resizable": true'
@@ -1249,7 +1257,7 @@ record_args=(
 [[ -n "$explicit_upstream_url" ]] &&
   record_args+=(--upstream-url "$explicit_upstream_url")
 [[ "$allow_unversioned" == true ]] &&
-  record_args+=(--unversioned-accepted)
+  record_args+=(--unversioned-acknowledged)
 if [[ "$json" == true ]]; then
   "$destination/scripts/record-installation" "${record_args[@]}" >/dev/null
 else

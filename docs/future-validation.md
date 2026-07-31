@@ -8,8 +8,7 @@
 - Extend icon-source diagnostics beyond the generator's enforceable alpha and
   canvas checks to flag likely circular masks, baked edge borders, and outer
   shadows without rejecting legitimate artwork.
-- Test the macOS 13 deployment target and WKWebView behavior across supported OS
-  releases.
+- Test the macOS 13 deployment target across supported OS releases.
 - Compare AppKit's lifecycle simplicity with SwiftUI only if the native shell
   grows materially.
 - Record Gatekeeper and ad-hoc signature behavior after moving a project within

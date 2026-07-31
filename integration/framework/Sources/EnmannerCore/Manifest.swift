@@ -448,31 +448,15 @@ public struct EnmannerManifest: Codable, Equatable, Sendable {
     }
 
     public struct Window: Codable, Equatable, Sendable {
-        public enum Mode: String, Codable, Sendable {
-            case embedded
-            case browser
-
-            public var launchesWindowless: Bool {
-                self == .browser
-            }
-
-            public var keepsRunningAfterLastWindowClosed: Bool {
-                true
-            }
-        }
-
-        public let mode: Mode
         public let width: Double
         public let height: Double
         public let resizable: Bool
 
         public init(
-            mode: Mode = .browser,
             width: Double = 1200,
             height: Double = 800,
             resizable: Bool = true
         ) {
-            self.mode = mode
             self.width = width
             self.height = height
             self.resizable = resizable

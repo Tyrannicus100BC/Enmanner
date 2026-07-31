@@ -188,10 +188,11 @@ the opt-in builds and tests the development-only app while the result remains
 `nativeLaunchVerificationRequired`.
 
 The plan classifies repository roots, repository subdirectories, unversioned
-folders, and workspaces containing nested repositories. A workspace containing
-sibling repositories needs an explicit choice: install in a designated
-existing repository, or knowingly keep the launcher configuration unversioned
-by passing `--allow-unversioned`.
+folders, and workspaces containing nested repositories. It reports a
+`recommendedIntegrationRoot`, confidence, configuration durability, and whether
+another product decision remains. For a high-confidence common workspace root,
+an agent may pass `--allow-unversioned` as a mechanical acknowledgement without
+asking the user again; the installation receipt records that durability choice.
 
 Keep the Enmanner source checkout outside every candidate integration root. On
 default macOS filesystems an `Enmanner/` checkout conflicts with the required
@@ -228,8 +229,10 @@ manifest state, generated-app ownership, managed-file state, icon capability,
 and optional runtime evidence. Enmanner does not load `.env`; the project
 command may do so explicitly. Remove local Swift products with
 `./.enmanner/scripts/clean`; builds report both app and cache size.
-Use `./.enmanner/scripts/validate --runtime --json-lines` for newline-delimited
-progress during longer lifecycle checks. After building, run
+Use `./.enmanner/scripts/validate --runtime --json` for the normal bounded
+machine-readable lifecycle result. Use `--json-lines` only while actively
+diagnosing a longer check and consuming its newline-delimited progress. After
+building, run
 `./.enmanner/scripts/test-app --json`; its build-matched receipt lets `doctor`
 report native-launch evidence instead of inferring success from bundle
 existence.
@@ -257,9 +260,6 @@ the manifest. Services use explicit readiness, including process-uptime
 readiness for workers. Startup tasks may expose temporary endpoints and finish
 through a completion probe. The single-process `application` shorthand lowers
 into that same component graph.
-
-Before choosing embedded presentation for a browser-capability-heavy project,
-use the [WKWebView compatibility checklist](docs/embedded-webview-checklist.md).
 
 Ask the coding agent to inspect the generated manifest rather than editing
 low-level settings yourself. The format is documented in
@@ -290,7 +290,7 @@ initial startup fails, it shows a plain-language error with recent output,
 copy/retry controls, and a way to reveal the project. If a previously-ready
 service exits, Enmanner restarts it and its affected dependants with bounded
 backoff while leaving unrelated components running. More than five failures in
-60 seconds opens the circuit breaker. Browser mode opens a page automatically
+60 seconds opens the circuit breaker. Enmanner opens a page automatically
 only on initial launch, never on recovery.
 Choose **Window → Server Log** or press **Command-Shift-L** to inspect the
 bounded live output while the app is starting, healthy, reconnecting, or
