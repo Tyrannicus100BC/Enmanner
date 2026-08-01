@@ -34,7 +34,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         NSApplication.shared.setActivationPolicy(.regular)
         observeLogs()
         // Activation lets macOS resolve access to projects in protected folders
-        // such as Desktop before Enmanner reads the manifest. Browser mode still
+        // such as Desktop before Enmanner reads the manifest. The launcher still
         // remains windowless because no window controller is created here.
         if testStatusFile == nil {
             NSApplication.shared.activate(ignoringOtherApps: true)
@@ -68,9 +68,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             if try prepareProjectConfigurationForLaunch() {
                 return
             }
-            if manifest?.window.mode.launchesWindowless == false {
-                showLauncherWindow()
-            }
             startServer()
         } catch {
             presentPreparationFailure(error)
@@ -78,19 +75,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-        !(manifest?.window.mode.keepsRunningAfterLastWindowClosed ?? false)
+        false
     }
 
     func applicationShouldHandleReopen(
         _ sender: NSApplication,
         hasVisibleWindows flag: Bool
     ) -> Bool {
-        guard !flag, let mode = manifest?.window.mode else { return true }
-        if mode == .embedded {
-            showLauncherWindow()
-            return false
-        }
-
+        guard !flag else { return true }
         // A Dock click that activates the app should only foreground it, leaving
         // the menu bar available for Quit. A later click while it is already
         // active reopens the browser. AppKit does not include the prior
@@ -219,21 +211,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 isRecovering = false
                 logBuffer.append("Application is ready.")
                 writeTestStatus(launch: launch)
-                switch manifest.window.mode {
-                case .embedded:
-                    windowController?.showEmbeddedApplication(
-                        at: launch.applicationURL
-                    )
-                case .browser:
-                    windowController?.showBrowserRunning(
-                        at: launch.applicationURL
-                    )
-                    windowController?.hideWindow()
-                    if !suppressBrowserForTesting &&
-                        !hasOpenedBrowserAutomatically {
-                        hasOpenedBrowserAutomatically = true
-                        NSWorkspace.shared.open(launch.applicationURL)
-                    }
+                windowController?.showBrowserRunning(
+                    at: launch.applicationURL
+                )
+                windowController?.hideWindow()
+                if !suppressBrowserForTesting &&
+                    !hasOpenedBrowserAutomatically {
+                    hasOpenedBrowserAutomatically = true
+                    NSWorkspace.shared.open(launch.applicationURL)
                 }
             } catch {
                 guard !Task.isCancelled else { return }
@@ -366,19 +351,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                       ) else {
                     return
                 }
-                switch manifest?.window.mode {
-                case .embedded:
-                    windowController?.showEmbeddedApplication(
-                        at: launch.applicationURL
-                    )
-                case .browser:
-                    windowController?.showBrowserRunning(
-                        at: launch.applicationURL
-                    )
-                    windowController?.hideWindow()
-                case nil:
-                    break
-                }
+                windowController?.showBrowserRunning(
+                    at: launch.applicationURL
+                )
+                windowController?.hideWindow()
             } catch {
                 guard !Task.isCancelled else { return }
                 showFailure(error: error)
@@ -442,7 +418,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             } ?? [],
             workingDirectory: runtimeFailure?.workingDirectory,
             exitStatus: exitStatus ?? runtimeFailure?.exitStatus,
-            includesRecentOutput: settings.includesRecentOutputInErrors
+            includesRecentOutput: settings.includesRecentOutputInErrors,
+            recentOutput: runtimeFailure?.recentLogs
         )
         controller?.showWindow(nil)
     }
@@ -460,8 +437,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         )
         configureMainMenu(appName: fallbackManifest.name)
         let controller = MainWindowController(
-            manifest: fallbackManifest,
-            settings: settings
+            manifest: fallbackManifest
         )
         controller.onRevealProject = { [bundleURL = Bundle.main.bundleURL] in
             let project = ProjectPaths.projectURL(forAppBundleURL: bundleURL)
@@ -481,14 +457,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private func showLauncherWindow() {
         NSApplication.shared.activate(ignoringOtherApps: true)
         guard let controller = ensureWindowController() else { return }
-        if manifest?.window.mode == .browser {
-            if isRecovering {
-                controller.showReconnecting()
-            } else if reachedReadyState, let applicationURL {
-                controller.showBrowserRunning(at: applicationURL)
-            } else {
-                controller.showStarting()
-            }
+        if isRecovering {
+            controller.showReconnecting()
+        } else if reachedReadyState, let applicationURL {
+            controller.showBrowserRunning(at: applicationURL)
+        } else {
+            controller.showStarting()
         }
         controller.showWindow(nil)
     }
@@ -499,7 +473,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
         guard let manifest, let projectURL else { return nil }
 
-        let controller = MainWindowController(manifest: manifest, settings: settings)
+        let controller = MainWindowController(manifest: manifest)
         controller.onRetry = { [weak self] in
             self?.retry()
         }
@@ -515,7 +489,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         logBuffer.onChange = { [weak self] snapshot in
             DispatchQueue.main.async {
                 self?.windowController?.updateLogs(snapshot)
-                self?.logWindowController?.updateLogs(snapshot)
+                if let self, let controller = self.logWindowController {
+                    controller.updateLogs(self.logs(for: controller.filterKey))
+                }
             }
         }
     }
@@ -528,18 +504,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         _ sender: Any?,
         projectMessage: String?
     ) {
-        guard let mode = manifest?.window.mode else { return }
         if settingsWindowController == nil {
             guard let projectURL else { return }
             let controller = SettingsWindowController(
                 settings: settings,
-                mode: mode,
                 projectURL: projectURL,
                 userConfiguration: manifest?.userConfiguration
             )
-            controller.onChange = { [weak self] in
-                self?.windowController?.applySettings()
-            }
             controller.onSaveAndRestart = { [weak self] in
                 self?.restartAfterConfigurationChange()
             }
@@ -565,40 +536,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     @objc private func showServerLog(_ sender: Any?) {
         if logWindowController == nil {
             let appName = manifest?.name ?? "Enmanner"
-            let controller = LogWindowController(appName: appName)
-            controller.updateLogs(logBuffer.snapshot())
+            let componentNames: [String]
+            if let manifest,
+               let graph = try? RuntimeGraph.make(from: manifest) {
+                componentNames = Array(graph.components.keys)
+            } else {
+                componentNames = []
+            }
+            let controller = LogWindowController(
+                appName: appName,
+                componentNames: componentNames
+            )
+            controller.onFilterChange = { [weak self, weak controller] key in
+                guard let self else { return }
+                controller?.updateLogs(self.logs(for: key))
+            }
+            controller.updateLogs(logs(for: "all"))
             logWindowController = controller
         }
         NSApplication.shared.activate(ignoringOtherApps: true)
         logWindowController?.showWindow(sender)
     }
 
-    @objc private func reloadApplication(_ sender: Any?) {
-        windowController?.reloadApplication()
-    }
-
-    @objc private func stopLoading(_ sender: Any?) {
-        windowController?.stopLoading()
-    }
-
-    @objc private func goBack(_ sender: Any?) {
-        windowController?.goBack()
-    }
-
-    @objc private func goForward(_ sender: Any?) {
-        windowController?.goForward()
-    }
-
-    @objc private func resetZoom(_ sender: Any?) {
-        windowController?.resetZoom()
-    }
-
-    @objc private func zoomIn(_ sender: Any?) {
-        windowController?.zoomIn()
-    }
-
-    @objc private func zoomOut(_ sender: Any?) {
-        windowController?.zoomOut()
+    private func logs(for filterKey: String) -> String {
+        switch filterKey {
+        case "all":
+            return logBuffer.snapshot()
+        case "enmanner":
+            return logBuffer.snapshot(component: nil)
+        default:
+            return logBuffer.snapshot(component: filterKey)
+        }
     }
 
     @objc private func showAppHelp(_ sender: Any?) {
@@ -615,16 +583,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         switch menuItem.action {
         case #selector(openApplicationInBrowser(_:)):
             return applicationURL != nil
-        case #selector(reloadApplication(_:)),
-             #selector(stopLoading(_:)),
-             #selector(resetZoom(_:)),
-             #selector(zoomIn(_:)),
-             #selector(zoomOut(_:)):
-            return windowController?.hasEmbeddedBrowser ?? false
-        case #selector(goBack(_:)):
-            return windowController?.canGoBack ?? false
-        case #selector(goForward(_:)):
-            return windowController?.canGoForward ?? false
         case #selector(revealProject(_:)):
             return projectURL != nil
         default:
@@ -734,44 +692,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         let viewMenu = NSMenu(title: "View")
         viewMenu.addItem(
             item(
-                "Back",
-                action: #selector(goBack(_:)),
-                key: "[",
-                target: self
-            )
-        )
-        viewMenu.addItem(
-            item(
-                "Forward",
-                action: #selector(goForward(_:)),
-                key: "]",
-                target: self
-            )
-        )
-        viewMenu.addItem(
-            item(
-                "Reload Page",
-                action: #selector(reloadApplication(_:)),
-                key: "r",
-                target: self
-            )
-        )
-        viewMenu.addItem(
-            item("Stop", action: #selector(stopLoading(_:)), key: ".", target: self)
-        )
-        viewMenu.addItem(.separator())
-        viewMenu.addItem(
-            item("Actual Size", action: #selector(resetZoom(_:)), key: "0", target: self)
-        )
-        viewMenu.addItem(
-            item("Zoom In", action: #selector(zoomIn(_:)), key: "+", target: self)
-        )
-        viewMenu.addItem(
-            item("Zoom Out", action: #selector(zoomOut(_:)), key: "-", target: self)
-        )
-        viewMenu.addItem(.separator())
-        viewMenu.addItem(
-            item(
                 "Enter Full Screen",
                 action: #selector(NSWindow.toggleFullScreen(_:)),
                 key: "f",
@@ -788,7 +708,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         windowMenu.addItem(.separator())
         windowMenu.addItem(
             item(
-                "Server Log",
+                "Runtime Logs",
                 action: #selector(showServerLog(_:)),
                 key: "l",
                 modifiers: [.command, .shift],

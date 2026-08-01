@@ -167,15 +167,18 @@ public struct RuntimePlan: Equatable, Sendable {
     public let graph: RuntimeGraph
     public let endpoints: [EndpointKey: ResolvedEndpoint]
     public let applicationURL: URL
+    public let executableSearchPaths: [String]
 
     public init(
         graph: RuntimeGraph,
         endpoints: [EndpointKey: ResolvedEndpoint],
-        applicationURL: URL
+        applicationURL: URL,
+        executableSearchPaths: [String] = []
     ) {
         self.graph = graph
         self.endpoints = endpoints
         self.applicationURL = applicationURL
+        self.executableSearchPaths = executableSearchPaths
     }
 
     public static func make(
@@ -233,7 +236,8 @@ public struct RuntimePlan: Equatable, Sendable {
         return RuntimePlan(
             graph: graph,
             endpoints: endpoints,
-            applicationURL: applicationURL
+            applicationURL: applicationURL,
+            executableSearchPaths: manifest.executableSearchPaths
         )
     }
 

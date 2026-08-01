@@ -1,25 +1,29 @@
 import AppKit
+import EnmannerCore
 
 @MainActor
 final class LogWindowController: NSWindowController {
     private let textView = NSTextView()
     private let entryCountLabel = NSTextField(labelWithString: "")
+    private let filterPopUp = NSPopUpButton()
     private var currentLogs = ""
+    private(set) var filterKey = "all"
+    var onFilterChange: ((String) -> Void)?
 
-    init(appName: String) {
+    init(appName: String, componentNames: [String]) {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 760, height: 480),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
         )
-        window.title = "\(appName) Server Log"
+        window.title = "\(appName) Runtime Logs"
         window.minSize = NSSize(width: 520, height: 320)
         window.isReleasedWhenClosed = false
         window.setFrameAutosaveName("EnmannerServerLogWindow")
         super.init(window: window)
 
-        configureViews()
+        configureViews(componentNames: componentNames)
     }
 
     required init?(coder: NSCoder) {
@@ -44,7 +48,7 @@ final class LogWindowController: NSWindowController {
         }
     }
 
-    private func configureViews() {
+    private func configureViews(componentNames: [String]) {
         guard let window else { return }
 
         let contentView = NSView()
@@ -86,6 +90,22 @@ final class LogWindowController: NSWindowController {
         entryCountLabel.textColor = .secondaryLabelColor
         entryCountLabel.font = .systemFont(ofSize: 11)
 
+        filterPopUp.translatesAutoresizingMaskIntoConstraints = false
+        filterPopUp.addItem(withTitle: "All Components")
+        filterPopUp.lastItem?.representedObject = "all"
+        filterPopUp.addItem(withTitle: "Enmanner")
+        filterPopUp.lastItem?.representedObject = "enmanner"
+        for component in componentNames.sorted() {
+            filterPopUp.addItem(
+                withTitle: component == RuntimeGraph.inlineApplicationComponent
+                    ? "Application"
+                    : component
+            )
+            filterPopUp.lastItem?.representedObject = component
+        }
+        filterPopUp.target = self
+        filterPopUp.action = #selector(changeFilter)
+
         let copyButton = NSButton(
             title: "Copy All",
             target: self,
@@ -95,6 +115,7 @@ final class LogWindowController: NSWindowController {
 
         contentView.addSubview(scrollView)
         contentView.addSubview(entryCountLabel)
+        contentView.addSubview(filterPopUp)
         contentView.addSubview(copyButton)
 
         NSLayoutConstraint.activate([
@@ -126,6 +147,9 @@ final class LogWindowController: NSWindowController {
                 constant: -16
             ),
 
+            filterPopUp.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
+            filterPopUp.centerYAnchor.constraint(equalTo: copyButton.centerYAnchor),
+
             copyButton.trailingAnchor.constraint(
                 equalTo: scrollView.trailingAnchor
             )
@@ -137,5 +161,10 @@ final class LogWindowController: NSWindowController {
     @objc private func copyAll() {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(currentLogs, forType: .string)
+    }
+
+    @objc private func changeFilter() {
+        filterKey = filterPopUp.selectedItem?.representedObject as? String ?? "all"
+        onFilterChange?(filterKey)
     }
 }

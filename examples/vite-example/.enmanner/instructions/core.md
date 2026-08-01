@@ -11,7 +11,12 @@
   reference.
 - Give the user-facing application component meaningful startup readiness.
 - Treat shared or already-running infrastructure as observed prerequisites,
-  never adopted services.
+  never adopted services. Do this without asking when independent lifecycle
+  evidence is clear; report the choice non-blockingly.
+- Treat a headless API or worker required by the human-facing application as a
+  managed component when the expected double-click experience should start it;
+  being headless or living in another repository does not make it an external
+  prerequisite.
 - Make browser clients recover after a managed-service restart.
 - Keep runtime data outside generated build output.
 - Keep secrets out of source, Git, logs, and `enmanner/enmanner.json`.
@@ -36,8 +41,6 @@
 
 ## MAY
 
-- Use the embedded WKWebView only after affirmatively testing compatibility;
-  the default-browser presentation is the safe default.
 - Add project-specific native window dimensions.
 - Extend the app with project-local tools that do not change the compatibility
   contract.

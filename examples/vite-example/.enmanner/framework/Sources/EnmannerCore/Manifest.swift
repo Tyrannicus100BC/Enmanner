@@ -4,6 +4,7 @@ public struct EnmannerManifest: Codable, Equatable, Sendable {
     public let version: Int
     public let name: String
     public let identifier: String
+    public let executableSearchPaths: [String]
     public let application: Application
     public let components: [String: Component]
     public let window: Window
@@ -14,6 +15,7 @@ public struct EnmannerManifest: Codable, Equatable, Sendable {
         version: Int,
         name: String,
         identifier: String,
+        executableSearchPaths: [String] = [],
         application: Application,
         components: [String: Component] = [:],
         window: Window = Window(),
@@ -23,6 +25,7 @@ public struct EnmannerManifest: Codable, Equatable, Sendable {
         self.version = version
         self.name = name
         self.identifier = identifier
+        self.executableSearchPaths = executableSearchPaths
         self.application = application
         self.components = components
         self.window = window
@@ -34,6 +37,7 @@ public struct EnmannerManifest: Codable, Equatable, Sendable {
         case version
         case name
         case identifier
+        case executableSearchPaths
         case application
         case components
         case window
@@ -46,6 +50,10 @@ public struct EnmannerManifest: Codable, Equatable, Sendable {
         version = try container.decode(Int.self, forKey: .version)
         name = try container.decode(String.self, forKey: .name)
         identifier = try container.decode(String.self, forKey: .identifier)
+        executableSearchPaths = try container.decodeIfPresent(
+            [String].self,
+            forKey: .executableSearchPaths
+        ) ?? []
         application = try container.decode(Application.self, forKey: .application)
         components = try container.decodeIfPresent(
             [String: Component].self,
@@ -448,31 +456,15 @@ public struct EnmannerManifest: Codable, Equatable, Sendable {
     }
 
     public struct Window: Codable, Equatable, Sendable {
-        public enum Mode: String, Codable, Sendable {
-            case embedded
-            case browser
-
-            public var launchesWindowless: Bool {
-                self == .browser
-            }
-
-            public var keepsRunningAfterLastWindowClosed: Bool {
-                true
-            }
-        }
-
-        public let mode: Mode
         public let width: Double
         public let height: Double
         public let resizable: Bool
 
         public init(
-            mode: Mode = .browser,
             width: Double = 1200,
             height: Double = 800,
             resizable: Bool = true
         ) {
-            self.mode = mode
             self.width = width
             self.height = height
             self.resizable = resizable
@@ -709,6 +701,17 @@ public enum ManifestValidator {
                 projectURL: projectURL,
                 issues: &issues
             )
+        }
+
+        for (index, path) in manifest.executableSearchPaths.enumerated() {
+            let field = "executableSearchPaths[\(index)]"
+            if path.isEmpty {
+                issues.append("\(field) must not be empty.")
+            } else if path.contains(":") {
+                issues.append("\(field) must be one directory, not a PATH list.")
+            } else if !path.hasPrefix("/") && !path.hasPrefix("~/") {
+                issues.append("\(field) must be absolute or home-relative (~/…).")
+            }
         }
 
         return issues
@@ -1160,11 +1163,11 @@ public enum ManifestValidator {
 
         for componentName in graph.startupOrder {
             guard let component = graph.components[componentName] else { continue }
-            let values = (component.command ?? []) +
-                Array(component.environment.values) +
-                (component.readiness?.command ?? []) +
-                (component.completion?.command ?? []) +
-                (component.check?.command ?? [])
+            var values: [String] = component.command ?? []
+            values.append(contentsOf: component.environment.values)
+            values.append(contentsOf: component.readiness?.command ?? [])
+            values.append(contentsOf: component.completion?.command ?? [])
+            values.append(contentsOf: component.check?.command ?? [])
             for value in values {
                 do {
                     _ = try ManifestInterpolator.expand(

@@ -9,8 +9,7 @@ var targets: [Target] = [
         name: "EnmannerLauncher",
         dependencies: ["EnmannerCore"],
         linkerSettings: [
-            .linkedFramework("AppKit"),
-            .linkedFramework("WebKit")
+            .linkedFramework("AppKit")
         ]
     ),
     .executableTarget(

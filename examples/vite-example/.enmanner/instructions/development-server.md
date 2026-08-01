@@ -2,6 +2,19 @@
 
 ## MUST
 
+- Start from a product-level service inventory. Inspect the target's repository
+  root, parent, and siblings for cooperating frontends, APIs, workers, startup
+  tasks, datastores, containers, and external prerequisites before choosing
+  inline `application` configuration.
+- Use a component graph whenever the user-facing workflow requires more than
+  one project-owned process, startup task, or observed prerequisite. Choosing a
+  frontend as the application endpoint does not exclude its dependencies from
+  the graph.
+- Classify by intended lifecycle ownership, not repository location. Use a
+  `service` when opening the app should start the process; use a `prerequisite`
+  only for separately administered infrastructure that should remain running
+  independently. A required HTTP API is usually a service, even when its code
+  lives in a sibling repository.
 - Put each executable and argument in a JSON command array. Do not rely on shell
   parsing.
 - Treat requested startup commands as intent. Verify every executable,
@@ -35,7 +48,7 @@
 
 - Use commands already present in the project's dependency system. Do not
   unwrap package-manager commands in ways that skip lifecycle hooks.
-- Give the application endpoint a preferred port in browser mode so
+- Give the application endpoint a preferred port so
   origin-scoped state stays stable when possible.
 - Before starting a stateful application, confirm that a separately
   terminal-started copy is not already using the same project data.

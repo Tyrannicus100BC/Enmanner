@@ -76,7 +76,20 @@ the foreground copy embedded in the package:
 ```
 
 Positive X moves right and positive Y moves down. The original PNG remains
-unchanged.
+unchanged. During iteration, add `--replace` to atomically replace an unchanged
+package previously created by `create-icon`. The command refuses edited Icon
+Composer packages, symbolic links, unexpected package contents, and standalone
+legacy destinations whose companion modern package cannot be recognized:
+
+```bash
+./.enmanner/scripts/create-icon \
+  --background enmanner/icon/icon-background.png \
+  --foreground enmanner/icon/icon-foreground.png \
+  --foreground-scale 0.82 \
+  --output enmanner/icon/AppIcon.icon \
+  --legacy-output enmanner/icon/AppIcon.icns \
+  --replace
+```
 
 The `.icon` package contains its own copies of the configured layers so it is
 self-contained. Keep the original high-resolution layers as canonical source

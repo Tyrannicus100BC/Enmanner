@@ -28,9 +28,6 @@ public enum ProcessConfigurationBuilder {
         projectURL: URL,
         baseEnvironment: [String: String] = ProcessInfo.processInfo.environment
     ) throws -> ProcessConfiguration {
-        let launchEnvironment = environmentForGUIApplication(
-            baseEnvironment
-        )
         let expandedCommand = try (component.command ?? []).map {
             try ManifestInterpolator.expand(
                 $0,
@@ -48,20 +45,24 @@ public enum ProcessConfigurationBuilder {
             component.workingDirectory,
             inside: projectURL
         )
-        let executableURL = try resolveExecutable(
-            executable,
-            environment: launchEnvironment,
-            workingDirectoryURL: workingDirectoryURL,
-            projectURL: projectURL
-        )
-        var environment = launchEnvironment
         let configuredEnvironment = try ManifestInterpolator.expand(
             component.environment,
             componentName: componentName,
             plan: plan,
             projectURL: projectURL
         )
+        var environment = baseEnvironment
         environment.merge(configuredEnvironment) { _, configured in configured }
+        environment = environmentForGUIApplication(
+            environment,
+            additionalSearchPaths: plan.executableSearchPaths
+        )
+        let executableURL = try resolveExecutable(
+            executable,
+            environment: environment,
+            workingDirectoryURL: workingDirectoryURL,
+            projectURL: projectURL
+        )
         environment["ENMANNER_COMPONENT"] = componentName
         environment["ENMANNER_PROJECT_DIR"] = projectURL.path
 
@@ -74,24 +75,26 @@ public enum ProcessConfigurationBuilder {
     }
 
     public static func environmentForGUIApplication(
-        _ environment: [String: String]
+        _ environment: [String: String],
+        additionalSearchPaths: [String] = []
     ) -> [String: String] {
         var result = environment
         let homeDirectory = environment["HOME"].flatMap {
             $0.isEmpty ? nil : $0
         } ?? NSHomeDirectory()
+        func expandingHome(_ value: String) -> String {
+            if value == "~" {
+                return homeDirectory
+            }
+            if value.hasPrefix("~/") {
+                return homeDirectory + String(value.dropFirst())
+            }
+            return value
+        }
+        let configured = additionalSearchPaths.map(expandingHome)
         let inherited = environment["PATH", default: ""]
             .split(separator: ":")
-            .map { entry -> String in
-                let value = String(entry)
-                if value == "~" {
-                    return homeDirectory
-                }
-                if value.hasPrefix("~/") {
-                    return homeDirectory + String(value.dropFirst())
-                }
-                return value
-            }
+            .map { expandingHome(String($0)) }
         let commonRuntimeDirectories = [
             "/opt/homebrew/bin",
             "/usr/local/bin",
@@ -101,7 +104,7 @@ public enum ProcessConfigurationBuilder {
             "/sbin"
         ]
         var directories: [String] = []
-        for directory in inherited + commonRuntimeDirectories
+        for directory in configured + inherited + commonRuntimeDirectories
             where !directory.isEmpty && !directories.contains(directory) {
             directories.append(directory)
         }

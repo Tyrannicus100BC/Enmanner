@@ -8,7 +8,13 @@ public final class LogBuffer: @unchecked Sendable {
     }
 
     private let queue = DispatchQueue(label: "local.enmanner.log-buffer")
-    private var entries: [String] = []
+    private struct Entry {
+        let text: String
+        let component: String?
+    }
+
+    private var entries: [Entry] = []
+    private var entriesByComponent: [String: [Entry]] = [:]
     private var lastMessageKey: String?
     private var repeatedCount = 0
     private var sensitiveValues: [String] = []
@@ -50,30 +56,64 @@ public final class LogBuffer: @unchecked Sendable {
         queue.sync {
             if lastMessageKey == messageKey, !entries.isEmpty {
                 repeatedCount += 1
-                entries[entries.count - 1] =
-                    "\(entry) (repeated \(repeatedCount)×)"
+                entries[entries.count - 1] = Entry(
+                    text: "\(entry) (repeated \(repeatedCount)×)",
+                    component: component
+                )
             } else {
                 lastMessageKey = messageKey
                 repeatedCount = 1
-                entries.append(entry)
+                entries.append(Entry(text: entry, component: component))
+            }
+            if let component {
+                var componentEntries = entriesByComponent[component, default: []]
+                componentEntries.append(Entry(text: entry, component: component))
+                if componentEntries.count > maximumEntries {
+                    componentEntries.removeFirst(
+                        componentEntries.count - maximumEntries
+                    )
+                }
+                entriesByComponent[component] = componentEntries
             }
             if entries.count > maximumEntries {
                 entries.removeFirst(entries.count - maximumEntries)
             }
-            let snapshot = entries.joined(separator: "\n")
+            let snapshot = entries.map(\.text).joined(separator: "\n")
             onChange?(snapshot)
         }
     }
 
     public func snapshot() -> String {
         queue.sync {
-            entries.joined(separator: "\n")
+            entries.map(\.text).joined(separator: "\n")
         }
     }
 
-    public func recentEntries(limit: Int = 20) -> [String] {
+    public func snapshot(component: String?) -> String {
         queue.sync {
-            Array(entries.suffix(max(0, limit)))
+            let selected = component.map { entriesByComponent[$0, default: []] }
+                ?? entries.filter { $0.component == nil }
+            return selected
+                .map(\.text)
+                .joined(separator: "\n")
+        }
+    }
+
+    public func recentEntries(
+        limit: Int = 20,
+        component: String? = nil,
+        componentOnly: Bool = false
+    ) -> [String] {
+        queue.sync {
+            let candidates: [Entry]
+            if componentOnly, let component {
+                candidates = entriesByComponent[component, default: []]
+            } else if componentOnly {
+                candidates = entries.filter { $0.component == nil }
+            } else {
+                candidates = entries
+            }
+            return Array(candidates.suffix(max(0, limit))).map(\.text)
         }
     }
 

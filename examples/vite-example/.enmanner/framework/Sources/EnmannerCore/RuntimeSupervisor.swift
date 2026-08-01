@@ -173,7 +173,10 @@ public final class RuntimeSupervisor: @unchecked Sendable {
                         expected: false,
                         command: [],
                         workingDirectory: "",
-                        recentLogs: logBuffer.recentEntries()
+                        recentLogs: logBuffer.recentEntries(
+                            component: stopped.key,
+                            componentOnly: true
+                        )
                     )
                 }
                 launchComplete = true
@@ -335,7 +338,10 @@ public final class RuntimeSupervisor: @unchecked Sendable {
                             expected: false,
                             command: [],
                             workingDirectory: "",
-                            recentLogs: logBuffer.recentEntries()
+                            recentLogs: logBuffer.recentEntries(
+                                component: name,
+                                componentOnly: true
+                            )
                         )
                     }
                 }
@@ -627,7 +633,10 @@ public final class RuntimeSupervisor: @unchecked Sendable {
                 command: [configuration.executableURL.path] +
                     configuration.arguments,
                 workingDirectory: configuration.workingDirectoryURL.path,
-                recentLogs: self.logBuffer.recentEntries()
+                recentLogs: self.logBuffer.recentEntries(
+                    component: name,
+                    componentOnly: true
+                )
             )
             let shouldReport = self.queue.sync {
                 guard !self.stopping, !exit.expected else { return false }
@@ -822,7 +831,10 @@ public final class RuntimeSupervisor: @unchecked Sendable {
             timeoutSeconds: timeoutSeconds,
             command: command,
             workingDirectory: workingDirectory,
-            recentLogs: logBuffer.recentEntries()
+            recentLogs: logBuffer.recentEntries(
+                component: component,
+                componentOnly: component != nil
+            )
         ))
     }
 }
