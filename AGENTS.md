@@ -3,8 +3,8 @@
 Choose the route that matches the task:
 
 - Integrating Enmanner into another project: start with
-  `docs/integration-checklist.md`, then use `docs/manifest.md` and the installed
-  `.enmanner/AGENTS.md` as directed by that checklist.
+  `docs/integration-checklist.md`, then use the manifest guide and installed
+  `.enmanner/AGENTS.md` selected by that checklist.
 - Modifying Enmanner itself: follow the contributor guidance below and read
   `docs/architecture.md` before changing lifecycle behavior.
 

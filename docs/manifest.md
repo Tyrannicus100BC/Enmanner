@@ -1,5 +1,10 @@
 # Manifest
 
+This is the component-graph reference for applications with multiple managed
+services, startup tasks, observed prerequisites, or manual application
+dependencies. For a self-contained one-process application, read the shorter
+[`manifest-application.md`](manifest-application.md) instead.
+
 `enmanner/enmanner.json` is project-owned, versioned configuration.
 `.enmanner/enmanner.schema.json` provides editor and agent validation. The
 containing directory is always spelled exactly `enmanner/`.

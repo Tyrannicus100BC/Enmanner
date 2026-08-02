@@ -85,7 +85,10 @@ Port-selection sockets are closed before launch. This leaves a small allocation
 race for each allocated endpoint, but `--strictPort` makes the Vite example fail
 clearly rather than silently choosing a mismatched port. Endpoint values remain
 frozen for the launcher session. A launcher-owned reservation or proxy would be
-more complex and is deferred.
+more complex and is deferred. Preferred-port probes use address-reuse semantics
+matching normal development servers so a recently closed HTTP connection in
+`TIME_WAIT` does not move an application to a different browser origin. A live
+listener or other incompatible owner still forces allocation of a fallback.
 
 ## Process lifecycle
 

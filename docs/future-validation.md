@@ -18,8 +18,8 @@
   `SIGTERM`.
 - Test readiness redirects, slow responses, intermittent failures, IPv6
   loopback, and authentication-free health endpoints.
-- Verify Vite and Next.js HMR and restart recovery across package managers,
-  Node versions, and browsers.
+- Verify Vite, Next.js, and Vinext HMR and restart recovery across package
+  managers, Node versions, and browsers.
 - Determine whether any important framework requires a stable launcher-owned
   reverse proxy rather than direct selected-port access.
 - Revisit which manifest fields are mandatory after several non-Vite adopters.

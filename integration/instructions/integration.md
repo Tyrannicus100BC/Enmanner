@@ -73,9 +73,12 @@ lifecycle behavior earlier, but cannot satisfy completion. Use this order:
    appearances with `preview-icon`, and inspect every rendition on the
    generated contact sheet for crop and balance. Open an individual rendition
    when the contact sheet leaves any ambiguity.
-12. Run `build-app` and inspect the actual Finder/Dock result. The build verifies
-   modern icon packaging, app ownership metadata, and the code signature. Run
-   `test-app` to verify native launch, readiness, normal quit, and cleanup.
+12. Run `finish-integration --runtime --json` to repeat lifecycle validation,
+    build the finished app, verify two native launch/quit cycles, and collect
+    doctor evidence in one result. Use `--open` when the verified app should
+    remain running for Finder/Dock inspection. The equivalent individual
+    `validate --runtime`, `build-app`, `test-app`, and `doctor` commands remain
+    available for diagnosis.
 13. Give the user a plain-language handoff after the finished app passes. Name
     the services the app starts and the prerequisites it only observes; explain
     that the app runs this local source checkout; identify which frontend and

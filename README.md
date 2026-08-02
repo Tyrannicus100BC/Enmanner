@@ -39,7 +39,7 @@ fit unless the user explicitly wants a browser-facing front door for it.
 For an integration, read and follow these in order:
 
 1. `docs/integration-checklist.md`
-2. `docs/manifest.md`
+2. the single-application or component-graph manifest guide selected there
 3. the installed project's `.enmanner/AGENTS.md`
 
 Only `integration/scripts/install` is run from this Enmanner checkout. After
@@ -139,13 +139,15 @@ sibling repositories can require choosing the common workspace instead. Use
 `--allow-subproject` only when the proposed nested target is intentionally the
 complete user-facing app.
 
-For a root Vite or Next.js project using npm, pnpm, Yarn, or Bun, the installer
-can infer a safe loopback startup command, create `enmanner/enmanner.json`,
+For a root Vite, Next.js, or Vinext project using npm, pnpm, Yarn, or Bun, the
+installer can infer a safe loopback startup command, create
+`enmanner/enmanner.json`,
 append narrowly-owned managed sections to `.gitignore` and `AGENTS.md`, and
 perform static validation. It reads an explicit `packageManager` field and
 matching root lockfile evidence, refuses conflicting package-manager signals,
-and only accepts tested direct `vite` or `next dev` scripts. A direct Express
-entry point can also be inferred when its package script, `PORT`, `HOST`, and
+and only accepts tested direct `vite`, `next dev`, or `vinext dev` scripts. A
+direct Express entry point can also be inferred when its package script,
+`PORT`, `HOST`, and
 `app.listen(PORT, HOST)` flow agree; that result remains explicitly marked as
 requiring runtime verification. See
 [docs/supported-toolchains.md](docs/supported-toolchains.md) for the exact
@@ -222,6 +224,11 @@ building, run
 `./.enmanner/scripts/test-app --json`; its build-matched receipt lets `doctor`
 report native-launch evidence instead of inferring success from bundle
 existence.
+After the icon has been reviewed, agents may run
+`./.enmanner/scripts/finish-integration --runtime --json` to execute final
+lifecycle validation, build, native testing, and doctor reporting in one
+machine-readable result. The explicit runtime flag preserves the state-change
+opt-in.
 Doctor groups historical provenance under `installationHistory` and live
 configuration/integration state under `currentStatus`, reports per-surface
 agent-instruction state, and reports installed, configured, lifecycle,
@@ -248,8 +255,9 @@ through a completion probe. The single-process `application` shorthand lowers
 into that same component graph.
 
 Ask the coding agent to inspect the generated manifest rather than editing
-low-level settings yourself. The format is documented in
-[docs/manifest.md](docs/manifest.md).
+low-level settings yourself. A self-contained one-process app uses the compact
+[application manifest guide](docs/manifest-application.md); multi-process and
+dependency-aware apps use the full [component-graph reference](docs/manifest.md).
 
 Projects may declare a curated set of local dotenv values for the native
 Settings window. On first launch, Enmanner materializes the configured `.env`

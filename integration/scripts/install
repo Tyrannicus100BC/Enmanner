@@ -476,6 +476,7 @@ if [[ -f "$target_dir/package.json" ]]; then
 
   has_vite_dependency=false
   has_next_dependency=false
+  has_vinext_dependency=false
   for dependency_section in dependencies devDependencies; do
     if /usr/bin/plutil -extract "$dependency_section.vite" raw \
       "$target_dir/package.json" >/dev/null 2>&1; then
@@ -485,10 +486,17 @@ if [[ -f "$target_dir/package.json" ]]; then
       "$target_dir/package.json" >/dev/null 2>&1; then
       has_next_dependency=true
     fi
+    if /usr/bin/plutil -extract "$dependency_section.vinext" raw \
+      "$target_dir/package.json" >/dev/null 2>&1; then
+      has_vinext_dependency=true
+    fi
   done
 
   framework_conflict=false
-  if [[ "$has_vite_dependency" == true && "$has_next_dependency" == true ]]; then
+  if [[ "$has_vinext_dependency" == true ]]; then
+    detected_framework="vinext"
+    add_detected_stack "Vinext"
+  elif [[ "$has_vite_dependency" == true && "$has_next_dependency" == true ]]; then
     framework_conflict=true
     inference_reason="Both Vite and Next.js are direct root dependencies; choose and verify the launcher command explicitly."
   elif [[ "$has_vite_dependency" == true ]]; then
@@ -507,6 +515,10 @@ if [[ -f "$target_dir/package.json" ]]; then
   elif [[ "$detected_framework" == "next" &&
     "$selected_script" == "dev" &&
     "$selected_script_value" =~ ^next[[:space:]]+dev([[:space:]]+(--turbopack|--turbo|--webpack))?[[:space:]]*$ ]]; then
+    script_matches_adapter=true
+  elif [[ "$detected_framework" == "vinext" &&
+    "$selected_script" == "dev" &&
+    "$selected_script_value" =~ ^vinext[[:space:]]+dev([[:space:]]+--turbopack)?[[:space:]]*$ ]]; then
     script_matches_adapter=true
   fi
 
@@ -536,6 +548,18 @@ if [[ -f "$target_dir/package.json" ]]; then
         candidate_command='["yarn", "run", "dev", "--hostname", "127.0.0.1", "--port", "${self.endpoints.http.port}"]'
         ;;
       bun:next)
+        candidate_command='["bun", "run", "dev", "--hostname", "127.0.0.1", "--port", "${self.endpoints.http.port}"]'
+        ;;
+      npm:vinext)
+        candidate_command='["npm", "run", "dev", "--", "--hostname", "127.0.0.1", "--port", "${self.endpoints.http.port}"]'
+        ;;
+      pnpm:vinext)
+        candidate_command='["pnpm", "run", "dev", "--hostname", "127.0.0.1", "--port", "${self.endpoints.http.port}"]'
+        ;;
+      yarn:vinext)
+        candidate_command='["yarn", "run", "dev", "--hostname", "127.0.0.1", "--port", "${self.endpoints.http.port}"]'
+        ;;
+      bun:vinext)
         candidate_command='["bun", "run", "dev", "--hostname", "127.0.0.1", "--port", "${self.endpoints.http.port}"]'
         ;;
     esac
@@ -817,7 +841,7 @@ emit_result() {
         "$(json_escape "$requested_name")"
     fi
     printf '],'
-    printf '"inference":{"packageManager":"%s","packageManagerSignal":"%s","framework":"%s","workingDirectory":"%s","command":%s,"runtimeVerificationRequired":%s,"preferredPort":%d,"preferredPortDerivation":{"algorithm":"cksum-v1","identifier":"%s","rangeStart":42000,"rangeSize":6000},"reason":"%s","signalsExamined":["root package.json packageManager field","root npm, pnpm, Yarn, and Bun lockfiles","root package.json scripts dev/start/serve","root Vite or Next.js dependency","conservative Express source patterns","nested package.json files","Docker Compose files","Makefile","go.mod","Cargo.toml","pyproject.toml or requirements.txt"],"staticEvidence":[' \
+    printf '"inference":{"packageManager":"%s","packageManagerSignal":"%s","framework":"%s","workingDirectory":"%s","command":%s,"runtimeVerificationRequired":%s,"preferredPort":%d,"preferredPortDerivation":{"algorithm":"cksum-v1","identifier":"%s","rangeStart":42000,"rangeSize":6000},"reason":"%s","signalsExamined":["root package.json packageManager field","root npm, pnpm, Yarn, and Bun lockfiles","root package.json scripts dev/start/serve","root Vite, Next.js, or Vinext dependency","conservative Express source patterns","nested package.json files","Docker Compose files","Makefile","go.mod","Cargo.toml","pyproject.toml or requirements.txt"],"staticEvidence":[' \
       "$(json_escape "$package_manager")" \
       "$(json_escape "$package_manager_signal")" \
       "$(json_escape "$detected_framework")" \
@@ -949,7 +973,7 @@ emit_result() {
       printf '"buildDevelopmentApp","testDevelopmentApp",'
       printf '"createAndConfigureIcon",'
     fi
-    printf '"buildApp","testApp"],'
+    printf '"finishIntegration"],'
     printf '"nextActionCommands":['
     if [[ "$manifest_status" != "configurationRequired" ]]; then
       printf '{"id":"validateLifecycle","command":["./.enmanner/scripts/validate","--runtime","--json"]},'
@@ -959,8 +983,7 @@ emit_result() {
       printf '{"id":"buildDevelopmentApp","command":["./.enmanner/scripts/build-app","--development","--json"]},'
       printf '{"id":"testDevelopmentApp","command":["./.enmanner/scripts/test-app","--development","--json"]},'
     fi
-    printf '{"id":"buildApp","command":["./.enmanner/scripts/build-app","--json"]},'
-    printf '{"id":"testApp","command":["./.enmanner/scripts/test-app","--json"]}],'
+    printf '{"id":"finishIntegration","command":["./.enmanner/scripts/finish-integration","--runtime","--json"]}],'
     printf '"warnings":['
     warning_separator=""
     if [[ "$stale_draft" == true ]]; then

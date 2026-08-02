@@ -78,6 +78,23 @@ public enum PortAllocator {
         guard descriptor >= 0 else { return false }
         defer { close(descriptor) }
 
+        // Runtime validation and native tests make real HTTP connections before
+        // shutdown. The server side of one of those connections can remain in
+        // TIME_WAIT after its listener is gone. Match normal development-server
+        // bind behavior so that transient TCP state does not move an app away
+        // from its preferred, origin-stable port. This still fails when another
+        // socket actually owns the address without compatible reuse semantics.
+        var reuseAddress: Int32 = 1
+        guard setsockopt(
+            descriptor,
+            SOL_SOCKET,
+            SO_REUSEADDR,
+            &reuseAddress,
+            socklen_t(MemoryLayout<Int32>.size)
+        ) == 0 else {
+            return false
+        }
+
         var address = sockaddr_in()
         address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
         address.sin_family = sa_family_t(AF_INET)

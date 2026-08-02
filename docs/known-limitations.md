@@ -27,11 +27,12 @@
 - No code sandbox, encrypted secret store, data migration framework, backup service,
   project upgrade manager, auto-updater, notarization, or public distribution.
 - The native status window is intentionally basic.
-- Installer inference completes configuration for tested root Vite and Next.js
-  projects using npm, pnpm, Yarn, or Bun, plus narrowly matched direct Express
-  entry points whose `PORT`, `HOST`, and `listen` flow agree. Custom scripts,
-  monorepos, and other stacks receive an inactive draft, candidates, structured
-  unresolved checks, and a `configurationRequired` result.
+- Installer inference completes configuration for tested root Vite, Next.js,
+  and Vinext projects using npm, pnpm, Yarn, or Bun, plus narrowly matched
+  direct Express entry points whose `PORT`, `HOST`, and `listen` flow agree.
+  Custom scripts, monorepos, parallel Next.js/Vinext scripts, and other stacks
+  receive an inactive draft, candidates, structured unresolved checks, and a
+  `configurationRequired` result.
 - Automated appearance previews depend on the current Xcode-bundled Icon
   Composer renderer. The actual Finder and Dock result still needs visual
   inspection on the target macOS release.

@@ -44,13 +44,20 @@ sequence.
    `targetScope.reviewRequired` is
    true, correct the target or explicitly acknowledge an intentional nested app
    with `--allow-subproject`.
-6. Apply the installation. For `cacheOnly`, the installer removes only known
+6. Select the smallest manifest guide that covers the ownership contract. For
+   one frontend process with no manually started application dependency, read
+   `docs/manifest-application.md`. For multiple managed services, startup
+   tasks, observed prerequisites, or manual application dependencies, read
+   `docs/manifest.md`. Do not read both unless the detected shape changes.
+7. Apply the installation. For `cacheOnly`, the installer removes only known
    disposable build caches. For incomplete or receiptless framework state,
    review and explicitly use `--replace-incomplete`; it relocates the old
    framework before installing.
-7. Continue from the installed `.enmanner/instructions/integration.md`. Use
+8. Continue from the installed `.enmanner/instructions/integration.md`. Use
    `./.enmanner/scripts/doctor --next` for a project-specific Markdown summary
-   of the remaining work and relevant focused references.
+   of the remaining work and relevant focused references. After icon review,
+   `./.enmanner/scripts/finish-integration --runtime --json` executes the final
+   lifecycle, build, native-test, and doctor gates in order.
 
 Enmanner reports completion as evidence milestones:
 

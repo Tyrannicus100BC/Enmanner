@@ -39,3 +39,34 @@ printf '%s\n' "$install_result" | jq -e '
   ' >/dev/null
 
 echo "✓ Next.js npm adapter passed real startup and shutdown validation"
+
+vinext_target="$test_root/Vinext Project"
+/usr/bin/ditto "$repository_dir/tests/fixtures/vinext-app" "$vinext_target"
+npm ci --prefix "$vinext_target" --audit=false --fund=false
+
+vinext_install_result="$(
+  "$repository_dir/integration/scripts/install" \
+    --no-build --json "$vinext_target"
+)"
+printf '%s\n' "$vinext_install_result" | jq -e '
+  (.manifestStatus == "inferred") and
+  (.inference.packageManager == "npm") and
+  (.inference.framework == "vinext") and
+  (.inference.command == [
+    "npm", "run", "dev", "--",
+    "--hostname", "127.0.0.1",
+    "--port", "${self.endpoints.http.port}"
+  ])
+' >/dev/null
+
+"$vinext_target/.enmanner/scripts/validate" --runtime --json |
+  jq -e '
+    .valid and
+    .runtime.readinessPassed and
+    .runtime.supervisorExited and
+    .runtime.processGroupStopped and
+    .runtime.readinessUnavailable and
+    .runtime.portReleased
+  ' >/dev/null
+
+echo "✓ Vinext npm adapter passed real startup and shutdown validation"

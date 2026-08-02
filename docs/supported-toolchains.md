@@ -10,6 +10,7 @@ forwarding contracts have been tested.
 | --- | --- | --- | --- | --- |
 | Vite | supported | supported | supported | supported |
 | Next.js | supported | supported | supported | supported |
+| Vinext | supported | supported | supported | supported |
 
 The application must have a root `package.json`, a `dev` script, and a direct
 root dependency on the detected framework. Tested script forms are:
@@ -17,6 +18,8 @@ root dependency on the detected framework. Tested script forms are:
 - Vite: `vite`, `vite dev`, or `vite serve`
 - Next.js: `next dev`, optionally followed by `--turbopack`, `--turbo`, or
   `--webpack`
+- Vinext: `vinext dev`, optionally followed by its accepted no-op
+  `--turbopack` compatibility flag
 
 Custom scripts, wrappers such as `concurrently`, and scripts that already
 configure networking receive `configurationRequired`. They may still be valid,
@@ -48,9 +51,15 @@ effective GUI `PATH`.
 ## Generated networking arguments
 
 Vite adapters pass `--host 127.0.0.1`, the selected `--port`, and
-`--strictPort`. Next.js adapters pass `--hostname 127.0.0.1` and the selected
-`--port`. npm receives its required `--` argument separator; pnpm, Yarn, and
-Bun receive framework arguments directly after the script name.
+`--strictPort`. Next.js and Vinext adapters pass `--hostname 127.0.0.1` and the
+selected `--port`. npm receives its required `--` argument separator; pnpm,
+Yarn, and Bun receive framework arguments directly after the script name.
+
+Vinext support is deliberately limited to launching an already-configured
+local project. Enmanner does not run `vinext init`, choose between parallel
+`dev` and `dev:vinext` scripts, select a deployment target, configure Wrangler,
+or convert cloud-bound application code and data. Those are project migrations,
+not launcher inference.
 
 Projects outside this matrix continue to receive an inactive draft manifest and
 structured checks. They are not necessarily incompatible with Enmanner; their

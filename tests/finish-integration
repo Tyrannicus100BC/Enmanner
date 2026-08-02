@@ -1,0 +1,42 @@
+#!/bin/bash
+set -euo pipefail
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+repository_dir="$(cd "$script_dir/.." && pwd)"
+test_root="$(mktemp -d "${TMPDIR:-/tmp}/Enmanner Finish Tests.XXXXXX")"
+cleanup() {
+  rm -rf "$test_root"
+}
+trap cleanup EXIT
+
+project_dir="$test_root/Project With Spaces"
+scripts_dir="$project_dir/.enmanner/scripts"
+mkdir -p "$scripts_dir"
+cp "$repository_dir/integration/scripts/finish-integration" "$scripts_dir/"
+
+for command_name in validate build-app test-app doctor; do
+  stub="$scripts_dir/$command_name"
+  cp "$repository_dir/tests/fixtures/finish-json-command" "$stub"
+  chmod +x "$stub"
+done
+
+if "$scripts_dir/finish-integration" --json >"$test_root/missing-runtime.out" 2>&1; then
+  echo "Error: finish-integration did not require --runtime." >&2
+  exit 1
+fi
+grep -Fq "requires explicit --runtime" "$test_root/missing-runtime.out"
+
+result="$test_root/result.json"
+"$scripts_dir/finish-integration" --runtime --json >"$result"
+jq -e '
+  .valid == true and
+  .opened == false and
+  .validation.step == "validate" and
+  .validation.arguments == ["--runtime", "--json"] and
+  .build.step == "build-app" and
+  .build.arguments == ["--json"] and
+  .nativeTest.step == "test-app" and
+  .doctor.step == "doctor"
+' "$result" >/dev/null
+
+echo "✓ finish-integration orchestration passed"

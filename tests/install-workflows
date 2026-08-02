@@ -98,6 +98,11 @@ write_adapter_project() {
       dependency="next"
       version="^16.0.0"
       ;;
+    vinext)
+      script="vinext dev"
+      dependency="vinext"
+      version="^0.0.0"
+      ;;
   esac
   case "$package_manager" in
     npm)
@@ -152,10 +157,23 @@ write_adapter_project() {
 }
 
 for adapter_package_manager in npm pnpm yarn bun; do
-  for adapter_framework in vite next; do
+  for adapter_framework in vite next vinext; do
     write_adapter_project "$adapter_package_manager" "$adapter_framework"
   done
 done
+
+parallel_vinext_target="$adapter_root/Parallel Next and Vinext Scripts"
+mkdir -p "$parallel_vinext_target"
+printf '%s\n' \
+  '{"private":true,"scripts":{"dev":"next dev","dev:vinext":"vinext dev"},"dependencies":{"next":"^16.0.0","vinext":"^0.0.0"},"devDependencies":{"vite":"^8.0.0"}}' \
+  > "$parallel_vinext_target/package.json"
+: > "$parallel_vinext_target/package-lock.json"
+"$repository_dir/integration/scripts/install" --plan --json \
+  "$parallel_vinext_target" | jq -e '
+    (.manifestStatus == "configurationRequired") and
+    (.inference.framework == "vinext") and
+    (.inference.reason | contains("not a tested direct framework command"))
+  ' >/dev/null
 
 conflict_target="$adapter_root/Conflicting Package Managers"
 mkdir -p "$conflict_target"
