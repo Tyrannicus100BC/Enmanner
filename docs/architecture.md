@@ -36,10 +36,11 @@ embedded.
 - `enmanner-validator` reuses the exact core types for script-facing static and
   runtime validation.
 - `build-app` compiles in release mode, creates a conventional app bundle with
-  `plutil`, selects a configured Icon Composer `.icon` package when `actool` is
-  available or a configured legacy `.icns` fallback when it is not, verifies
-  the modern icon metadata and image stack, ad-hoc signs locally, and verifies
-  the signature.
+  `plutil`, attempts a configured Icon Composer `.icon` package when `actool`
+  is available, and accepts it only when compilation produces a verified modern
+  image stack. If that `actool` cannot produce the stack, the build uses a
+  configured legacy `.icns` fallback. It ad-hoc signs locally and verifies the
+  signature.
   It embeds an ownership marker and refuses to replace a same-named app that it
   cannot attribute to the current bundle identifier.
 - `build-app --development` uses the same launcher but creates a separately
@@ -238,12 +239,13 @@ additional permissions.
 
 Apple Command Line Tools provide `swift`, the macOS SDK, `plutil`, and
 `codesign`, so full Xcode is not required when no icon or a legacy `.icns` is
-configured. Modern Icon Composer `.icon` packages require a current full Xcode
-installation because Enmanner compiles them with `actool`. The result includes an
+configured. Modern Icon Composer `.icon` packages require a capable current full
+Xcode installation because Enmanner compiles them with `actool`. The result includes an
 asset catalog image stack and `CFBundleIconName`, plus an `.icns` fallback. The
 build verifies both the metadata and `IconImageStack`. A manifest may declare
-both formats; the build prefers the modern source when `actool` is present and
-automatically chooses the legacy source on Command Line Tools-only machines.
+both formats; the build attempts the modern source when `actool` is present and
+automatically chooses the legacy source when modern compilation is unavailable
+or does not produce an `IconImageStack`.
 When `actool` is present,
 a directly configured legacy `.icns` fails validation unless the caller uses
 the explicit `--allow-legacy-icon` escape hatch; without `actool`, it remains a

@@ -51,6 +51,7 @@ app_size=""
 cache_size=""
 bundle_identifier=""
 icon_path=""
+legacy_icon_path=""
 icon_packaging=""
 signing_verified=false
 replaced_existing_app=false
@@ -121,6 +122,7 @@ manifest_bundle_identifier="$("$validator" --project "$project_dir" --print iden
 managed_components="$("$validator" --project "$project_dir" --print managed-components)"
 prerequisites="$("$validator" --project "$project_dir" --print prerequisites)"
 icon_path="$("$validator" --project "$project_dir" --print icon)"
+legacy_icon_path="$("$validator" --project "$project_dir" --print icon-legacy)"
 bundle_identifier="$manifest_bundle_identifier"
 if [[ "$development" == true ]]; then
   app_name="$app_name Development"
@@ -371,33 +373,46 @@ else
       --output-format human-readable-text \
       3>&-
 
-    if [[ ! -f "$icon_output/Assets.car" ]]; then
-      echo "Error: actool did not produce Assets.car for $icon_path." >&2
-      exit 1
-    fi
-    cp "$icon_output/Assets.car" "$contents/Resources/Assets.car"
-    if [[ -f "$icon_output/$icon_name.icns" ]]; then
-      cp "$icon_output/$icon_name.icns" "$contents/Resources/$icon_name.icns"
-    fi
-    /usr/bin/plutil -insert CFBundleIconFile -string "$icon_name" "$plist"
-    /usr/bin/plutil -insert CFBundleIconName -string "$icon_name" "$plist"
-
-    compiled_icon_name="$(/usr/bin/plutil -extract CFBundleIconName raw "$plist")"
-    if [[ "$compiled_icon_name" != "$icon_name" ]]; then
-      echo "Error: the compiled app is missing the expected CFBundleIconName." >&2
-      exit 1
-    fi
+    modern_icon_verified=false
     asset_info="$stage_dir/icon-assets.json"
-    if ! xcrun assetutil --info "$contents/Resources/Assets.car" > "$asset_info"; then
-      echo "Error: assetutil could not inspect the compiled icon catalog." >&2
+    if [[ -f "$icon_output/Assets.car" ]]; then
+      if ! xcrun assetutil --info "$icon_output/Assets.car" > "$asset_info"; then
+        echo "Error: assetutil could not inspect the compiled icon catalog." >&2
+        exit 1
+      fi
+      if /usr/bin/grep -Eq \
+        '"AssetType"[[:space:]]*:[[:space:]]*"IconImageStack"' "$asset_info"; then
+        modern_icon_verified=true
+      fi
+    fi
+
+    if [[ "$modern_icon_verified" == true ]]; then
+      cp "$icon_output/Assets.car" "$contents/Resources/Assets.car"
+      if [[ -f "$icon_output/$icon_name.icns" ]]; then
+        cp "$icon_output/$icon_name.icns" "$contents/Resources/$icon_name.icns"
+      fi
+      /usr/bin/plutil -insert CFBundleIconFile -string "$icon_name" "$plist"
+      /usr/bin/plutil -insert CFBundleIconName -string "$icon_name" "$plist"
+
+      compiled_icon_name="$(/usr/bin/plutil -extract CFBundleIconName raw "$plist")"
+      if [[ "$compiled_icon_name" != "$icon_name" ]]; then
+        echo "Error: the compiled app is missing the expected CFBundleIconName." >&2
+        exit 1
+      fi
+      echo "✓ Verified CFBundleIconName and the compiled IconImageStack"
+    elif [[ -n "$legacy_icon_path" && -f "$project_dir/$legacy_icon_path" ]]; then
+      echo "Warning: this Xcode actool cannot compile an Icon Composer image stack." >&2
+      echo "  Using the configured legacy fallback: $legacy_icon_path" >&2
+      icon_path="$legacy_icon_path"
+      icon_source="$project_dir/$icon_path"
+      icon_packaging="legacyIcns"
+      cp "$icon_source" "$contents/Resources/AppIcon.icns"
+      /usr/bin/plutil -insert CFBundleIconFile -string "AppIcon" "$plist"
+    else
+      echo "Error: actool did not produce a modern IconImageStack for $icon_path." >&2
+      echo "  Install a current Xcode, or configure icon.legacy as a fallback." >&2
       exit 1
     fi
-    if ! /usr/bin/grep -Eq \
-      '"AssetType"[[:space:]]*:[[:space:]]*"IconImageStack"' "$asset_info"; then
-      echo "Error: Assets.car does not contain a modern IconImageStack." >&2
-      exit 1
-    fi
-    echo "✓ Verified CFBundleIconName and the compiled IconImageStack"
   else
     icon_packaging="legacyIcns"
     cp "$icon_source" "$contents/Resources/AppIcon.icns"

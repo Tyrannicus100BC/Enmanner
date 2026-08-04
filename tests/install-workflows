@@ -666,6 +666,19 @@ if "$vite_target/.enmanner/scripts/preview-icon" \
   exit 1
 fi
 grep -Fq "must stay under .enmanner/.build" "$test_root/preview-owned.out"
+fallback_app="$vite_target/Vite Project.app"
+PATH="$repository_dir/tests/fixtures/xcode-without-icon-composer:$PATH" \
+  "$vite_target/.enmanner/scripts/build-app" --json \
+  >"$test_root/legacy-capability-fallback.json"
+jq -e '
+  .valid and
+  (.icon.source == "enmanner/icon/Test.icns") and
+  (.icon.packaging == "legacyIcns") and
+  .icon.verified
+' "$test_root/legacy-capability-fallback.json" >/dev/null
+test -f "$fallback_app/Contents/Resources/AppIcon.icns"
+test ! -e "$fallback_app/Contents/Resources/Assets.car"
+rm -rf "$fallback_app"
 gitignore_with_stale_app="$test_root/gitignore-with-stale-app"
 /usr/bin/awk '
   $0 == "# enmanner:end" { print "/Old Name.app/" }

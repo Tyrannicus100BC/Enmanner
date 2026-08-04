@@ -341,7 +341,7 @@ struct EnmannerValidatorCommand {
             componentName: diagnosticPlan.graph.applicationComponent,
             component: applicationComponent,
             plan: diagnosticPlan,
-            projectURL: projectURL,
+            projectURL: projectURL
         )
         let runtimeReport = runtime
             ? try await validateRuntime(

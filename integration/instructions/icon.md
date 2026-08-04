@@ -125,8 +125,10 @@ Commit both generated formats and configure their project-relative paths:
 },
 ```
 
-Enmanner selects `modern` when `actool` is available and `legacy` otherwise, so
-developers do not need to edit the manifest for their local toolchain.
+Enmanner attempts `modern` when `actool` is available and accepts it only when
+the result contains a verified `IconImageStack`. It automatically uses `legacy`
+when `actool` is absent or too old to produce that stack, so developers do not
+need to edit the manifest for their local toolchain.
 The single-string modern form remains compatible, but it does not provide a
 build source for Command Line Tools-only collaborators.
 

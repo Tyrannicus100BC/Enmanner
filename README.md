@@ -84,8 +84,9 @@ No paid Apple Developer Program account, Homebrew package, global npm package,
 when `codesign` is available. Modern Icon Composer `.icon` packages additionally
 require a current full Xcode installation so Enmanner can compile them with
 `actool`. Shared projects may configure both `icon.modern` and `icon.legacy`;
-the build selects the modern source when `actool` is available and the legacy
-fallback otherwise. When that tool is available, Enmanner rejects a directly
+the build accepts the modern source only when `actool` produces a verified
+`IconImageStack`, and uses the legacy fallback otherwise. When capable modern
+tooling is available, Enmanner rejects a directly
 configured legacy `.icns` by default to prevent the Tahoe compatibility
 enclosure ("icon jail"). Legacy icons remain a warned fallback on Command Line
 Tools-only machines, with `--allow-legacy-icon` available for an intentional

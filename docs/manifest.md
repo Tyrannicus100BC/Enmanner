@@ -395,8 +395,10 @@ formats:
 }
 ```
 
-When Xcode's `actool` is available, `build-app` selects and compiles `modern`.
-On a Command Line Tools-only Mac, it selects `legacy`. Both paths are
+When Xcode's `actool` is available, `build-app` attempts to compile `modern`.
+It accepts that result only when it contains a verified `IconImageStack`; an
+older `actool` that cannot produce the stack automatically uses `legacy`, as
+does a Command Line Tools-only Mac. Both paths are
 project-relative, must stay under the project-owned `enmanner/` directory, and
 must exist. A single string remains supported for existing manifests:
 
