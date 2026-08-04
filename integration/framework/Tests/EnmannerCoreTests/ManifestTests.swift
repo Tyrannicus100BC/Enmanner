@@ -18,6 +18,7 @@ final class ManifestTests: XCTestCase {
                       "PORT": "${self.endpoints.http.port}"
                     },
                     "preferredPort": 43120,
+                    "browserHostname": "minimal.localhost",
                     "readiness": {
                       "path": "/",
                       "timeoutSeconds": 5
@@ -41,6 +42,57 @@ final class ManifestTests: XCTestCase {
         XCTAssertEqual(graph.applicationCommand, ["/usr/bin/true"])
         XCTAssertEqual(graph.applicationPreferredPort, 43120)
         XCTAssertEqual(graph.applicationComponent, "__application")
+        XCTAssertEqual(graph.applicationBrowserHostname, "minimal.localhost")
+        let plan = try RuntimePlan.make(manifest: manifest)
+        XCTAssertEqual(plan.applicationURL.host, "minimal.localhost")
+        XCTAssertEqual(
+            plan.endpoints[
+                .init(component: "__application", endpoint: "http")
+            ]?.host,
+            "127.0.0.1"
+        )
+    }
+
+    func testValidatesBrowserHostnameAsLocalhostSubdomain() throws {
+        let directory = try temporaryDirectory()
+        let valid = EnmannerManifest(
+            version: 3,
+            name: "Dream Studio",
+            identifier: "local.enmanner.dream-studio",
+            application: .init(
+                command: ["/usr/bin/true"],
+                browserHostname: "DreamStudio.localhost",
+                readiness: .init(path: "/")
+            )
+        )
+        XCTAssertEqual(
+            ManifestValidator.validate(valid, projectURL: directory),
+            []
+        )
+
+        for hostname in [
+            "localhost",
+            "dream.studio.localhost",
+            "-dream.localhost",
+            "dream.local",
+            "example.com"
+        ] {
+            let invalid = EnmannerManifest(
+                version: 3,
+                name: "Dream Studio",
+                identifier: "local.enmanner.dream-studio",
+                application: .init(
+                    command: ["/usr/bin/true"],
+                    browserHostname: hostname,
+                    readiness: .init(path: "/")
+                )
+            )
+            XCTAssertTrue(
+                ManifestValidator.validate(invalid, projectURL: directory)
+                    .contains { $0.contains("browserHostname") },
+                "Expected \(hostname) to be rejected."
+            )
+        }
     }
 
     func testValidationRejectsMalformedExecutableSearchPaths() throws {

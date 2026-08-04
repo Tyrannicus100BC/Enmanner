@@ -20,6 +20,10 @@ before the first app build.
 To prove hot reload, edit the heading in `src/main.js` and save. Vite updates
 the default-browser page without rebuilding the app.
 
+The launcher opens `enmannerviteexample.localhost` so the browser identifies
+the app at a glance. Vite still binds only to `127.0.0.1`; the friendly
+hostname changes the browser URL, not the listener.
+
 To prove process recovery while the native app is open, stop the supervised Vite
 child process from an activity monitor or development tool. Enmanner starts the
 configured foreground command again, waits for readiness, and restores the

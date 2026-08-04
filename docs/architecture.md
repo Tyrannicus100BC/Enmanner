@@ -79,7 +79,9 @@ while retaining several years of Mac coverage.
    and wait for its required HTTP, TCP, command, or process readiness probe.
 8. Remain windowless while keeping normal Dock presence.
 9. Once the configured application component is ready, ask the default browser
-   to open its named HTTP endpoint.
+   to open its named HTTP endpoint, optionally substituting an app-specific
+   `.localhost` browser hostname without changing the listener, readiness, or
+   inter-component endpoint host.
 
 Port-selection sockets are closed before launch. This leaves a small allocation
 race for each allocated endpoint, but `--strictPort` makes the Vite example fail
@@ -159,6 +161,13 @@ another app foregrounds Enmanner so its menus, including Quit, are available.
 Clicking the Dock icon again while Enmanner is already active explicitly
 reopens the default browser. When the server is not ready, that second click
 reveals the native status window instead.
+
+The optional application browser hostname is deliberately separate from the
+endpoint host. It creates a more recognizable browser URL while services still
+bind and communicate through explicit loopback endpoints. Since the hostname
+changes the browser origin, integration guidance requires a source review and
+an explicit agent judgment about existing origin-scoped state before enabling
+it.
 
 ## Native menus and settings
 

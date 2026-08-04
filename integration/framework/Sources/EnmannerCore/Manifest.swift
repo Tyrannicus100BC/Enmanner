@@ -140,6 +140,7 @@ public struct EnmannerManifest: Codable, Equatable, Sendable {
         public let component: String?
         public let endpoint: String?
         public let path: String
+        public let browserHostname: String?
         public let command: [String]?
         public let workingDirectory: String
         public let environment: [String: String]
@@ -150,11 +151,13 @@ public struct EnmannerManifest: Codable, Equatable, Sendable {
         public init(
             component: String,
             endpoint: String,
-            path: String = "/"
+            path: String = "/",
+            browserHostname: String? = nil
         ) {
             self.component = component
             self.endpoint = endpoint
             self.path = path
+            self.browserHostname = browserHostname
             command = nil
             workingDirectory = "."
             environment = [:]
@@ -169,11 +172,13 @@ public struct EnmannerManifest: Codable, Equatable, Sendable {
             environment: [String: String] = [:],
             dependsOn: [String] = [],
             preferredPort: UInt16? = nil,
+            browserHostname: String? = nil,
             readiness: Probe
         ) {
             component = nil
             endpoint = nil
             path = readiness.path
+            self.browserHostname = browserHostname
             self.command = command
             self.workingDirectory = workingDirectory
             self.environment = environment
@@ -186,6 +191,7 @@ public struct EnmannerManifest: Codable, Equatable, Sendable {
             case component
             case endpoint
             case path
+            case browserHostname
             case command
             case workingDirectory
             case environment
@@ -198,6 +204,10 @@ public struct EnmannerManifest: Codable, Equatable, Sendable {
             let container = try decoder.container(keyedBy: CodingKeys.self)
             component = try container.decodeIfPresent(String.self, forKey: .component)
             endpoint = try container.decodeIfPresent(String.self, forKey: .endpoint)
+            browserHostname = try container.decodeIfPresent(
+                String.self,
+                forKey: .browserHostname
+            )
             command = try container.decodeIfPresent([String].self, forKey: .command)
             workingDirectory = try container.decodeIfPresent(
                 String.self,
@@ -625,6 +635,8 @@ public enum ManifestValidator {
         #"^[A-Za-z0-9][A-Za-z0-9-]*(\.[A-Za-z0-9][A-Za-z0-9-]*)+$"#
     private static let componentNamePattern = #"^[a-z][a-z0-9-]{0,62}$"#
     private static let endpointNamePattern = #"^[a-z][a-z0-9-]{0,62}$"#
+    private static let browserHostnamePattern =
+        #"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.localhost$"#
     private static let secretKeyPattern =
         #"(?i)(secret|token|password|api[_-]?key|private[_-]?key)"#
     private static let environmentKeyPattern = #"^[A-Za-z_][A-Za-z0-9_]*$"#
@@ -649,6 +661,15 @@ public enum ManifestValidator {
             options: .regularExpression
         ) == nil {
             issues.append("identifier must look like a reverse-DNS identifier.")
+        }
+        if let hostname = manifest.application.browserHostname,
+           hostname.range(
+            of: browserHostnamePattern,
+            options: .regularExpression
+           ) == nil {
+            issues.append(
+                "application.browserHostname must be one DNS label followed by .localhost."
+            )
         }
         if !(320...4096).contains(Int(manifest.window.width)) ||
             !(240...2160).contains(Int(manifest.window.height)) {
@@ -1151,7 +1172,8 @@ public enum ManifestValidator {
         )
         guard let applicationEndpoint = endpoints[applicationKey],
               let applicationURL = applicationEndpoint.url(
-                path: graph.applicationPath
+                path: graph.applicationPath,
+                hostname: graph.applicationBrowserHostname
               ) else {
             return
         }

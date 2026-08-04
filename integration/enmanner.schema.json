@@ -122,6 +122,9 @@
           "minimum": 1024,
           "maximum": 65535
         },
+        "browserHostname": {
+          "$ref": "#/$defs/browserHostname"
+        },
         "readiness": {
           "$ref": "#/$defs/probe"
         }
@@ -143,8 +146,15 @@
         "path": {
           "type": "string",
           "pattern": "^/"
+        },
+        "browserHostname": {
+          "$ref": "#/$defs/browserHostname"
         }
       }
+    },
+    "browserHostname": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?\\.localhost$"
     },
     "component": {
       "oneOf": [

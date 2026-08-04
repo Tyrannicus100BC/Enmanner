@@ -43,6 +43,22 @@
   provide the capability its dependents need.
 - Treat `bodyContains` as a raw HTTP-response assertion; do not use text that
   exists only after client-side JavaScript renders.
+- Before setting `application.browserHostname`, inspect application source and
+  relevant client libraries for direct or wrapped use of Local Storage,
+  IndexedDB, Cache Storage, the Origin Private File System, persistent cookies,
+  and service workers. Check hard-coded origin, host allow-list, CORS,
+  cookie-domain, authentication callback, and WebSocket assumptions as well.
+  Do not conclude that storage is absent from a search for literal
+  `localStorage` alone.
+- State a project-specific conclusion about the origin change. User-authored
+  records, documents, drafts, history, offline data, credentials, or other
+  hard-to-recreate state on the current origin require preserving the endpoint
+  hostname. Scroll position, last selection, audio preference, filters,
+  dismissed notices, and reproducible caches may be left behind. When only
+  those disposable values are at risk and host/origin assumptions are
+  compatible, configure a recognizable single-label hostname such as
+  `luna.localhost`. Otherwise omit `browserHostname`. Make this judgment from
+  the evidence; do not ask the user to classify each stored value.
 
 ## SHOULD
 

@@ -59,6 +59,12 @@ sequence.
    `./.enmanner/scripts/finish-integration --runtime --json` executes the final
    lifecycle, build, native-test, and doctor gates in order.
 
+During configuration, the integrating agent must inspect origin-scoped browser
+storage and state its judgment about adopting an app-specific `.localhost`
+browser hostname. It should use the vanity hostname when only disposable UI
+state or preferences would be left on the old origin, and preserve the endpoint
+host when existing important user state would otherwise become inaccessible.
+
 Enmanner reports completion as evidence milestones:
 
 - `configured`

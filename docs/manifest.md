@@ -221,7 +221,8 @@ than a separate product question.
   "application": {
     "component": "frontend",
     "endpoint": "http",
-    "path": "/"
+    "path": "/",
+    "browserHostname": "studio.localhost"
   },
   "window": {
     "width": 1440,
@@ -318,6 +319,14 @@ including IPv6 formatting, and supports only these exact references:
 - `${components.api.endpoints.http.port}`
 - `${components.api.endpoints.http.url}`
 - `${project.directory}`
+
+`application.browserHostname` optionally changes only the host in the URL
+opened for the application. It must be one DNS label followed by `.localhost`,
+for example `studio.localhost`. The component continues to bind, advertise,
+and receive readiness checks through its endpoint host, normally `127.0.0.1`.
+Because the browser hostname creates a different origin, use it only after the
+origin-state review in the single-application guide. The same decision applies
+to component-graph applications.
 
 There is no expression language or shell expansion. Unknown references fail.
 

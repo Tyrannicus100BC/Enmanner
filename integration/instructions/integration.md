@@ -52,34 +52,41 @@ lifecycle behavior earlier, but cannot satisfy completion. Use this order:
    references, loopback binding, dependency ordering, readiness, shutdown, and
    preferred-port behavior. The application endpoint is usually the frontend;
    selecting it does not make its backend or other required services optional.
-8. Read `persistence.md` and `security.md` when the project has stateful
+8. Decide whether to give the application an app-specific `.localhost` browser
+   hostname. Follow the origin-state investigation in `development-server.md`,
+   state the evidence and your project-specific judgment, and set
+   `application.browserHostname` when the move would leave behind only
+   disposable UI state or preferences. Omit it when important existing browser
+   data would otherwise become inaccessible. This is an agent judgment, not a
+   reason to ask the user to classify every stored value.
+9. Read `persistence.md` and `security.md` when the project has stateful
    services, containers, secrets, uploads, user data, or machine-local settings.
    When adding `userConfiguration`, curate only values a person should edit or
    verify. Use consistent human-facing Title Case independent of dotenv key
    casing. Treat descriptions as compact subtitles: add information the label
    does not, prefer 45 characters or fewer, never exceed 60, and omit one that
    would merely restate the label.
-9. Run static validation. Review state ownership before opting into runtime
+10. Run static validation. Review state ownership before opting into runtime
    validation, then use `./.enmanner/scripts/validate --runtime --json` for the
    normal bounded result. Reserve `--json-lines` for active diagnostics where
    streaming component output is intentionally being consumed.
-10. When native launcher behavior needs verification before icon work, run
+11. When native launcher behavior needs verification before icon work, run
    `build-app --development` and `test-app --development`. Treat the separate
    app, bundle identifier, DEV icon, and doctor evidence as provisional.
-11. Only after lifecycle behavior passes, read `icon.md`, create layered artwork
+12. Only after lifecycle behavior passes, read `icon.md`, create layered artwork
    under `enmanner/icon/`, and use `create-icon --legacy-output` on the
    Xcode-equipped Mac to generate both committed icon formats. Configure them
    as `icon.modern` and `icon.legacy` in `enmanner/enmanner.json`, render all
    appearances with `preview-icon`, and inspect every rendition on the
    generated contact sheet for crop and balance. Open an individual rendition
    when the contact sheet leaves any ambiguity.
-12. Run `finish-integration --runtime --json` to repeat lifecycle validation,
+13. Run `finish-integration --runtime --json` to repeat lifecycle validation,
     build the finished app, verify two native launch/quit cycles, and collect
     doctor evidence in one result. Use `--open` when the verified app should
     remain running for Finder/Dock inspection. The equivalent individual
     `validate --runtime`, `build-app`, `test-app`, and `doctor` commands remain
     available for diagnosis.
-13. Give the user a plain-language handoff after the finished app passes. Name
+14. Give the user a plain-language handoff after the finished app passes. Name
     the services the app starts and the prerequisites it only observes; explain
     that the app runs this local source checkout; identify which frontend and
     backend edits reload automatically and which require an app restart; point

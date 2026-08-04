@@ -38,6 +38,7 @@
       "PORT": "${self.endpoints.http.port}"
     },
     "preferredPort": 43120,
+    "browserHostname": "enmannerviteexample.localhost",
     "readiness": {
       "path": "/",
       "timeoutSeconds": 30
