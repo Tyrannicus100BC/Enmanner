@@ -10,6 +10,8 @@ public struct EnmannerManifest: Codable, Equatable, Sendable {
     public let window: Window
     public let icon: Icon?
     public let userConfiguration: UserConfiguration?
+    public let launchGuard: LaunchGuard?
+    public let backup: Backup?
 
     public init(
         version: Int,
@@ -20,7 +22,9 @@ public struct EnmannerManifest: Codable, Equatable, Sendable {
         components: [String: Component] = [:],
         window: Window = Window(),
         icon: Icon? = nil,
-        userConfiguration: UserConfiguration? = nil
+        userConfiguration: UserConfiguration? = nil,
+        launchGuard: LaunchGuard? = nil,
+        backup: Backup? = nil
     ) {
         self.version = version
         self.name = name
@@ -31,6 +35,8 @@ public struct EnmannerManifest: Codable, Equatable, Sendable {
         self.window = window
         self.icon = icon
         self.userConfiguration = userConfiguration
+        self.launchGuard = launchGuard
+        self.backup = backup
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -43,6 +49,8 @@ public struct EnmannerManifest: Codable, Equatable, Sendable {
         case window
         case icon
         case userConfiguration
+        case launchGuard
+        case backup
     }
 
     public init(from decoder: Decoder) throws {
@@ -65,6 +73,11 @@ public struct EnmannerManifest: Codable, Equatable, Sendable {
             UserConfiguration.self,
             forKey: .userConfiguration
         )
+        launchGuard = try container.decodeIfPresent(
+            LaunchGuard.self,
+            forKey: .launchGuard
+        )
+        backup = try container.decodeIfPresent(Backup.self, forKey: .backup)
     }
 
     public struct Icon: Codable, Equatable, Sendable {
@@ -572,6 +585,79 @@ public struct EnmannerManifest: Codable, Equatable, Sendable {
         }
     }
 
+    public struct LaunchGuard: Codable, Equatable, Sendable {
+        public let applicationEndpoint: Bool
+        public let endpoints: [String]
+        public let exclusivePaths: [String]
+
+        public init(
+            applicationEndpoint: Bool = false,
+            endpoints: [String] = [],
+            exclusivePaths: [String] = []
+        ) {
+            self.applicationEndpoint = applicationEndpoint
+            self.endpoints = endpoints
+            self.exclusivePaths = exclusivePaths
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case applicationEndpoint
+            case endpoints
+            case exclusivePaths
+        }
+
+        public init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            applicationEndpoint = try container.decodeIfPresent(
+                Bool.self,
+                forKey: .applicationEndpoint
+            ) ?? false
+            endpoints = try container.decodeIfPresent(
+                [String].self,
+                forKey: .endpoints
+            ) ?? []
+            exclusivePaths = try container.decodeIfPresent(
+                [String].self,
+                forKey: .exclusivePaths
+            ) ?? []
+        }
+    }
+
+    public struct Backup: Codable, Equatable, Sendable {
+        public let command: [String]
+        public let workingDirectory: String
+        public let environment: [String: String]
+
+        public init(
+            command: [String],
+            workingDirectory: String = ".",
+            environment: [String: String] = [:]
+        ) {
+            self.command = command
+            self.workingDirectory = workingDirectory
+            self.environment = environment
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case command
+            case workingDirectory
+            case environment
+        }
+
+        public init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            command = try container.decode([String].self, forKey: .command)
+            workingDirectory = try container.decodeIfPresent(
+                String.self,
+                forKey: .workingDirectory
+            ) ?? "."
+            environment = try container.decodeIfPresent(
+                [String: String].self,
+                forKey: .environment
+            ) ?? [:]
+        }
+    }
+
 }
 
 public enum ManifestLoader {
@@ -724,6 +810,35 @@ public enum ManifestValidator {
             )
         }
 
+        if let guardConfiguration = manifest.launchGuard {
+            validateLaunchGuard(
+                guardConfiguration,
+                manifest: manifest,
+                projectURL: projectURL,
+                issues: &issues
+            )
+        }
+
+        if let backup = manifest.backup {
+            validateCommand(
+                backup.command,
+                path: "backup.command",
+                issues: &issues
+            )
+            validateWorkingDirectory(
+                backup.workingDirectory,
+                path: "backup.workingDirectory",
+                projectURL: projectURL,
+                fileManager: fileManager,
+                issues: &issues
+            )
+            validateEnvironment(
+                backup.environment,
+                path: "backup.environment",
+                issues: &issues
+            )
+        }
+
         for (index, path) in manifest.executableSearchPaths.enumerated() {
             let field = "executableSearchPaths[\(index)]"
             if path.isEmpty {
@@ -736,6 +851,55 @@ public enum ManifestValidator {
         }
 
         return issues
+    }
+
+    private static func validateLaunchGuard(
+        _ guardConfiguration: EnmannerManifest.LaunchGuard,
+        manifest: EnmannerManifest,
+        projectURL: URL,
+        issues: inout [String]
+    ) {
+        guard guardConfiguration.applicationEndpoint ||
+                !guardConfiguration.endpoints.isEmpty ||
+                !guardConfiguration.exclusivePaths.isEmpty else {
+            issues.append("launchGuard must guard an endpoint or exclusive path.")
+            return
+        }
+        guard let graph = try? RuntimeGraph.make(from: manifest) else { return }
+        var endpointReferences = guardConfiguration.endpoints
+        if guardConfiguration.applicationEndpoint {
+            endpointReferences.append(
+                "\(graph.applicationComponent).\(graph.applicationEndpoint)"
+            )
+        }
+        for reference in endpointReferences {
+            let parts = reference.split(separator: ".", omittingEmptySubsequences: false)
+            guard parts.count == 2 else {
+                issues.append("launchGuard endpoint \(reference) must use component.endpoint.")
+                continue
+            }
+            let componentName = String(parts[0])
+            let endpointName = String(parts[1])
+            guard let endpoint = graph.components[componentName]?
+                .endpoints[endpointName] else {
+                issues.append("launchGuard references unknown endpoint \(reference).")
+                continue
+            }
+            if endpoint.port.preferred == nil && endpoint.port.fixed == nil {
+                issues.append(
+                    "launchGuard endpoint \(reference) needs a preferred or fixed port."
+                )
+            }
+        }
+        for (index, path) in guardConfiguration.exclusivePaths.enumerated() {
+            do {
+                _ = try ProjectPaths.resolve(path, inside: projectURL)
+            } catch {
+                issues.append(
+                    "launchGuard.exclusivePaths[\(index)] must stay inside the project."
+                )
+            }
+        }
     }
 
     private static func validateRuntime(

@@ -6,6 +6,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private let logBuffer = LogBuffer()
     private let settings = AppSettings()
     private lazy var supervisor = RuntimeSupervisor(logBuffer: logBuffer)
+    private var backupSupervisor: ProcessSupervisor?
+    private var backupRunning = false
+    private var backupStatusMenuItem: NSMenuItem?
     private var windowController: MainWindowController?
     private var settingsWindowController: SettingsWindowController?
     private var logWindowController: LogWindowController?
@@ -20,6 +23,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var pendingRecoveryComponents: Set<String> = []
     private var hasOpenedBrowserAutomatically = false
     private var shuttingDown = false
+    private var lastAgentDiagnostic = ""
     private var browserReopenNeedsForegroundOnly = true
     private var activationSequence = 0
     private let testStatusFile = ProcessInfo.processInfo.environment[
@@ -100,6 +104,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     func applicationWillTerminate(_ notification: Notification) {
         shuttingDown = true
         readinessTask?.cancel()
+        backupSupervisor?.stop()
         supervisor.stop()
     }
 
@@ -192,6 +197,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     private func startServer(reallocateEndpoints: Bool = false) {
         guard let manifest, let projectURL else { return }
+        let conflicts = LaunchConflictDetector.detect(
+            manifest: manifest,
+            projectURL: projectURL
+        )
+        if !conflicts.isEmpty && !presentLaunchConflictWarning(conflicts) {
+            return
+        }
         readinessTask?.cancel()
         isRecovering = false
         windowController?.showStarting()
@@ -239,6 +251,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             "selectedPort": Int(launch.applicationPort),
             "selectedPorts": selectedPorts,
             "readinessURL": launch.applicationURL.absoluteString,
+            "componentProcessIdentifiers": launch.componentProcessIdentifiers.mapValues(Int.init),
             "processIdentifier": Int(ProcessInfo.processInfo.processIdentifier)
         ]
         guard let data = try? JSONSerialization.data(
@@ -411,6 +424,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         NSApplication.shared.activate(ignoringOtherApps: true)
         let controller = ensureWindowController()
         let runtimeFailure = (error as? EnmannerError)?.runtimeFailure
+        if let projectURL {
+            lastAgentDiagnostic = AgentDiagnostic.make(
+                projectURL: projectURL,
+                failure: runtimeFailure,
+                message: error.localizedDescription,
+                selectedPorts: currentLaunch?.selectedPorts ?? [:],
+                fallbackLogs: logBuffer.recentEntries()
+            )
+        }
+        controller?.updateDiagnostic(lastAgentDiagnostic)
         controller?.showFailure(
             message: error.localizedDescription,
             command: runtimeFailure?.command ?? manifest.flatMap {
@@ -426,6 +449,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     private func presentPreparationFailure(_ error: Error) {
         NSApplication.shared.activate(ignoringOtherApps: true)
+        let fallbackProjectURL = ProjectPaths.projectURL(
+            forAppBundleURL: Bundle.main.bundleURL
+        )
+        lastAgentDiagnostic = AgentDiagnostic.make(
+            projectURL: fallbackProjectURL,
+            failure: (error as? EnmannerError)?.runtimeFailure,
+            message: error.localizedDescription,
+            fallbackLogs: logBuffer.recentEntries()
+        )
         let fallbackManifest = EnmannerManifest(
             version: 3,
             name: "Enmanner",
@@ -443,9 +475,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             let project = ProjectPaths.projectURL(forAppBundleURL: bundleURL)
             NSWorkspace.shared.activateFileViewerSelecting([project])
         }
+        controller.onCopyDiagnostic = { [weak self] in
+            self?.lastAgentDiagnostic ?? ""
+        }
         windowController = controller
         logBuffer.append(error.localizedDescription)
         controller.updateLogs(logBuffer.snapshot())
+        controller.updateDiagnostic(lastAgentDiagnostic)
         controller.showFailure(
             message: error.localizedDescription,
             command: [],
@@ -479,6 +515,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
         controller.onRevealProject = {
             NSWorkspace.shared.activateFileViewerSelecting([projectURL])
+        }
+        controller.onCopyDiagnostic = { [weak self] in
+            self?.lastAgentDiagnostic ?? ""
         }
         controller.updateLogs(logBuffer.snapshot())
         windowController = controller
@@ -533,13 +572,158 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         NSWorkspace.shared.activateFileViewerSelecting([projectURL])
     }
 
+    private func presentLaunchConflictWarning(
+        _ conflicts: [LaunchConflict]
+    ) -> Bool {
+        guard let projectURL else { return false }
+        lastAgentDiagnostic = AgentDiagnostic.make(
+            projectURL: projectURL,
+            conflicts: conflicts
+        )
+        while true {
+            let alert = NSAlert()
+            alert.alertStyle = .critical
+            alert.messageText = "This project appears to be running elsewhere"
+            let details = conflicts.map { conflict in
+                let processes = conflict.processes.isEmpty
+                    ? "another process"
+                    : conflict.processes.joined(separator: ", ")
+                return "• \(conflict.resource): \(processes)"
+            }.joined(separator: "\n")
+            alert.informativeText =
+                "Starting another copy may create competing writers or corrupt local data.\n\n\(details)"
+            alert.addButton(withTitle: "Cancel Launch")
+            alert.addButton(withTitle: "Launch Anyway")
+            alert.addButton(withTitle: "Copy for Coding Agent")
+            switch alert.runModal() {
+            case .alertSecondButtonReturn:
+                logBuffer.append("Launch guard was overridden by the user.")
+                return true
+            case .alertThirdButtonReturn:
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(
+                    lastAgentDiagnostic,
+                    forType: .string
+                )
+            default:
+                logBuffer.append("Launch cancelled because guarded resources are in use.")
+                let controller = ensureWindowController()
+                controller?.updateDiagnostic(lastAgentDiagnostic)
+                controller?.showFailure(
+                    message: "Launch was cancelled because guarded project resources are already in use.",
+                    command: [],
+                    includesRecentOutput: false
+                )
+                controller?.showWindow(nil)
+                return false
+            }
+        }
+    }
+
+    @objc private func backUpNow(_ sender: Any?) {
+        guard !backupRunning, let backup = manifest?.backup,
+              let projectURL, let plan = supervisor.plan else { return }
+        backupRunning = true
+        logBuffer.append("Starting project-declared backup.", component: "backup")
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let component = EnmannerManifest.Component(
+                    kind: .task,
+                    command: backup.command,
+                    workingDirectory: backup.workingDirectory,
+                    environment: backup.environment
+                )
+                let configuration = try ProcessConfigurationBuilder.make(
+                    componentName: plan.graph.applicationComponent,
+                    component: component,
+                    plan: plan,
+                    projectURL: projectURL
+                )
+                let process = ProcessSupervisor(
+                    logBuffer: logBuffer,
+                    componentName: "backup"
+                )
+                backupSupervisor = process
+                let exit = try await withCheckedThrowingContinuation {
+                    (continuation: CheckedContinuation<ProcessSupervisor.Exit, Error>) in
+                    process.onExit = { exit in
+                        continuation.resume(returning: exit)
+                    }
+                    do {
+                        try process.start(configuration)
+                    } catch {
+                        continuation.resume(throwing: error)
+                    }
+                }
+                backupSupervisor = nil
+                guard exit.status == 0 else {
+                    throw EnmannerError.runtimeFailure(.init(
+                        code: .backupFailed,
+                        phase: .backup,
+                        component: "backup",
+                        message: "The project backup failed with status \(exit.status).",
+                        exitStatus: exit.status,
+                        command: [configuration.executableURL.path] + configuration.arguments,
+                        workingDirectory: configuration.workingDirectoryURL.path,
+                        recentLogs: logBuffer.recentEntries(
+                            component: "backup",
+                            componentOnly: true
+                        )
+                    ))
+                }
+                settings.lastSuccessfulBackup = Date()
+                updateBackupMenuStatus()
+                logBuffer.append("Project backup completed successfully.", component: "backup")
+                let alert = NSAlert()
+                alert.messageText = "Backup complete"
+                alert.informativeText = "The project-declared backup command finished successfully."
+                alert.addButton(withTitle: "OK")
+                alert.runModal()
+            } catch {
+                backupSupervisor = nil
+                if !shuttingDown {
+                    presentBackupFailure(error)
+                }
+            }
+            backupRunning = false
+        }
+    }
+
+    private func presentBackupFailure(_ error: Error) {
+        guard let projectURL else { return }
+        let failure = (error as? EnmannerError)?.runtimeFailure
+        lastAgentDiagnostic = AgentDiagnostic.make(
+            projectURL: projectURL,
+            failure: failure,
+            message: error.localizedDescription,
+            selectedPorts: currentLaunch?.selectedPorts ?? [:],
+            fallbackLogs: logBuffer.recentEntries(
+                component: "backup",
+                componentOnly: true
+            )
+        )
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "Backup failed"
+        alert.informativeText = error.localizedDescription
+        alert.addButton(withTitle: "OK")
+        alert.addButton(withTitle: "Copy for Coding Agent")
+        if alert.runModal() == .alertSecondButtonReturn {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(lastAgentDiagnostic, forType: .string)
+        }
+    }
+
     @objc private func showServerLog(_ sender: Any?) {
         if logWindowController == nil {
             let appName = manifest?.name ?? "Enmanner"
             let componentNames: [String]
             if let manifest,
                let graph = try? RuntimeGraph.make(from: manifest) {
-                componentNames = Array(graph.components.keys)
+                componentNames = graph.components.compactMap { name, component in
+                    component.kind == .service ? name : nil
+                }
             } else {
                 componentNames = []
             }
@@ -550,6 +734,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             controller.onFilterChange = { [weak self, weak controller] key in
                 guard let self else { return }
                 controller?.updateLogs(self.logs(for: key))
+            }
+            controller.onRestartComponent = { [weak self] component in
+                self?.restartComponent(component)
             }
             controller.updateLogs(logs(for: "all"))
             logWindowController = controller
@@ -569,6 +756,48 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
     }
 
+    private func restartComponent(_ component: String) {
+        guard !isRecovering, let projectURL,
+              let plan = supervisor.plan,
+              plan.graph.components[component]?.kind == .service else {
+            return
+        }
+        let affected = supervisor.recoveryComponents(for: [component])
+        isRecovering = true
+        if let applicationComponent = applicationComponentName(),
+           affected.contains(applicationComponent) {
+            windowController?.showReconnecting()
+        }
+        logBuffer.append(
+            "Manual restart requested for \(component); affected components: " +
+                affected.sorted().joined(separator: ", ") + "."
+        )
+        readinessTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let recovery = try await supervisor.recover(
+                    components: [component],
+                    projectURL: projectURL
+                )
+                guard !Task.isCancelled else { return }
+                currentLaunch = recovery.launch
+                applicationURL = recovery.launch.applicationURL
+                isRecovering = false
+                logBuffer.append("Manual component restart completed.")
+                if let applicationComponent = applicationComponentName(),
+                   recovery.affectedComponents.contains(applicationComponent) {
+                    windowController?.showBrowserRunning(
+                        at: recovery.launch.applicationURL
+                    )
+                    windowController?.hideWindow()
+                }
+            } catch {
+                guard !Task.isCancelled else { return }
+                showFailure(error: error)
+            }
+        }
+    }
+
     @objc private func showAppHelp(_ sender: Any?) {
         let appName = manifest?.name ?? "Enmanner"
         let alert = NSAlert()
@@ -585,6 +814,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             return applicationURL != nil
         case #selector(revealProject(_:)):
             return projectURL != nil
+        case #selector(backUpNow(_:)):
+            return manifest?.backup != nil && supervisor.plan != nil && !backupRunning
         default:
             return true
         }
@@ -650,6 +881,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 target: self
             )
         )
+        if manifest?.backup != nil {
+            fileMenu.addItem(
+                item(
+                    "Back Up Now",
+                    action: #selector(backUpNow(_:)),
+                    target: self
+                )
+            )
+            let statusItem = NSMenuItem(
+                title: "Last Backup: Never",
+                action: nil,
+                keyEquivalent: ""
+            )
+            statusItem.isEnabled = false
+            backupStatusMenuItem = statusItem
+            fileMenu.addItem(statusItem)
+            updateBackupMenuStatus()
+        }
         fileMenu.addItem(
             item(
                 "Show Project in Finder",
@@ -735,6 +984,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         NSApplication.shared.helpMenu = helpMenu
 
         NSApplication.shared.mainMenu = mainMenu
+    }
+
+    private func updateBackupMenuStatus() {
+        guard let backupStatusMenuItem else { return }
+        guard let date = settings.lastSuccessfulBackup else {
+            backupStatusMenuItem.title = "Last Backup: Never"
+            return
+        }
+        backupStatusMenuItem.title = "Last Backup: " + date.formatted(
+            date: .abbreviated,
+            time: .shortened
+        )
     }
 
     private func addMenu(_ menu: NSMenu, titled title: String, to mainMenu: NSMenu) {

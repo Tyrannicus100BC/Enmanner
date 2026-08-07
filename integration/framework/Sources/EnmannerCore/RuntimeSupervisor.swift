@@ -35,6 +35,7 @@ public final class RuntimeSupervisor: @unchecked Sendable {
         public let applicationPort: UInt16
         public let selectedPorts: [RuntimePlan.EndpointKey: UInt16]
         public let ownedPorts: [RuntimePlan.EndpointKey: UInt16]
+        public let componentProcessIdentifiers: [String: Int32]
     }
 
     public struct Recovery: Equatable, Sendable {
@@ -214,7 +215,8 @@ public final class RuntimeSupervisor: @unchecked Sendable {
             applicationURL: plan.applicationURL,
             applicationPort: plan.applicationPort,
             selectedPorts: plan.ports,
-            ownedPorts: plan.ownedPorts
+            ownedPorts: plan.ownedPorts,
+            componentProcessIdentifiers: processIdentifiers
         )
     }
 
@@ -379,7 +381,8 @@ public final class RuntimeSupervisor: @unchecked Sendable {
                 applicationURL: plan.applicationURL,
                 applicationPort: plan.applicationPort,
                 selectedPorts: plan.ports,
-                ownedPorts: plan.ownedPorts
+                ownedPorts: plan.ownedPorts,
+                componentProcessIdentifiers: processIdentifiers
             ),
             affectedComponents: affected
         )
@@ -409,6 +412,13 @@ public final class RuntimeSupervisor: @unchecked Sendable {
             )
         } catch is CancellationError {
             throw CancellationError()
+        } catch let error as ProbeConfigurationError {
+            throw runtimeFailure(
+                code: .addressFamilyMismatch,
+                phase: .prerequisite,
+                component: name,
+                message: error.localizedDescription
+            )
         } catch {
             throw runtimeFailure(
                 code: .probeFailed,
@@ -707,6 +717,15 @@ public final class RuntimeSupervisor: @unchecked Sendable {
             )
         } catch is CancellationError {
             throw CancellationError()
+        } catch let error as ProbeConfigurationError {
+            throw runtimeFailure(
+                code: .addressFamilyMismatch,
+                phase: .readiness,
+                component: name,
+                message: error.localizedDescription,
+                command: diagnosticCommand,
+                workingDirectory: diagnosticWorkingDirectory
+            )
         } catch {
             throw runtimeFailure(
                 code: .probeFailed,
@@ -877,6 +896,14 @@ private enum ProbeRunner {
             ) {
                 return true
             }
+            if let mismatch = await addressFamilyMismatch(
+                probe: probe,
+                componentName: componentName,
+                component: component,
+                plan: plan
+            ) {
+                throw mismatch
+            }
             try? await Task.sleep(nanoseconds: 300_000_000)
         }
         try Task.checkCancellation()
@@ -945,6 +972,70 @@ private enum ProbeRunner {
             return true
         case .process:
             return false
+        }
+    }
+
+    private static func addressFamilyMismatch(
+        probe: EnmannerManifest.Probe,
+        componentName: String,
+        component: EnmannerManifest.Component,
+        plan: RuntimePlan
+    ) async -> ProbeConfigurationError? {
+        guard let endpointName = probe.endpoint,
+              let declared = plan.endpoints[
+                .init(component: componentName, endpoint: endpointName)
+              ] else {
+            return nil
+        }
+        let alternateHost: String
+        switch declared.host {
+        case "127.0.0.1": alternateHost = "::1"
+        case "::1": alternateHost = "127.0.0.1"
+        default: return nil
+        }
+
+        let answers: Bool
+        switch probe.type {
+        case .http:
+            answers = TCPProbe.canConnect(
+                host: alternateHost,
+                port: declared.port
+            )
+        case .tcp:
+            answers = TCPProbe.canConnect(
+                host: alternateHost,
+                port: declared.port
+            )
+        case .command, .process:
+            return nil
+        }
+        guard answers else { return nil }
+        return .addressFamilyMismatch(
+            component: componentName,
+            declaredHost: declared.host,
+            listeningHost: alternateHost,
+            port: declared.port
+        )
+    }
+}
+
+private enum ProbeConfigurationError: LocalizedError {
+    case addressFamilyMismatch(
+        component: String,
+        declaredHost: String,
+        listeningHost: String,
+        port: UInt16
+    )
+
+    var errorDescription: String? {
+        switch self {
+        case .addressFamilyMismatch(
+            let component,
+            let declaredHost,
+            let listeningHost,
+            let port
+        ):
+            return "Component \(component) listens on \(listeningHost):\(port), but its endpoint declares \(declaredHost). Bind the service to \(declaredHost) or change the endpoint host so the address family matches."
         }
     }
 }

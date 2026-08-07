@@ -237,8 +237,7 @@ development-native, presentation, final-native, and repository-ready
 milestones. Local technical completion remains distinct from repository
 recording, which Enmanner never performs automatically. Use
 `./.enmanner/scripts/doctor --next` for a tailored Markdown summary of remaining
-actions and relevant focused guidance. The former flat status fields remain as
-deprecated compatibility aliases for one release.
+actions and relevant focused guidance.
 Use `./.enmanner/scripts/build-app --json` when the final artifact path, icon
 packaging, signing, replacement, and size evidence must be machine-readable.
 
@@ -285,13 +284,21 @@ initial startup fails, it shows a plain-language error with recent output,
 copy/retry controls, and a way to reveal the project. If a previously-ready
 service exits, Enmanner restarts it and its affected dependants with bounded
 backoff while leaving unrelated components running. More than five failures in
-60 seconds opens the circuit breaker. Enmanner opens a page automatically
-only on initial launch, never on recovery.
+60 seconds opens the circuit breaker. Enmanner opens a page after readiness on
+each fresh app launch, but never opens another page during automatic recovery.
 Choose **Window → Runtime Logs** or press **Command-Shift-L** to inspect the
 bounded live output while the app is starting, healthy, reconnecting, or
 failed. Filter by component when a database or other service is noisy; hiding
-its output does not stop supervision. Logs remain memory-only and are not
-archived to disk.
+its output does not stop supervision. A selected managed service can be
+restarted with its affected dependants from that window. Failure surfaces offer
+**Copy for Coding Agent**, which packages the project path, failed component,
+resolved command, allocated ports, and bounded logs into a paste-ready handoff.
+Logs remain memory-only and are not archived to disk.
+
+Stateful projects may declare advisory launch guards for stable ports or open
+data paths, and may expose one project-owned backup command as **File → Back Up
+Now**. Enmanner supervises that command and remembers the last successful run;
+the project continues to own backup format, destination, retention, and restore.
 
 Enmanner runs project code with the current user's permissions. It is not a
 sandbox. Servers are loopback-only by default and the validator rejects public

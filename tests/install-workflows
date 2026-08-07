@@ -246,11 +246,77 @@ printf '%s\n' "$plan" | jq -e '
   ([.requiredInstructions[].path] | index(".enmanner/instructions/integration.md")) and
   ([.nextActionCommands[].id] | index("buildDevelopmentApp")) and
   ([.nextActionCommands[].id] | index("testDevelopmentApp")) and
-  ([.nextActionCommands[].id] | index("buildApp")) and
-  ([.nextActionCommands[].id] | index("testApp")) and
   (.fileOperations | type == "array") and
   ([.fileOperations[].path] | index("enmanner/")) and
   ([.fileOperations[].path] | index("enmanner/enmanner.json"))
+' >/dev/null
+
+graph_target="$adapter_root/Vite Express Graph"
+mkdir -p "$graph_target"
+printf '%s\n' \
+  '{"private":true,"scripts":{"dev:web":"vite","dev:api":"node --watch server.js"},"dependencies":{"express":"^5.0.0"},"devDependencies":{"vite":"^8.0.0"}}' \
+  > "$graph_target/package.json"
+: > "$graph_target/package-lock.json"
+printf '%s\n' \
+  'const apiPort = process.env.API_PORT;' \
+  'export default { server: { proxy: { "/api": `http://127.0.0.1:${apiPort}` } } };' \
+  > "$graph_target/vite.config.js"
+printf '%s\n' \
+  "const PORT = process.env.PORT || 3000;" \
+  "const HOST = process.env.HOST || '127.0.0.1';" \
+  'app.listen(PORT, HOST);' > "$graph_target/server.js"
+"$repository_dir/integration/scripts/install" --plan --json "$graph_target" |
+  jq -e '
+    (.manifestStatus == "configurationRequired") and
+    (.inference.componentGraphDraft == true) and
+    (.inference.runtimeVerificationRequired == true) and
+    (.inference.reason | contains("two-service component-graph draft"))
+  ' >/dev/null
+"$repository_dir/integration/scripts/install" --no-build --json \
+  "$graph_target" >/dev/null
+jq -e '
+  (.application.component == "web") and
+  (.components.web.dependsOn == ["api"]) and
+  (.components.web.environment.API_PORT == "${components.api.endpoints.http.port}") and
+  (.components.api.environment.PORT == "${self.endpoints.http.port}")
+' "$graph_target/enmanner/enmanner.json.example" >/dev/null
+
+version_manager_target="$adapter_root/Version Managed Vite"
+fake_nvm_root="$test_root/fake-nvm"
+mkdir -p "$version_manager_target" \
+  "$fake_nvm_root/versions/node/v24.1.0/bin"
+printf '%s\n' '24.1.0' > "$version_manager_target/.nvmrc"
+printf '%s\n' '#!/bin/bash' 'exit 0' \
+  > "$fake_nvm_root/versions/node/v24.1.0/bin/node"
+chmod +x "$fake_nvm_root/versions/node/v24.1.0/bin/node"
+cp "$repository_dir/examples/vite-example/package.json" \
+  "$repository_dir/examples/vite-example/package-lock.json" \
+  "$version_manager_target/"
+NVM_DIR="$fake_nvm_root" \
+  "$repository_dir/integration/scripts/install" --plan --json \
+    "$version_manager_target" | jq -e \
+      --arg path "$fake_nvm_root/versions/node/v24.1.0/bin" '
+        ([.runtimeResolution.signals[]] | index(".nvmrc")) and
+        ([.runtimeResolution.executableSearchPaths[]] | index($path))
+      ' >/dev/null
+
+fake_toolchain="$test_root/fake-toolchain"
+mkdir -p "$fake_toolchain"
+printf '%s\n' '#!/bin/bash' \
+  'echo "error: redefinition of module SwiftBridging; already defined" >&2' \
+  'exit 1' > "$fake_toolchain/swiftc"
+chmod +x "$fake_toolchain/swiftc"
+if toolchain_failure="$(
+  PATH="$fake_toolchain:$PATH" \
+    "$repository_dir/integration/scripts/toolchain-preflight" --json
+)"; then
+  echo "Error: toolchain preflight accepted a damaged Swift compiler." >&2
+  exit 1
+fi
+printf '%s\n' "$toolchain_failure" | jq -e '
+  (.valid == false) and
+  (.error.stage == "toolchainPreflight") and
+  (.error.code == "duplicateSwiftBridgingModule")
 ' >/dev/null
 test ! -e "$vite_target/.enmanner"
 test ! -e "$vite_target/enmanner"
@@ -498,7 +564,7 @@ printf '%s\n' "$generic_result" | jq -e '
   (.unresolvedChecks | length == 3) and
   ([.unresolvedChecks[].inspect[]] | index("package.json")) and
   ([.otherAgentInstructions[]] | index("CLAUDE.md")) and
-  (.warnings | length == 1) and
+  (.warnings | length == 0) and
   ([.fileOperations[].path] | index("enmanner/enmanner.json.example")) and
   ([.performedWrites[]] | index("enmanner/enmanner.json.example"))
 ' >/dev/null
@@ -511,6 +577,8 @@ jq -e '
   (.application.preferredPort < 48000)
 ' "$generic_target/enmanner/enmanner.json.example" >/dev/null
 grep -Fqx '# Generic project instructions' "$generic_target/CLAUDE.md"
+grep -Fq '<!-- enmanner:begin -->' "$generic_target/CLAUDE.md"
+grep -Fq 'Read `.enmanner/AGENTS.md`' "$generic_target/CLAUDE.md"
 
 cp "$generic_target/enmanner/enmanner.json.example" \
   "$generic_target/enmanner/enmanner.json"
@@ -750,7 +818,7 @@ jq -e '
     ["healthy", "warning", "critical"] | index($status)) and
   (.doctor.disk.availableBytes > 0) and
   (.doctor.disk.cleanupCommand == "./.enmanner/scripts/clean") and
-  (.doctor.workspace.status == "unversioned") and
+  (.doctor.workspace.status == "acknowledgedUnversioned") and
   (.doctor.workspace.manifestTracked == false) and
   ([.warnings[]] | any(contains("stale draft")))
 ' "$test_root/doctor.json" >/dev/null
@@ -793,7 +861,7 @@ jq -e '
   (.upstreamURL == "git@github.com:Tyrannicus100BC/Enmanner.git") and
   (.sourceCheckoutURL | type == "string") and
   (.provenanceConfidence == "declared") and
-  (.unversionedAcknowledged == false) and
+  (.unversionedAcknowledged == true) and
   (.manifestStatus == "inferred") and
   (.inferredManifestFields | index("application.command")) and
   ([.files[].path] | any(startswith("framework/Sources/"))) and
@@ -813,9 +881,17 @@ if grep -Eq '^data/|^\.env|^\*\.app/' "$vite_target/.gitignore"; then
   exit 1
 fi
 
+/usr/bin/plutil -insert backup -json \
+  '{"command":["/usr/bin/true"]}' \
+  "$vite_target/enmanner/enmanner.json"
+
 "$vite_target/.enmanner/scripts/upgrade" \
   --check --from "$repository_dir" --json |
-  jq -e '.applicable and (.applied == false)' >/dev/null
+  jq -e '
+    .applicable and
+    (.applied == false) and
+    .backupRecommendedBeforeApply
+  ' >/dev/null
 
 "$vite_target/.enmanner/scripts/upgrade" \
   --apply --from "$repository_dir" --json |

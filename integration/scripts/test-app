@@ -92,6 +92,7 @@ timeout_seconds="$(
 )"
 readiness_urls=()
 selected_ports=()
+component_process_identifiers=()
 
 run_cycle() {
   local cycle="$1"
@@ -131,6 +132,7 @@ run_cycle() {
 
   readiness_url="$(/usr/bin/plutil -extract readinessURL raw "$status_file")"
   selected_port="$(/usr/bin/plutil -extract selectedPort raw "$status_file")"
+  component_processes="$(/usr/bin/plutil -extract componentProcessIdentifiers json -o - "$status_file")"
   if ! /usr/bin/curl --silent --show-error --fail \
     --max-time 2 "$readiness_url" >/dev/null; then
     echo "Error: generated app reported readiness but its URL was unavailable." >&2
@@ -138,6 +140,7 @@ run_cycle() {
   fi
   readiness_urls+=("$readiness_url")
   selected_ports+=("$selected_port")
+  component_process_identifiers+=("$component_processes")
 
   /usr/bin/osascript - "$bundle_identifier" <<'APPLESCRIPT' >/dev/null
 on run arguments
@@ -186,6 +189,7 @@ done
 
 readiness_url="${readiness_urls[1]}"
 selected_port="${selected_ports[1]}"
+component_processes="${component_process_identifiers[1]}"
 
 mkdir -p "$build_dir"
 app_modification_epoch="$(/usr/bin/stat -f %m "$app_path")"
@@ -193,10 +197,10 @@ app_executable_sha256="$(
   /usr/bin/shasum -a 256 "$launcher" | /usr/bin/awk '{print $1}'
 )"
 receipt="$build_dir/$receipt_name"
-printf '{"schemaVersion":1,"valid":true,"buildKind":"%s","bundleIdentifier":"%s","manifestBundleIdentifier":"%s","appModificationEpoch":%d,"appExecutableSHA256":"%s","cyclesPassed":2,"finderEquivalentEnvironment":true,"immediateRelaunchPassed":true,"selectedPort":%d,"readinessURL":"%s","readinessPassed":true,"quitCleanly":true,"readinessUnavailable":true,"portReleased":true}\n' \
+printf '{"schemaVersion":2,"valid":true,"buildKind":"%s","bundleIdentifier":"%s","manifestBundleIdentifier":"%s","appModificationEpoch":%d,"appExecutableSHA256":"%s","cyclesPassed":2,"finderEquivalentEnvironment":true,"immediateRelaunchPassed":true,"applicationPort":%d,"startup":{"readinessURL":"%s","readinessPassed":true,"componentProcessIdentifiers":%s},"shutdown":{"quitCleanly":true,"applicationEndpointUnavailable":true,"ownedPortsReleased":true}}\n' \
   "$build_kind" "$bundle_identifier" "$manifest_bundle_identifier" \
   "$app_modification_epoch" "$app_executable_sha256" "$selected_port" \
-  "$readiness_url" > "$receipt"
+  "$readiness_url" "$component_processes" > "$receipt"
 
 if [[ "$json" == true ]]; then
   /bin/cat "$receipt"

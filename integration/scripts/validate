@@ -80,9 +80,18 @@ if [[ -n "$runtime_flag" && "$json" != true && "$json_lines" != true ]]; then
   echo "  Review state ownership and persistence before using it." >&2
 fi
 
-if ! command -v swift >/dev/null 2>&1; then
-  echo "Error: Apple Command Line Tools are required. Ask your coding agent to install or select them." >&2
-  exit 1
+if [[ "$json" == true ]]; then
+  if ! toolchain_result="$("$script_dir/toolchain-preflight" --json)"; then
+    printf '%s\n' "$toolchain_result"
+    exit 1
+  fi
+elif [[ "$json_lines" == true ]]; then
+  if ! toolchain_result="$("$script_dir/toolchain-preflight" --json)"; then
+    printf '{"event":"error","report":%s}\n' "$toolchain_result"
+    exit 1
+  fi
+else
+  "$script_dir/toolchain-preflight"
 fi
 
 available_kib="$(df -Pk "$project_dir" | /usr/bin/awk 'NR == 2 { print $4 }')"
@@ -109,12 +118,33 @@ fi
 
 [[ "$json" == true || "$json_lines" == true || "$next_flag" == true ]] ||
   echo "Validating Enmanner configuration…"
-if [[ "$json" == true || "$json_lines" == true || "$next_flag" == true ]]; then
-  swift build --package-path "$framework_dir" -c release \
-    --product enmanner-validator >/dev/null
-else
-  swift build --package-path "$framework_dir" -c release \
-    --product enmanner-validator
+build_log="$(mktemp "${TMPDIR:-/tmp}/enmanner-framework-build.XXXXXX")"
+cleanup_build_log() {
+  rm -f "$build_log"
+}
+trap cleanup_build_log EXIT
+echo "Compiling the Enmanner launcher framework; a cold first build can take a minute…" >&2
+if ! swift build --package-path "$framework_dir" -c release \
+  --product enmanner-validator >"$build_log" 2>&1; then
+  build_details="$(/usr/bin/tail -n 30 "$build_log")"
+  if [[ "$json" == true ]]; then
+    escaped_details="${build_details//\\/\\\\}"
+    escaped_details="${escaped_details//\"/\\\"}"
+    escaped_details="${escaped_details//$'\n'/\\n}"
+    printf '{"schemaVersion":1,"valid":false,"error":{"stage":"frameworkBuild","code":"frameworkBuildFailed","message":"The Enmanner launcher framework could not be compiled.","stderrTail":"%s"}}\n' "$escaped_details"
+  elif [[ "$json_lines" == true ]]; then
+    escaped_details="${build_details//\\/\\\\}"
+    escaped_details="${escaped_details//\"/\\\"}"
+    escaped_details="${escaped_details//$'\n'/\\n}"
+    printf '{"event":"error","report":{"schemaVersion":1,"valid":false,"error":{"stage":"frameworkBuild","code":"frameworkBuildFailed","message":"The Enmanner launcher framework could not be compiled.","stderrTail":"%s"}}}\n' "$escaped_details"
+  else
+    echo "Error: the Enmanner launcher framework could not be compiled." >&2
+    printf '%s\n' "$build_details" >&2
+  fi
+  exit 1
+fi
+if [[ "$json" != true && "$json_lines" != true && "$next_flag" != true ]]; then
+  /bin/cat "$build_log"
 fi
 bin_dir="$(swift build --package-path "$framework_dir" -c release --show-bin-path)"
 

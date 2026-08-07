@@ -24,6 +24,14 @@
       "type": "string",
       "pattern": "^[A-Za-z0-9][A-Za-z0-9-]*(\\.[A-Za-z0-9][A-Za-z0-9-]*)+$"
     },
+    "executableSearchPaths": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
     "icon": {
       "oneOf": [
         {
@@ -68,6 +76,12 @@
     },
     "userConfiguration": {
       "$ref": "#/$defs/userConfiguration"
+    },
+    "launchGuard": {
+      "$ref": "#/$defs/launchGuard"
+    },
+    "backup": {
+      "$ref": "#/$defs/backup"
     },
     "window": {
       "$ref": "#/$defs/window"
@@ -492,6 +506,49 @@
               }
             }
           }
+        }
+      }
+    },
+    "launchGuard": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "applicationEndpoint": {
+          "type": "boolean"
+        },
+        "endpoints": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]{0,62}\\.[a-z][a-z0-9-]{0,62}$"
+          }
+        },
+        "exclusivePaths": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "backup": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["command"],
+      "properties": {
+        "command": {
+          "$ref": "#/$defs/command"
+        },
+        "workingDirectory": {
+          "type": "string",
+          "minLength": 1
+        },
+        "environment": {
+          "$ref": "#/$defs/environment"
         }
       }
     },

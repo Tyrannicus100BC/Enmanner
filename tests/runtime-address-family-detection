@@ -1,0 +1,43 @@
+#!/bin/bash
+set -euo pipefail
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+repository_dir="$(cd "$script_dir/.." && pwd)"
+test_root="$(mktemp -d "${TMPDIR:-/tmp}/Enmanner Address Family Test.XXXXXX")"
+cleanup() {
+  rm -rf "$test_root"
+}
+trap cleanup EXIT
+
+project_dir="$test_root/IPv6 Project"
+mkdir -p "$project_dir/.enmanner" "$project_dir/enmanner"
+cp "$repository_dir/tests/fixtures/ipv6-mismatch/server.mjs" "$project_dir/"
+cp "$repository_dir/tests/fixtures/ipv6-mismatch/enmanner/enmanner.json" \
+  "$project_dir/enmanner/enmanner.json"
+/usr/bin/rsync -a --exclude '.build' \
+  --exclude 'framework/Tests/' \
+  --exclude 'scripts/install' \
+  "$repository_dir/integration/" "$project_dir/.enmanner/"
+
+set +e
+"$project_dir/.enmanner/scripts/validate" --runtime --json \
+  > "$test_root/result.json"
+status=$?
+set -e
+if [[ $status -eq 0 ]]; then
+  echo "Error: runtime validation accepted an address-family mismatch." >&2
+  exit 1
+fi
+
+if ! jq -e '
+  (.valid == false) and
+  (.error.code == "addressFamilyMismatch") and
+  (.error.runtimeFailure.phase == "readiness") and
+  (.error.message | contains("listens on ::1") and contains("declares 127.0.0.1"))
+' "$test_root/result.json" >/dev/null; then
+  echo "Error: address-family failure was not structured as expected." >&2
+  /bin/cat "$test_root/result.json" >&2
+  exit 1
+fi
+
+echo "✓ runtime validation diagnoses IPv4 and IPv6 loopback mismatches"

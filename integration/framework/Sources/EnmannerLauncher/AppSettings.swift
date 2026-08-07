@@ -4,6 +4,7 @@ import Foundation
 final class AppSettings {
     private enum Key {
         static let includesRecentOutputInErrors = "EnmannerIncludesRecentOutputInErrors"
+        static let lastSuccessfulBackup = "EnmannerLastSuccessfulBackup"
     }
 
     private let defaults: UserDefaults
@@ -22,5 +23,10 @@ final class AppSettings {
         set {
             defaults.set(newValue, forKey: Key.includesRecentOutputInErrors)
         }
+    }
+
+    var lastSuccessfulBackup: Date? {
+        get { defaults.object(forKey: Key.lastSuccessfulBackup) as? Date }
+        set { defaults.set(newValue, forKey: Key.lastSuccessfulBackup) }
     }
 }

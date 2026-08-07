@@ -43,13 +43,12 @@ fi
 child_pid="$(cat "$project_dir/runtime-child.pid")"
 jq -e '
   (.valid == false) and
-  (.runtime.readinessPassed == true) and
-  (.runtime.gitStatusMutations == .runtime.workspaceMutations) and
-  (.runtime.nonLoopbackListeners | length > 0) and
+  (.runtime.startup.readinessPassed == true) and
+  (.runtime.shutdown.nonLoopbackListeners | length > 0) and
   (
-    (.runtime.readinessUnavailable == false) or
-    (.runtime.portReleased == false) or
-    (.runtime.remainingProcesses | length > 0)
+    (.runtime.shutdown.applicationEndpointUnavailable == false) or
+    (.runtime.shutdown.ownedPortsReleased == false) or
+    (.runtime.shutdown.remainingProcesses | length > 0)
   )
 ' "$test_root/result.json" >/dev/null
 

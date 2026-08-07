@@ -49,6 +49,10 @@ sequence.
    `docs/manifest-application.md`. For multiple managed services, startup
    tasks, observed prerequisites, or manual application dependencies, read
    `docs/manifest.md`. Do not read both unless the detected shape changes.
+   For stateful projects, also decide from source evidence whether stable
+   endpoint or data-path launch guards prevent a plausible duplicate writer,
+   and declare a backup command only when the project already has a trustworthy
+   operation and restore story.
 7. Apply the installation. For `cacheOnly`, the installer removes only known
    disposable build caches. For incomplete or receiptless framework state,
    review and explicitly use `--replace-incomplete`; it relocates the old

@@ -23,7 +23,9 @@
   project.
 - Use `${self.endpoints.<name>.port}` when a service must bind an allocated
   endpoint.
-- Listen on `127.0.0.1` or another loopback address, never all interfaces by
+- Bind the listener to the exact host and address family declared by its
+  endpoint, normally IPv4 `127.0.0.1`. IPv6 `::1` is also loopback, but it is
+  not interchangeable with `127.0.0.1`. Never listen on all interfaces by
   default.
 - Keep managed services in the foreground. Do not daemonize, launch through
   Terminal, or leave unsupervised descendants.
@@ -76,6 +78,50 @@
 Enmanner allocates named endpoints, expands only documented endpoint and project
 references, traverses the dependency graph, captures labelled output, and owns
 each managed service's process group until the native app quits.
+
+## Replacing a supervisor script
+
+A project may begin with a convenient shell script that owns several servers:
+
+```sh
+#!/bin/sh
+trap 'kill 0' EXIT INT TERM
+API_PORT=8123 uv run uvicorn app.main:app --host 127.0.0.1 --port 8123 &
+VITE_PORT=5173 npm run dev -- --host 127.0.0.1 --port 5173 &
+uv run python worker.py &
+wait
+```
+
+Do not wrap that script. Preserve its intent as independently supervised
+components, replacing hard-coded coordination with endpoint references:
+
+```json
+{
+  "components": {
+    "api": {
+      "command": ["uv", "run", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", "${self.endpoints.http.port}"],
+      "endpoints": {"http": {"protocol": "http", "port": {"preferred": 8123}}},
+      "readiness": {"type": "http", "endpoint": "http", "path": "/health"}
+    },
+    "worker": {
+      "command": ["uv", "run", "python", "worker.py"],
+      "readiness": {"type": "process", "minimumUptimeSeconds": 2}
+    },
+    "web": {
+      "dependsOn": ["api"],
+      "command": ["npm", "run", "dev", "--", "--host", "127.0.0.1", "--port", "${self.endpoints.http.port}", "--strictPort"],
+      "environment": {"API_PORT": "${components.api.endpoints.http.port}"},
+      "endpoints": {"http": {"protocol": "http", "port": {"preferred": 5173}}},
+      "readiness": {"type": "http", "endpoint": "http", "path": "/"}
+    }
+  },
+  "application": {"component": "web", "endpoint": "http"}
+}
+```
+
+Keep the original script for direct development if it remains useful. The
+manifest replaces only its backgrounding, signal traps, startup ordering, and
+fixed-port coordination when the native app owns the session.
 
 Runtime validation checks all launched process trees, the application endpoint,
 every Enmanner-owned port, tracked descendants, non-loopback listeners, and the

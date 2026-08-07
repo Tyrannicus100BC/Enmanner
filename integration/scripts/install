@@ -99,6 +99,11 @@ manifest_path="$configuration_dir/enmanner.json"
 manifest_relative_path="enmanner/enmanner.json"
 draft_manifest_path="$configuration_dir/enmanner.json.example"
 
+toolchain_valid=true
+if ! toolchain_result="$("$script_dir/toolchain-preflight" --json)"; then
+  toolchain_valid=false
+fi
+
 installation_state="notInstalled"
 installation_recovery="install"
 if [[ -L "$destination" ]]; then
@@ -343,6 +348,11 @@ candidate_uses_port_environment=false
 candidate_uses_host_environment=false
 runtime_verification_required=false
 possible_entry=""
+runtime_search_paths=()
+runtime_resolution_signals=()
+candidate_component_graph=false
+candidate_web_script=""
+candidate_api_script=""
 
 add_detected_stack() {
   local stack="$1"
@@ -355,6 +365,48 @@ add_detected_stack() {
   detected_stacks+=("$stack")
   detected_stack_count=$((detected_stack_count + 1))
 }
+
+add_runtime_search_path() {
+  local path="$1"
+  local existing
+  [[ -d "$path" ]] || return
+  if [[ ${#runtime_search_paths[@]} -gt 0 ]]; then
+    for existing in "${runtime_search_paths[@]}"; do
+      [[ "$existing" == "$path" ]] && return
+    done
+  fi
+  runtime_search_paths+=("$path")
+}
+
+if [[ -f "$target_dir/mise.toml" || -f "$target_dir/.mise.toml" ]]; then
+  runtime_resolution_signals+=("mise")
+  if command -v mise >/dev/null 2>&1; then
+    resolved_runtime="$(cd "$target_dir" && mise which node 2>/dev/null || true)"
+    [[ -n "$resolved_runtime" ]] && add_runtime_search_path "$(dirname "$resolved_runtime")"
+  fi
+fi
+if [[ -f "$target_dir/.tool-versions" ]]; then
+  runtime_resolution_signals+=("asdf")
+  if command -v asdf >/dev/null 2>&1; then
+    resolved_runtime="$(cd "$target_dir" && asdf which node 2>/dev/null || true)"
+    [[ -n "$resolved_runtime" ]] && add_runtime_search_path "$(dirname "$resolved_runtime")"
+  fi
+fi
+node_version_file=""
+[[ -f "$target_dir/.nvmrc" ]] && node_version_file="$target_dir/.nvmrc"
+[[ -z "$node_version_file" && -f "$target_dir/.node-version" ]] &&
+  node_version_file="$target_dir/.node-version"
+if [[ -n "$node_version_file" ]]; then
+  runtime_resolution_signals+=("$(basename "$node_version_file")")
+  requested_node_version="$(tr -d '[:space:]' < "$node_version_file")"
+  requested_node_version="${requested_node_version#v}"
+  nvm_root="${NVM_DIR:-${HOME:-}/.nvm}"
+  for node_directory in \
+    "$nvm_root/versions/node/v$requested_node_version/bin" \
+    "$nvm_root/versions/node/$requested_node_version/bin"; do
+    [[ -x "$node_directory/node" ]] && add_runtime_search_path "$node_directory"
+  done
+fi
 
 if [[ -f "$target_dir/package.json" ]]; then
   add_detected_stack "Node.js"
@@ -587,6 +639,48 @@ if [[ -f "$target_dir/package.json" ]]; then
     runtime_verification_required=true
     inference_reason="Inferred a direct Express entry point with explicit PORT and HOST flow; runtime verification is still required."
   fi
+
+  candidate_web_script_value="$(
+    /usr/bin/plutil -extract 'scripts.dev:web' raw \
+      "$target_dir/package.json" 2>/dev/null || true
+  )"
+  candidate_api_script_value="$(
+    /usr/bin/plutil -extract 'scripts.dev:api' raw \
+      "$target_dir/package.json" 2>/dev/null || true
+  )"
+  vite_configuration="$(find "$target_dir" -maxdepth 1 -type f \
+    \( -name 'vite.config.js' -o -name 'vite.config.mjs' \
+    -o -name 'vite.config.ts' -o -name 'vite.config.cjs' \) -print -quit)"
+  api_entry=""
+  if [[ "$candidate_api_script_value" =~ ^node[[:space:]]+(--watch[[:space:]]+)?([^[:space:]]+)[[:space:]]*$ ]]; then
+    api_entry="${BASH_REMATCH[2]#./}"
+  fi
+  vite_proxy_evidence=false
+  if [[ -n "$vite_configuration" ]] &&
+    /usr/bin/grep -Eq 'proxy[[:space:]]*:' "$vite_configuration" &&
+    /usr/bin/grep -Eq 'API_PORT|process[.]env[.]API_PORT' "$vite_configuration"; then
+    vite_proxy_evidence=true
+  fi
+  if [[ "$has_vite_dependency" == true && -n "$express_source" &&
+    "$candidate_web_script_value" =~ ^vite([[:space:]]+(dev|serve))?[[:space:]]*$ &&
+    -n "$api_entry" && "$api_entry" == "$express_source" &&
+    -n "$vite_configuration" &&
+    -n "$express_port_evidence" && -n "$express_host_evidence" &&
+    -n "$express_listen_evidence" &&
+    "$vite_proxy_evidence" == true ]]; then
+    candidate_component_graph=true
+    candidate_web_script="dev:web"
+    candidate_api_script="dev:api"
+    candidate_api_command="[\"$package_manager\", \"run\", \"dev:api\"]"
+    if [[ "$package_manager" == "npm" ]]; then
+      candidate_web_command='["npm", "run", "dev:web", "--", "--host", "127.0.0.1", "--port", "${self.endpoints.http.port}", "--strictPort"]'
+    else
+      candidate_web_command="[\"$package_manager\", \"run\", \"dev:web\", \"--host\", \"127.0.0.1\", \"--port\", \"\${self.endpoints.http.port}\", \"--strictPort\"]"
+    fi
+    manifest_status="configurationRequired"
+    runtime_verification_required=true
+    inference_reason="Detected a root Vite frontend and Express API with matching package scripts, dynamic API port flow, and a Vite proxy. A two-service component-graph draft was generated for runtime verification."
+  fi
 else
   nested_package=""
   while IFS= read -r candidate_package; do
@@ -687,17 +781,26 @@ grep -q "# enmanner:begin" "$target_dir/.gitignore" 2>/dev/null &&
 agents_needs_update=true
 grep -q "<!-- enmanner:begin -->" "$target_dir/AGENTS.md" 2>/dev/null &&
   agents_needs_update=false
+claude_needs_update=false
+if [[ -f "$target_dir/CLAUDE.md" ]] &&
+  ! grep -q "<!-- enmanner:begin -->" "$target_dir/CLAUDE.md" 2>/dev/null; then
+  claude_needs_update=true
+fi
 other_agent_files=()
 other_agent_file_count=0
+unmanaged_other_agent_file_count=0
 for agent_file in CLAUDE.md GEMINI.md .github/copilot-instructions.md; do
   if [[ -f "$target_dir/$agent_file" ]]; then
     other_agent_files+=("$agent_file")
     other_agent_file_count=$((other_agent_file_count + 1))
+    [[ "$agent_file" == "CLAUDE.md" ]] ||
+      unmanaged_other_agent_file_count=$((unmanaged_other_agent_file_count + 1))
   fi
 done
 if [[ -d "$target_dir/.cursor/rules" ]]; then
   other_agent_files+=(".cursor/rules/")
   other_agent_file_count=$((other_agent_file_count + 1))
+  unmanaged_other_agent_file_count=$((unmanaged_other_agent_file_count + 1))
 fi
 stale_draft=false
 [[ -f "$manifest_path" && -f "$draft_manifest_path" ]] &&
@@ -735,11 +838,13 @@ if [[ "$scope_review_required" == true && "$allow_subproject" != true ]]; then
   installation_applicable=false
 fi
 effective_agents_write=false
+effective_claude_write=false
 effective_gitignore_write=false
 effective_manifest_write=false
 effective_draft_write=false
 if [[ "$installation_applicable" == true ]]; then
   [[ "$agents_needs_update" == true ]] && effective_agents_write=true
+  [[ "$claude_needs_update" == true ]] && effective_claude_write=true
   [[ "$gitignore_needs_update" == true ]] && effective_gitignore_write=true
   [[ "$manifest_will_write" == true ]] && effective_manifest_write=true
   [[ "$draft_will_write" == true ]] && effective_draft_write=true
@@ -812,6 +917,22 @@ emit_result() {
       "$([[ "$git_classification" == "repository-root" || "$git_classification" == "subdirectory-of-repository" ]] && echo versioned || echo unversioned)"
     printf '"canProceedWithoutProductDecision":%s,' \
       "$([[ "$scope_review_required" == true ]] && echo false || echo true)"
+    printf '"toolchain":%s,' "$toolchain_result"
+    printf '"runtimeResolution":{"signals":['
+    runtime_separator=""
+    for runtime_signal in "${runtime_resolution_signals[@]:-}"; do
+      [[ -n "$runtime_signal" ]] || continue
+      printf '%s"%s"' "$runtime_separator" "$(json_escape "$runtime_signal")"
+      runtime_separator=","
+    done
+    printf '],"executableSearchPaths":['
+    runtime_separator=""
+    for runtime_path in "${runtime_search_paths[@]:-}"; do
+      [[ -n "$runtime_path" ]] || continue
+      printf '%s"%s"' "$runtime_separator" "$(json_escape "$runtime_path")"
+      runtime_separator=","
+    done
+    printf ']},'
     printf '"targetScope":{"reviewRequired":%s,"acknowledged":%s,"candidateWorkspaceRoot":%s,"enclosingEnmannerRoot":%s,"reason":"%s"},' \
       "$scope_review_required" "$allow_subproject" \
       "$([[ -n "$candidate_workspace_root" ]] && printf '"%s"' "$(json_escape "$candidate_workspace_root")" || printf 'null')" \
@@ -841,12 +962,12 @@ emit_result() {
         "$(json_escape "$requested_name")"
     fi
     printf '],'
-    printf '"inference":{"packageManager":"%s","packageManagerSignal":"%s","framework":"%s","workingDirectory":"%s","command":%s,"runtimeVerificationRequired":%s,"preferredPort":%d,"preferredPortDerivation":{"algorithm":"cksum-v1","identifier":"%s","rangeStart":42000,"rangeSize":6000},"reason":"%s","signalsExamined":["root package.json packageManager field","root npm, pnpm, Yarn, and Bun lockfiles","root package.json scripts dev/start/serve","root Vite, Next.js, or Vinext dependency","conservative Express source patterns","nested package.json files","Docker Compose files","Makefile","go.mod","Cargo.toml","pyproject.toml or requirements.txt"],"staticEvidence":[' \
+    printf '"inference":{"packageManager":"%s","packageManagerSignal":"%s","framework":"%s","workingDirectory":"%s","command":%s,"componentGraphDraft":%s,"runtimeVerificationRequired":%s,"preferredPort":%d,"preferredPortDerivation":{"algorithm":"cksum-v1","identifier":"%s","rangeStart":42000,"rangeSize":6000},"reason":"%s","signalsExamined":["root package.json packageManager field","root npm, pnpm, Yarn, and Bun lockfiles","root package.json scripts dev/start/serve","root Vite, Next.js, or Vinext dependency","conservative Express source patterns","Vite proxy configuration","version-manager files","nested package.json files","Docker Compose files","Makefile","go.mod","Cargo.toml","pyproject.toml or requirements.txt"],"staticEvidence":[' \
       "$(json_escape "$package_manager")" \
       "$(json_escape "$package_manager_signal")" \
       "$(json_escape "$detected_framework")" \
       "$(json_escape "$candidate_working_directory")" \
-      "${candidate_command:-null}" "$runtime_verification_required" \
+      "${candidate_command:-null}" "$candidate_component_graph" "$runtime_verification_required" \
       "$preferred_port" \
       "$(json_escape "$bundle_identifier")" \
       "$(json_escape "$inference_reason")"
@@ -896,6 +1017,10 @@ emit_result() {
       "$installation_applicable"
     printf '{"action":"ensureManagedSection","path":"AGENTS.md","willWrite":%s},' \
       "$effective_agents_write"
+    if [[ -f "$target_dir/CLAUDE.md" ]]; then
+      printf '{"action":"ensureManagedSection","path":"CLAUDE.md","willWrite":%s},' \
+        "$effective_claude_write"
+    fi
     printf '{"action":"ensureManagedSection","path":".gitignore","willWrite":%s},' \
       "$effective_gitignore_write"
     if [[ "$manifest_status" == "inferred" ]]; then
@@ -914,6 +1039,8 @@ emit_result() {
       printf '".enmanner/","enmanner/"'
       [[ "$agents_needs_update" == true ]] &&
         printf ',"AGENTS.md managed section"'
+      [[ "$claude_needs_update" == true ]] &&
+        printf ',"CLAUDE.md managed section"'
       [[ "$gitignore_needs_update" == true ]] &&
         printf ',".gitignore managed section"'
       if [[ "$manifest_will_write" == true ]]; then
@@ -925,6 +1052,10 @@ emit_result() {
     printf '],'
     printf '"unresolvedChecks":['
     unresolved_separator=""
+    if [[ "$toolchain_valid" != true ]]; then
+      printf '{"id":"appleToolchain","status":"failed","requirement":"the selected Apple developer tools compile Swift","evidence":"toolchain preflight failed","inspect":[],"suggestedChange":"select or reinstall Command Line Tools or Xcode using the structured toolchain diagnostic"}'
+      unresolved_separator=","
+    fi
     if [[ "$scope_review_required" == true && "$allow_subproject" != true ]]; then
       printf '{"id":"integrationRoot","status":"reviewRequired","requirement":"the target contains the complete launcher-owned runtime","evidence":"%s","inspect":["%s"],"suggestedChange":"run the installer against the common product workspace, or use --allow-subproject only for an intentional self-contained nested app"}' \
         "$(json_escape "$scope_reason")" \
@@ -991,7 +1122,7 @@ emit_result() {
         "$(json_escape "$manifest_relative_path")"
       warning_separator=","
     fi
-    if [[ $other_agent_file_count -gt 0 ]]; then
+    if [[ $unmanaged_other_agent_file_count -gt 0 ]]; then
       printf '%s"Other agent instruction files were detected; mirror the managed AGENTS.md guidance there when they are authoritative for this project"' "$warning_separator"
       warning_separator=","
     fi
@@ -1042,7 +1173,9 @@ emit_result() {
       echo "  Warning: remove stale $manifest_relative_path.example after confirming it is no longer needed"
     if [[ $other_agent_file_count -gt 0 ]]; then
       echo "  Agent instructions: also review ${other_agent_files[*]}"
-      echo "  Mirror the managed AGENTS.md guidance when one of those files is authoritative."
+      if [[ $unmanaged_other_agent_file_count -gt 0 ]]; then
+        echo "  Mirror the managed AGENTS.md guidance when one of the unmanaged files is authoritative."
+      fi
     fi
     if [[ "$shared_git_metadata" == true ]]; then
       echo "  Warning: source and target share Git metadata; verify distribution provenance."
@@ -1067,6 +1200,15 @@ if [[ "$plan" == true ]]; then
   fi
   emit_result false false plan
   exit 0
+fi
+
+if [[ "$toolchain_valid" != true ]]; then
+  if [[ "$json" == true ]]; then
+    printf '%s\n' "$toolchain_result"
+  else
+    "$script_dir/toolchain-preflight"
+  fi
+  exit 1
 fi
 
 if [[ "$repair" == true ]]; then
@@ -1171,6 +1313,19 @@ mkdir -p "$destination" "$configuration_dir"
   --exclude "scripts/install" \
   "$source_dir/" "$destination/"
 
+write_executable_search_paths() {
+  [[ ${#runtime_search_paths[@]} -gt 0 ]] || return 0
+  echo '  "executableSearchPaths": ['
+  local index
+  for ((index = 0; index < ${#runtime_search_paths[@]}; index++)); do
+    suffix=","
+    [[ $index -eq $((${#runtime_search_paths[@]} - 1)) ]] && suffix=""
+    printf '    "%s"%s\n' \
+      "$(json_escape "${runtime_search_paths[$index]}")" "$suffix"
+  done
+  echo '  ],'
+}
+
 if [[ ! -e "$manifest_path" && "$manifest_status" == "inferred" ]]; then
   {
     echo '{'
@@ -1178,6 +1333,7 @@ if [[ ! -e "$manifest_path" && "$manifest_status" == "inferred" ]]; then
     echo '  "version": 3,'
     printf '  "name": "%s",\n' "$(json_escape "$project_name")"
     printf '  "identifier": "%s",\n' "$(json_escape "$bundle_identifier")"
+    write_executable_search_paths
     echo '  "application": {'
     echo "    \"command\": $candidate_command,"
     echo '    "workingDirectory": ".",'
@@ -1214,7 +1370,40 @@ if [[ ! -e "$manifest_path" &&
     echo '  "version": 3,'
     printf '  "name": "%s",\n' "$(json_escape "$project_name")"
     printf '  "identifier": "%s",\n' "$(json_escape "$bundle_identifier")"
-    echo '  "application": {'
+    write_executable_search_paths
+    if [[ "$candidate_component_graph" == true ]]; then
+      echo '  "application": {'
+      echo '    "component": "web",'
+      echo '    "endpoint": "http"'
+      echo '  },'
+      echo '  "components": {'
+      echo '    "api": {'
+      echo '      "kind": "service",'
+      printf '      "command": %s,\n' "$candidate_api_command"
+      echo '      "environment": {'
+      echo '        "PORT": "${self.endpoints.http.port}",'
+      echo '        "HOST": "127.0.0.1"'
+      echo '      },'
+      echo '      "endpoints": {'
+      echo '        "http": {"protocol": "http", "port": {}}'
+      echo '      },'
+      echo '      "readiness": {"endpoint": "http", "path": "/", "timeoutSeconds": 30}'
+      echo '    },'
+      echo '    "web": {'
+      echo '      "kind": "service",'
+      printf '      "command": %s,\n' "$candidate_web_command"
+      echo '      "environment": {'
+      echo '        "API_PORT": "${components.api.endpoints.http.port}"'
+      echo '      },'
+      echo '      "dependsOn": ["api"],'
+      echo '      "endpoints": {'
+      printf '        "http": {"protocol": "http", "port": {"preferred": %d}}\n' "$preferred_port"
+      echo '      },'
+      echo '      "readiness": {"endpoint": "http", "path": "/", "timeoutSeconds": 30}'
+      echo '    }'
+      echo '  },'
+    else
+      echo '  "application": {'
     printf '    "command": %s,\n' "$draft_command"
     printf '    "workingDirectory": "%s",\n' \
       "$(json_escape "$candidate_working_directory")"
@@ -1236,7 +1425,8 @@ if [[ ! -e "$manifest_path" &&
     echo '      "path": "/",'
     echo '      "timeoutSeconds": 30'
     echo '    }'
-    echo '  },'
+      echo '  },'
+    fi
     echo '  "window": {'
     echo '    "width": 1200,'
     echo '    "height": 800,'
@@ -1274,12 +1464,27 @@ if ! grep -q "<!-- enmanner:begin -->" "$agents_file" 2>/dev/null; then
   } >> "$agents_file"
 fi
 
+claude_file="$target_dir/CLAUDE.md"
+if [[ -f "$claude_file" ]] &&
+  ! grep -q "<!-- enmanner:begin -->" "$claude_file" 2>/dev/null; then
+  {
+    echo
+    echo "<!-- enmanner:begin -->"
+    echo "## Enmanner"
+    echo
+    echo "Enmanner is installed in this project. Read \`.enmanner/AGENTS.md\` before"
+    echo "changing startup, networking, persistence, secrets, native presentation,"
+    echo "or collaboration. Preserve the repository as the source of truth."
+    echo "<!-- enmanner:end -->"
+  } >> "$claude_file"
+fi
+
 record_args=(
   --source "$source_dir" --manifest-status "$manifest_status"
 )
 [[ -n "$explicit_upstream_url" ]] &&
   record_args+=(--upstream-url "$explicit_upstream_url")
-[[ "$allow_unversioned" == true ]] &&
+[[ "$allow_unversioned" == true || "$git_classification" == "unversioned" ]] &&
   record_args+=(--unversioned-acknowledged)
 if [[ "$json" == true ]]; then
   "$destination/scripts/record-installation" "${record_args[@]}" >/dev/null
@@ -1339,13 +1544,14 @@ else
     [[ "$replace_existing_app" == true ]] && build_args+=(--replace-existing-app)
     if [[ "$json" == true ]]; then
       if ! build_result="$(
-        "$destination/scripts/build-app" "${build_args[@]}" --json
+        "$destination/scripts/build-app" \
+          ${build_args[@]+"${build_args[@]}"} --json
       )"; then
         printf '%s\n' "$build_result"
         exit 1
       fi
     else
-      "$destination/scripts/build-app" "${build_args[@]}"
+      "$destination/scripts/build-app" ${build_args[@]+"${build_args[@]}"}
     fi
     built=true
     if [[ "$runtime_validation" == true ]]; then

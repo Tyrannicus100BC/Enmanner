@@ -10,7 +10,7 @@ final class MainWindowController: NSWindowController {
     private let activityIndicator = NSProgressIndicator()
     private let retryButton = NSButton(title: "Try Again", target: nil, action: nil)
     private let logsButton = NSButton(title: "View Logs", target: nil, action: nil)
-    private let copyButton = NSButton(title: "Copy Logs", target: nil, action: nil)
+    private let copyButton = NSButton(title: "Copy for Coding Agent", target: nil, action: nil)
     private let revealButton = NSButton(title: "Reveal Project", target: nil, action: nil)
     private let openButton = NSButton(title: "Open in Browser", target: nil, action: nil)
     private let logsScrollView = NSScrollView()
@@ -18,9 +18,11 @@ final class MainWindowController: NSWindowController {
     private var logsHeightConstraint: NSLayoutConstraint!
     private var currentLogs = ""
     private var applicationURL: URL?
+    private var diagnostic = ""
 
     var onRetry: (() -> Void)?
     var onRevealProject: (() -> Void)?
+    var onCopyDiagnostic: (() -> String)?
 
     init(manifest: EnmannerManifest) {
         var style: NSWindow.StyleMask = [.titled, .closable, .miniaturizable]
@@ -126,6 +128,10 @@ final class MainWindowController: NSWindowController {
         if !text.isEmpty {
             logsTextView.scrollToEndOfDocument(nil)
         }
+    }
+
+    func updateDiagnostic(_ text: String) {
+        diagnostic = text
     }
 
     private func configureViews() {
@@ -251,7 +257,11 @@ final class MainWindowController: NSWindowController {
 
     @objc private func copyLogs() {
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(currentLogs, forType: .string)
+        let value = onCopyDiagnostic?() ?? diagnostic
+        NSPasteboard.general.setString(
+            value.isEmpty ? currentLogs : value,
+            forType: .string
+        )
     }
 
     @objc private func openInBrowser() {

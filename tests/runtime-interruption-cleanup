@@ -59,10 +59,10 @@ jq -e '
   (.valid == false) and
   (.runtime.interrupted == true) and
   (.runtime.interruptSignal == 2) and
-  (.runtime.supervisorExited == true) and
-  (.runtime.processGroupStopped == true) and
-  (.runtime.readinessUnavailable == true) and
-  (.runtime.portReleased == true)
+  (.runtime.shutdown.supervisorExited == true) and
+  (.runtime.shutdown.processGroupsStopped == true) and
+  (.runtime.shutdown.applicationEndpointUnavailable == true) and
+  (.runtime.shutdown.ownedPortsReleased == true)
 ' "$test_root/result.json" >/dev/null
 if kill -0 "$server_pid" 2>/dev/null; then
   echo "Error: interrupted runtime validation left its server running." >&2

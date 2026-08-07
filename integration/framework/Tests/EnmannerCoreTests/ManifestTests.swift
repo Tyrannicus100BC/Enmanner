@@ -116,6 +116,69 @@ final class ManifestTests: XCTestCase {
         )
     }
 
+    func testDecodesAndValidatesLaunchGuardAndBackup() throws {
+        let directory = try temporaryDirectory()
+        let manifest = try JSONDecoder().decode(
+            EnmannerManifest.self,
+            from: Data(
+                """
+                {
+                  "version": 3,
+                  "name": "Safe App",
+                  "identifier": "local.enmanner.safe-app",
+                  "application": {
+                    "command": ["/usr/bin/true"],
+                    "preferredPort": 43120,
+                    "readiness": {"path": "/"}
+                  },
+                  "launchGuard": {
+                    "applicationEndpoint": true,
+                    "exclusivePaths": ["data/app.sqlite"]
+                  },
+                  "backup": {
+                    "command": ["/usr/bin/true"],
+                    "workingDirectory": "."
+                  },
+                  "window": {
+                    "width": 800,
+                    "height": 600,
+                    "resizable": true
+                  }
+                }
+                """.utf8
+            )
+        )
+
+        XCTAssertEqual(manifest.launchGuard?.applicationEndpoint, true)
+        XCTAssertEqual(
+            manifest.launchGuard?.exclusivePaths,
+            ["data/app.sqlite"]
+        )
+        XCTAssertEqual(manifest.backup?.command, ["/usr/bin/true"])
+        XCTAssertEqual(
+            ManifestValidator.validate(manifest, projectURL: directory),
+            []
+        )
+    }
+
+    func testLaunchGuardRejectsUnknownAndAllocatedEndpoints() throws {
+        let directory = try temporaryDirectory()
+        let manifest = EnmannerManifest(
+            version: 3,
+            name: "Unsafe Guard",
+            identifier: "local.enmanner.unsafe-guard",
+            application: inlineApplication(),
+            launchGuard: .init(
+                applicationEndpoint: true,
+                endpoints: ["missing.http"]
+            )
+        )
+
+        let issues = ManifestValidator.validate(manifest, projectURL: directory)
+        XCTAssertTrue(issues.contains { $0.contains("needs a preferred or fixed port") })
+        XCTAssertTrue(issues.contains { $0.contains("unknown endpoint missing.http") })
+    }
+
     func testDecodesComponentGraphAndOrdersDependencies() throws {
         let manifest = try JSONDecoder().decode(
             EnmannerManifest.self,

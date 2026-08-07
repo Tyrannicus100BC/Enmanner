@@ -95,6 +95,13 @@ done < <(find "$installation_root" -type f \
 
 from_version="$(/usr/bin/plutil -extract version raw "$provenance")"
 to_version="$(tr -d '[:space:]' < "$source_root/VERSION")"
+project_manifest="$(dirname "$installation_root")/enmanner/enmanner.json"
+backup_recommended=false
+if [[ -f "$project_manifest" ]] &&
+  /usr/bin/plutil -extract backup.command json -o /dev/null \
+    "$project_manifest" >/dev/null 2>&1; then
+  backup_recommended=true
+fi
 
 emit_json() {
   printf '{"mode":"%s","fromVersion":"%s","toVersion":"%s","conflicts":[' \
@@ -108,7 +115,8 @@ emit_json() {
       separator=","
     done
   fi
-  printf '],"applicable":%s,"applied":%s}\n' \
+  printf '],"backupRecommendedBeforeApply":%s,"applicable":%s,"applied":%s}\n' \
+    "$backup_recommended" \
     "$([[ $conflict_count -eq 0 ]] && echo true || echo false)" \
     "$1"
 }
@@ -120,6 +128,9 @@ if [[ "$json" != true ]]; then
     printf '  %s\n' "${conflicts[@]}"
   else
     echo "✓ No locally modified framework files conflict."
+  fi
+  if [[ "$backup_recommended" == true ]]; then
+    echo "! This project declares File → Back Up Now; run it before applying framework changes when current data is not already protected."
   fi
 fi
 

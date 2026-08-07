@@ -6,9 +6,15 @@ final class LogWindowController: NSWindowController {
     private let textView = NSTextView()
     private let entryCountLabel = NSTextField(labelWithString: "")
     private let filterPopUp = NSPopUpButton()
+    private let restartButton = NSButton(
+        title: "Restart Component",
+        target: nil,
+        action: nil
+    )
     private var currentLogs = ""
     private(set) var filterKey = "all"
     var onFilterChange: ((String) -> Void)?
+    var onRestartComponent: ((String) -> Void)?
 
     init(appName: String, componentNames: [String]) {
         let window = NSWindow(
@@ -106,6 +112,11 @@ final class LogWindowController: NSWindowController {
         filterPopUp.target = self
         filterPopUp.action = #selector(changeFilter)
 
+        restartButton.translatesAutoresizingMaskIntoConstraints = false
+        restartButton.target = self
+        restartButton.action = #selector(restartSelectedComponent)
+        restartButton.isEnabled = false
+
         let copyButton = NSButton(
             title: "Copy All",
             target: self,
@@ -116,6 +127,7 @@ final class LogWindowController: NSWindowController {
         contentView.addSubview(scrollView)
         contentView.addSubview(entryCountLabel)
         contentView.addSubview(filterPopUp)
+        contentView.addSubview(restartButton)
         contentView.addSubview(copyButton)
 
         NSLayoutConstraint.activate([
@@ -147,8 +159,17 @@ final class LogWindowController: NSWindowController {
                 constant: -16
             ),
 
-            filterPopUp.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
+            filterPopUp.trailingAnchor.constraint(
+                equalTo: contentView.centerXAnchor,
+                constant: -4
+            ),
             filterPopUp.centerYAnchor.constraint(equalTo: copyButton.centerYAnchor),
+
+            restartButton.leadingAnchor.constraint(
+                equalTo: contentView.centerXAnchor,
+                constant: 4
+            ),
+            restartButton.centerYAnchor.constraint(equalTo: copyButton.centerYAnchor),
 
             copyButton.trailingAnchor.constraint(
                 equalTo: scrollView.trailingAnchor
@@ -165,6 +186,12 @@ final class LogWindowController: NSWindowController {
 
     @objc private func changeFilter() {
         filterKey = filterPopUp.selectedItem?.representedObject as? String ?? "all"
+        restartButton.isEnabled = filterKey != "all" && filterKey != "enmanner"
         onFilterChange?(filterKey)
+    }
+
+    @objc private func restartSelectedComponent() {
+        guard filterKey != "all", filterKey != "enmanner" else { return }
+        onRestartComponent?(filterKey)
     }
 }

@@ -3,7 +3,9 @@
 - macOS 13+ only; Intel and older macOS builds have not yet been exercised.
 - The launcher assumes the project's required runtime is already installed. It
   augments the sparse GUI PATH with `/opt/homebrew/bin` and `/usr/local/bin`,
-  but version-manager-only runtimes may need an explicit executable path.
+  while the installer resolves common nvm, mise, and asdf project declarations
+  into explicit search paths when their local tools are available. Unresolved
+  or custom version-manager layouts still need an explicit executable path.
 - The component graph starts services in deterministic topological order; it
   does not yet start independent ready branches concurrently.
 - Unexpected managed-service exit restarts that service and its transitive
@@ -24,8 +26,10 @@
   keys, malformed quoting, and multiline values require manual cleanup rather
   than risking a destructive rewrite.
 - Restart recovery is bounded and does not preserve in-memory server state.
-- No code sandbox, encrypted secret store, data migration framework, backup service,
-  project upgrade manager, auto-updater, notarization, or public distribution.
+- No code sandbox, encrypted secret store, data migration framework, generic
+  backup or restore service, project upgrade manager, auto-updater,
+  notarization, or public distribution. The optional backup command remains
+  entirely project-defined.
 - The native status window is intentionally basic.
 - Installer inference completes configuration for tested root Vite, Next.js,
   and Vinext projects using npm, pnpm, Yarn, or Bun, plus narrowly matched

@@ -46,9 +46,11 @@ public struct RuntimeFailure: Codable, Equatable, Sendable, LocalizedError {
         case componentExited
         case probeFailed
         case probeTimedOut
+        case addressFamilyMismatch
         case taskExited
         case taskLeftProcessesRunning
         case runtimeInterrupted
+        case backupFailed
     }
 
     public enum Phase: String, Codable, Sendable {
@@ -58,6 +60,7 @@ public struct RuntimeFailure: Codable, Equatable, Sendable, LocalizedError {
         case stability
         case completion
         case shutdown
+        case backup
     }
 
     public let code: Code

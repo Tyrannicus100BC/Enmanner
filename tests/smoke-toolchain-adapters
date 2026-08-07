@@ -31,11 +31,11 @@ printf '%s\n' "$install_result" | jq -e '
 "$next_target/.enmanner/scripts/validate" --runtime --json |
   jq -e '
     .valid and
-    .runtime.readinessPassed and
-    .runtime.supervisorExited and
-    .runtime.processGroupStopped and
-    .runtime.readinessUnavailable and
-    .runtime.portReleased
+    .runtime.startup.readinessPassed and
+    .runtime.shutdown.supervisorExited and
+    .runtime.shutdown.processGroupsStopped and
+    .runtime.shutdown.applicationEndpointUnavailable and
+    .runtime.shutdown.ownedPortsReleased
   ' >/dev/null
 
 echo "✓ Next.js npm adapter passed real startup and shutdown validation"
@@ -62,11 +62,11 @@ printf '%s\n' "$vinext_install_result" | jq -e '
 "$vinext_target/.enmanner/scripts/validate" --runtime --json |
   jq -e '
     .valid and
-    .runtime.readinessPassed and
-    .runtime.supervisorExited and
-    .runtime.processGroupStopped and
-    .runtime.readinessUnavailable and
-    .runtime.portReleased
+    .runtime.startup.readinessPassed and
+    .runtime.shutdown.supervisorExited and
+    .runtime.shutdown.processGroupsStopped and
+    .runtime.shutdown.applicationEndpointUnavailable and
+    .runtime.shutdown.ownedPortsReleased
   ' >/dev/null
 
 echo "✓ Vinext npm adapter passed real startup and shutdown validation"

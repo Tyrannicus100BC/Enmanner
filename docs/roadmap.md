@@ -3,11 +3,13 @@
 ## After the MVP proves the vertical slice
 
 - Test a wider set of frontend and full-stack development servers.
-- Improve duplicate-launch coordination and escaped-child detection.
+- Improve escaped-child detection and launch-guard coverage beyond declared
+  endpoints and open files.
 - Extend the component graph with concurrent startup of independent branches,
   continuous prerequisite and opt-in health observation, component-local
-  recovery, and native per-component status/log filtering.
-- Add an explicit project-local runtime-data convention and backup helpers.
+  recovery policies, and richer per-component status.
+- Extend the project-declared backup contract with restore conventions only
+  after real applications establish safe patterns.
 - Add dependency-only preflight and isolated runtime-validation modes for
   stateful services.
 - Add machine-readable launcher status and bounded diagnostic log interfaces

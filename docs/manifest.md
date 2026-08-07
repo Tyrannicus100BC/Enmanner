@@ -381,6 +381,47 @@ Configured working directories and relative executables must remain inside the
 project. Every managed service must remain in the foreground, bind declared
 network listeners to loopback, and keep descendants in its owned process group.
 
+## Launch guards
+
+Stateful projects that developers also start outside Enmanner may declare
+advisory duplicate-runtime evidence:
+
+```json
+{
+  "launchGuard": {
+    "applicationEndpoint": true,
+    "endpoints": ["api.http"],
+    "exclusivePaths": ["data/app.sqlite"]
+  }
+}
+```
+
+Guarded endpoints require a fixed or preferred port. Before startup, the native
+launcher checks those ports and asks macOS which processes have declared data
+files open. A conflict presents **Cancel Launch**, **Launch Anyway**, and a
+copyable coding-agent diagnostic. This is a safety warning, not a claim that
+Enmanner can discover every possible external writer.
+
+## Project-declared backup
+
+A project may expose one curated backup operation:
+
+```json
+{
+  "backup": {
+    "command": ["uv", "run", "python", "scripts/backup.py"],
+    "workingDirectory": "."
+  }
+}
+```
+
+Enmanner contributes **File → Back Up Now**, runs the command directly in an
+owned foreground process group, streams output to Runtime Logs, and reports the
+result. The project owns backup contents, destination, retention, encryption,
+and restore behavior. Upgrade checks surface a reminder to use the declared
+operation before framework changes when current data is not otherwise
+protected. This is intentionally not a generic native task menu.
+
 ## App icons
 
 Projects shared by Macs with different Apple toolchains can configure both icon
@@ -454,7 +495,8 @@ The referenced application endpoint must use HTTP or HTTPS. Enmanner appends
 the configured application path, waits for the component's startup readiness,
 then opens it in the default browser. The launcher remains windowless while
 healthy and keeps the runtime owned by the Dock application. Dimensions and
-resizability affect native status windows and require an app rebuild.
+resizability affect only Enmanner's native status window, not the browser
+window, and require an app rebuild.
 
 ## Icon
 

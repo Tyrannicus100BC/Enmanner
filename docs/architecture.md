@@ -63,23 +63,26 @@ while retaining several years of Mac coverage.
    normalized component graph, and reject invalid version, paths, identifiers,
    dependency cycles, hidden endpoint-reference edges, public endpoint hosts,
    obvious embedded secrets, or global-install flags.
-3. Allocate every named endpoint, using fixed or preferred loopback ports where
+3. If the project declares a launch guard, check its stable endpoints and open
+   data paths for evidence of an independently running copy. A native warning
+   defaults to cancelling launch but permits an explicit one-time override.
+4. Allocate every named endpoint, using fixed or preferred loopback ports where
    declared, and retain those values for the launcher session.
-4. Expand only exact component endpoint references and
+5. Expand only exact component endpoint references and
    `${project.directory}`.
-5. Traverse the dependency graph. Observe prerequisites, run exit-gated or
+6. Traverse the dependency graph. Observe prerequisites, run exit-gated or
    completion-gated tasks, and start foreground services after their
    dependencies are satisfied.
-6. Resolve relative executables from each component's working directory,
+7. Resolve relative executables from each component's working directory,
    absolute executables directly, and bare executable names from a GUI-safe
    PATH made from explicit manifest search directories, the inherited value,
    and standard Apple Silicon and Intel local runtime locations. Home-relative
    manifest entries are expanded without a shell, and the same PATH reaches
    child processes.
-7. Put each managed service in its own process group, label its captured output,
+8. Put each managed service in its own process group, label its captured output,
    and wait for its required HTTP, TCP, command, or process readiness probe.
-8. Remain windowless while keeping normal Dock presence.
-9. Once the configured application component is ready, ask the default browser
+9. Remain windowless while keeping normal Dock presence.
+10. Once the configured application component is ready, ask the default browser
    to open its named HTTP endpoint, optionally substituting an app-specific
    `.localhost` browser hostname without changing the listener, readiness, or
    inter-component endpoint host.
@@ -147,8 +150,7 @@ runtime, and requires every immediate process and process group to disappear,
 the application endpoint to remain unavailable, and every Enmanner-owned port
 to have no loopback listener. Fixed prerequisite ports are reported as observed
 and are deliberately excluded from shutdown ownership checks. It reports
-surviving tracked PIDs and the Git-status delta as `gitStatusMutations`. The former `workspaceMutations` JSON field
-remains as a deprecated compatibility alias for one release.
+surviving tracked PIDs and the Git-status delta as `gitStatusMutations`.
 External containers, daemons, and deliberately detached processes remain
 project-owned and are reported as outside the proof boundary.
 
@@ -177,7 +179,14 @@ and Help menus using the manifest name. Standard responder-chain actions cover
 Undo, Cut, Copy, Paste, Select All, Close Window, Minimize, and Full Screen.
 The Window menu opens dedicated live Runtime Logs without revealing Terminal.
 The combined view can be filtered to Enmanner or one runtime component while
-all components remain supervised.
+all components remain supervised. A service filter exposes a manual restart
+that uses the same dependency-aware recovery path as an unexpected exit.
+
+An optional project-declared backup command appears in the File menu. It runs
+directly in a separately owned process group, streams labelled output into the
+same bounded log system, and records only its last successful timestamp in
+native preferences. Enmanner does not infer backup contents or implement
+restore, retention, encryption, or storage policy.
 
 The Settings window stores whether failure details include recent server output
 in `UserDefaults`. An optional manifest declaration adds project settings for
@@ -203,7 +212,10 @@ and failed. It appears after an explicit Dock reopen or when a failure needs
 attention. Failure
 includes the failed component, resolved argument array, working directory,
 exit status when known, and recent output. Users can show the bounded inline
-log view, copy it, retry, or reveal the project without opening Terminal. A
+log view, copy a paste-ready coding-agent diagnostic, retry, or reveal the
+project without opening Terminal. The diagnostic includes the project path,
+stable failure code and phase, component, resolved command, selected ports, and
+bounded component logs; it does not launch an agent or execute a fix. A
 separate resizable Runtime Logs window remains available while the server is
 healthy, starting, reconnecting, or failed. Its combined view updates from the
 shared rolling buffer; component views use independent bounded buffers so a

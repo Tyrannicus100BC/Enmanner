@@ -36,5 +36,5 @@ To check startup and graceful shutdown without opening the UI:
 ```
 
 Use “View Logs” in a startup or failure state to inspect captured server output,
-“Copy Logs” to share it with a coding agent, and “Reveal Project” to return to
+“Copy for Coding Agent” to share a structured diagnostic, and “Reveal Project” to return to
 the source.

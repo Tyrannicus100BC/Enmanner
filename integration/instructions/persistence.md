@@ -13,6 +13,9 @@
   `down -v` in Enmanner lifecycle or validation.
 - Preserve or back up existing volumes before changing lifecycle behavior, then
   verify persistence with a controlled stop/start test.
+- For a project that is commonly started outside Enmanner, declare
+  `launchGuard` evidence for stable application/API endpoints and important
+  SQLite or other exclusive data files.
 
 ## SHOULD
 
@@ -24,6 +27,10 @@
 - Provide import/export for important user-owned data.
 - Keep local data in an explicit project data directory for the MVP and ignore
   it in Git.
+- When the project has a trustworthy backup command, declare the single
+  manifest `backup` contract so **File → Back Up Now** can run it under normal
+  supervision. Keep format, destination, retention, and restore logic in the
+  project.
 
 Enmanner can present explicitly declared local settings stored in a Git-ignored
 dotenv file. The launcher materializes a configured template only when the

@@ -46,7 +46,9 @@ lifecycle behavior earlier, but cannot satisfy completion. Use this order:
    `--allow-subproject` only after confirming that the nested service is itself
    the complete user-facing app.
 6. Install framework files. When configuration is required, review
-   `enmanner/enmanner.json.example`; never treat the draft as verified configuration.
+   `enmanner/enmanner.json.example`; never treat the draft as verified
+   configuration. After writing `enmanner/enmanner.json`, delete the `.example`
+   draft so it cannot be mistaken for a second configuration source.
 7. Read `development-server.md`, then map the service inventory into one
    component graph. Verify component ownership, foreground execution, endpoint
    references, loopback binding, dependency ordering, readiness, shutdown, and

@@ -67,32 +67,40 @@ private enum RuntimeValidationOutcome {
 }
 
 private struct RuntimeReport: Codable {
-    let selectedPort: UInt16
+    struct Startup: Codable {
+        let readinessURL: String
+        let readinessPassed: Bool
+        let soakSeconds: Double
+        let soakPassed: Bool
+        let componentProcessIdentifiers: [String: Int32]
+    }
+
+    struct Shutdown: Codable {
+        let supervisorExited: Bool
+        let processGroupsStopped: Bool
+        let applicationEndpointUnavailable: Bool
+        let ownedPortsReleased: Bool
+        let nonLoopbackListeners: [String]
+        let remainingProcesses: [String]
+    }
+
+    let applicationPort: UInt16
     let selectedPorts: [String: UInt16]
     let ownedPorts: [String: UInt16]
     let observedPorts: [String: UInt16]
-    let readinessURL: String
-    let componentProcessIdentifiers: [String: Int32]
-    let readinessPassed: Bool
-    let soakSeconds: Double
-    let soakPassed: Bool
-    let supervisorExited: Bool
-    let processGroupStopped: Bool
-    let readinessUnavailable: Bool
-    let portReleased: Bool
-    let nonLoopbackListeners: [String]
-    let remainingProcesses: [String]
+    let startup: Startup
+    let shutdown: Shutdown
     let gitStatusMutations: [String]
-    @available(*, deprecated, message: "Use gitStatusMutations.")
-    let workspaceMutations: [String]
     let interrupted: Bool
     let interruptSignal: Int32?
 
     var passed: Bool {
-        !interrupted && readinessPassed && soakPassed &&
-            supervisorExited && processGroupStopped &&
-            readinessUnavailable && portReleased &&
-            nonLoopbackListeners.isEmpty && remainingProcesses.isEmpty
+        !interrupted && startup.readinessPassed && startup.soakPassed &&
+            shutdown.supervisorExited && shutdown.processGroupsStopped &&
+            shutdown.applicationEndpointUnavailable &&
+            shutdown.ownedPortsReleased &&
+            shutdown.nonLoopbackListeners.isEmpty &&
+            shutdown.remainingProcesses.isEmpty
     }
 }
 
@@ -712,11 +720,11 @@ struct EnmannerValidatorCommand {
         } else if nestedRepositoryCount > 0 {
             workspaceStatus = "unversionedRootWithNestedRepositories"
             workspaceRecommendation =
-                "The workspace root is unversioned; initialize version control there or record its durability with install --allow-unversioned."
+                "The workspace root is unversioned; initialize version control there or run ./.enmanner/scripts/record-durability --unversioned."
         } else {
             workspaceStatus = "unversioned"
             workspaceRecommendation =
-                "Initialize version control for the project so Enmanner configuration has a durable owner."
+                "Initialize version control for the project, or run ./.enmanner/scripts/record-durability --unversioned."
         }
         let complete = localIntegrationComplete && repositoryReady
         let integrationStatus: String
@@ -1054,7 +1062,7 @@ struct EnmannerValidatorCommand {
                 .intersection(configuredKeys)
                 .sorted()
                 .map { key in
-                    "\(userConfiguration.template!) assigns \(key), which is also set by a component environment; verify the project's dotenv precedence or use a curated launcher template"
+                    "\(userConfiguration.template!) assigns \(key), which is also set by a component environment; verify the project's dotenv precedence or remove that assignment from the template"
                 }
         } catch {
             return [
@@ -1256,11 +1264,11 @@ struct EnmannerValidatorCommand {
                 processGroupsStopped = false
             }
         }
-        let readinessUnavailable = await ReadinessChecker().waitUntilUnavailable(
+        let applicationEndpointUnavailable = await ReadinessChecker().waitUntilUnavailable(
             url: url,
             timeout: 4
         )
-        let portReleased = plan.ownedPorts.values.allSatisfy {
+        let ownedPortsReleased = plan.ownedPorts.values.allSatisfy {
             !PortAllocator.isLoopbackPortListening($0)
         }
         let remainingProcesses = survivingProcesses(trackedProcesses)
@@ -1271,15 +1279,15 @@ struct EnmannerValidatorCommand {
                 event: "shutdownChecked",
                 fields: [
                     "supervisorExited": supervisorExited,
-                    "processGroupStopped": processGroupsStopped,
-                    "readinessUnavailable": readinessUnavailable,
-                    "portReleased": portReleased
+                    "processGroupsStopped": processGroupsStopped,
+                    "applicationEndpointUnavailable": applicationEndpointUnavailable,
+                    "ownedPortsReleased": ownedPortsReleased
                 ]
             )
         }
 
         return RuntimeReport(
-            selectedPort: port,
+            applicationPort: port,
             selectedPorts: Dictionary(
                 uniqueKeysWithValues: plan.ports.map { key, value in
                     ("\(key.component).\(key.endpoint)", value)
@@ -1295,19 +1303,22 @@ struct EnmannerValidatorCommand {
                     ("\(key.component).\(key.endpoint)", value)
                 }
             ),
-            readinessURL: url.absoluteString,
-            componentProcessIdentifiers: rootProcesses,
-            readinessPassed: readinessPassed,
-            soakSeconds: soakSeconds,
-            soakPassed: soakPassed,
-            supervisorExited: supervisorExited,
-            processGroupStopped: processGroupsStopped,
-            readinessUnavailable: readinessUnavailable,
-            portReleased: portReleased,
-            nonLoopbackListeners: nonLoopback,
-            remainingProcesses: remainingProcesses,
+            startup: .init(
+                readinessURL: url.absoluteString,
+                readinessPassed: readinessPassed,
+                soakSeconds: soakSeconds,
+                soakPassed: soakPassed,
+                componentProcessIdentifiers: rootProcesses
+            ),
+            shutdown: .init(
+                supervisorExited: supervisorExited,
+                processGroupsStopped: processGroupsStopped,
+                applicationEndpointUnavailable: applicationEndpointUnavailable,
+                ownedPortsReleased: ownedPortsReleased,
+                nonLoopbackListeners: nonLoopback,
+                remainingProcesses: remainingProcesses
+            ),
             gitStatusMutations: mutations,
-            workspaceMutations: mutations,
             interrupted: interrupted,
             interruptSignal: interruptSignal
         )
@@ -1317,16 +1328,16 @@ struct EnmannerValidatorCommand {
         if report.interrupted {
             print("! runtime validation was interrupted by signal \(report.interruptSignal ?? 0)")
         } else {
-            print("✓ server became ready at \(report.readinessURL)")
+            print("✓ server became ready at \(report.startup.readinessURL)")
             print(
-                "\(mark(report.soakPassed)) services remained stable for " +
-                "\(String(format: "%.1f", report.soakSeconds)) seconds"
+                "\(mark(report.startup.soakPassed)) services remained stable for " +
+                "\(String(format: "%.1f", report.startup.soakSeconds)) seconds"
             )
         }
-        print("\(mark(report.supervisorExited)) supervisor process exited")
-        print("\(mark(report.processGroupStopped)) process group stopped")
-        print("\(mark(report.readinessUnavailable)) readiness became unavailable")
-        print("\(mark(report.portReleased)) all Enmanner-owned ports were released")
+        print("\(mark(report.shutdown.supervisorExited)) supervisor process exited")
+        print("\(mark(report.shutdown.processGroupsStopped)) process groups stopped")
+        print("\(mark(report.shutdown.applicationEndpointUnavailable)) application endpoint became unavailable")
+        print("\(mark(report.shutdown.ownedPortsReleased)) all Enmanner-owned ports were released")
         if report.selectedPorts.count > 1 {
             for (endpoint, port) in report.selectedPorts.sorted(
                 by: { $0.key < $1.key }
@@ -1342,13 +1353,13 @@ struct EnmannerValidatorCommand {
                 print("    \(endpoint): \(port)")
             }
         }
-        if !report.nonLoopbackListeners.isEmpty {
+        if !report.shutdown.nonLoopbackListeners.isEmpty {
             print("✗ launched process tree exposed non-loopback listeners:")
-            report.nonLoopbackListeners.forEach { print("  \($0)") }
+            report.shutdown.nonLoopbackListeners.forEach { print("  \($0)") }
         }
-        if !report.remainingProcesses.isEmpty {
+        if !report.shutdown.remainingProcesses.isEmpty {
             print("✗ remaining tracked processes:")
-            report.remainingProcesses.forEach { print("  \($0)") }
+            report.shutdown.remainingProcesses.forEach { print("  \($0)") }
         }
         if !report.gitStatusMutations.isEmpty {
             print("! Git-status changes observed during runtime validation:")

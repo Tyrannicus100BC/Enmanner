@@ -78,6 +78,32 @@ final class PortAllocatorTests: XCTestCase {
             server.port
         )
     }
+
+    func testLaunchGuardDetectsOccupiedApplicationEndpoint() throws {
+        let server = try BoundLoopbackSocket()
+        defer { server.close() }
+        XCTAssertEqual(Darwin.listen(server.descriptor, 1), 0)
+        let manifest = EnmannerManifest(
+            version: 3,
+            name: "Guarded",
+            identifier: "local.enmanner.guarded",
+            application: .init(
+                command: ["/usr/bin/true"],
+                preferredPort: server.port,
+                readiness: .init(path: "/")
+            ),
+            launchGuard: .init(applicationEndpoint: true)
+        )
+
+        let conflicts = LaunchConflictDetector.detect(
+            manifest: manifest,
+            projectURL: FileManager.default.temporaryDirectory
+        )
+
+        XCTAssertEqual(conflicts.count, 1)
+        XCTAssertEqual(conflicts[0].kind, .endpointInUse)
+        XCTAssertTrue(conflicts[0].resource.contains(String(server.port)))
+    }
 }
 
 private final class BoundLoopbackSocket {

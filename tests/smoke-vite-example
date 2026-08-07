@@ -3,9 +3,18 @@ set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repository_dir="$(cd "$script_dir/.." && pwd)"
-example_dir="${ENMANNER_SMOKE_EXAMPLE_DIR:-$repository_dir/examples/vite-example}"
+source_example_dir="${ENMANNER_SMOKE_EXAMPLE_DIR:-$repository_dir/examples/vite-example}"
+smoke_workspace="$(mktemp -d "${TMPDIR:-/tmp}/enmanner-vite-smoke.XXXXXX")"
+example_dir="$smoke_workspace/Vite Example With Spaces"
 runtime_events="$(mktemp "${TMPDIR:-/tmp}/enmanner-runtime-events.XXXXXX")"
-trap 'rm -f "$runtime_events"' EXIT
+trap 'rm -f "$runtime_events"; rm -rf "$smoke_workspace"' EXIT
+
+# Exercise the current framework source, not the example's intentionally
+# receipt-pinned installed copy. The isolated project also keeps generated app
+# bundles and test receipts out of the repository and verifies paths with spaces.
+/usr/bin/ditto --noqtn "$source_example_dir" "$example_dir"
+rm -rf "$example_dir/.enmanner"
+"$repository_dir/integration/scripts/install" "$example_dir" >/dev/null
 
 if [[ ! -d "$example_dir/node_modules" ]]; then
   echo "Installing example dependencies…"
@@ -22,10 +31,10 @@ jq -s -e '
   ([.[].event] | index("soakPassed")) and
   ([.[].event] | index("componentExited")) and
   (map(select(.event == "complete"))[0].report.runtime |
-    .readinessPassed and
-    .soakPassed and
-    (.soakSeconds == 5) and
-    .portReleased and
+    .startup.readinessPassed and
+    .startup.soakPassed and
+    (.startup.soakSeconds == 5) and
+    .shutdown.ownedPortsReleased and
     (.ownedPorts | length == 1) and
     (.observedPorts | length == 0))
 ' "$runtime_events" >/dev/null
@@ -40,10 +49,11 @@ jq -s -e '
   jq -e '
     .valid and
     (.buildKind == "development") and
-    .readinessPassed and
-    .quitCleanly and
-    .readinessUnavailable and
-    .portReleased
+    .startup.readinessPassed and
+    (.startup.componentProcessIdentifiers | length == 1) and
+    .shutdown.quitCleanly and
+    .shutdown.applicationEndpointUnavailable and
+    .shutdown.ownedPortsReleased
   ' >/dev/null
 "$example_dir/.enmanner/scripts/preview-icon" --json |
   jq -e '
@@ -96,10 +106,11 @@ done
   jq -e '
     .valid and
     (.buildKind == "final") and
-    .readinessPassed and
-    .quitCleanly and
-    .readinessUnavailable and
-    .portReleased
+    .startup.readinessPassed and
+    (.startup.componentProcessIdentifiers | length == 1) and
+    .shutdown.quitCleanly and
+    .shutdown.applicationEndpointUnavailable and
+    .shutdown.ownedPortsReleased
   ' >/dev/null
 "$example_dir/.enmanner/scripts/doctor" --json |
   jq -e '

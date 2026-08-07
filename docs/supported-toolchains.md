@@ -72,3 +72,18 @@ entry file and all three signals agree, the installer writes an active manifest
 with `PORT` and `HOST` wiring and marks it `runtimeVerificationRequired`.
 Otherwise it retains an inactive draft populated with whatever networking
 evidence is safe to propose. Runtime validation remains the proof.
+
+## Component-graph candidates and version managers
+
+The installer recognizes a narrow root Vite-plus-Express shape when `dev:web`
+and `dev:api` directly launch Vite and the Express entry point, the API exposes
+verified `PORT` and `HOST` flow, and the Vite proxy reads `API_PORT`. It writes
+an inactive two-service graph draft with the dependency and endpoint references
+filled in. Runtime verification is still required before that draft becomes the
+live manifest.
+
+Installer planning also reports `.nvmrc`, `.node-version`, mise, and asdf
+signals. When the selected runtime tool can resolve a concrete Node executable,
+its directory is emitted in `runtimeResolution.executableSearchPaths` and added
+to generated manifests. Unresolved version-manager declarations remain
+evidence for the integrating agent; the launcher never initializes a shell.
