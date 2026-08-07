@@ -114,7 +114,7 @@ else
   "$script_dir/validate"
 fi
 
-validator_dir="$(swift build --package-path "$framework_dir" -c release --show-bin-path)"
+validator_dir="$("$script_dir/prepare-framework")"
 validator="$validator_dir/enmanner-validator"
 manifest_app_name="$("$validator" --project "$project_dir" --print name)"
 app_name="$manifest_app_name"
@@ -233,9 +233,8 @@ while read -r running_pid running_command; do
   fi
 done < <(/bin/ps -axo pid=,comm=)
 
-echo "Building the native Enmanner launcher…"
-swift build --package-path "$framework_dir" -c release --product EnmannerLauncher
-bin_dir="$(swift build --package-path "$framework_dir" -c release --show-bin-path)"
+echo "Using the verified native Enmanner launcher…"
+bin_dir="$("$script_dir/prepare-framework")"
 
 stage_dir="$(mktemp -d "${TMPDIR:-/tmp}/enmanner-app.XXXXXX")"
 

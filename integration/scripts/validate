@@ -123,9 +123,7 @@ cleanup_build_log() {
   rm -f "$build_log"
 }
 trap cleanup_build_log EXIT
-echo "Compiling the Enmanner launcher framework; a cold first build can take a minute…" >&2
-if ! swift build --package-path "$framework_dir" -c release \
-  --product enmanner-validator >"$build_log" 2>&1; then
+if ! bin_dir="$("$script_dir/prepare-framework" 2>"$build_log")"; then
   build_details="$(/usr/bin/tail -n 30 "$build_log")"
   if [[ "$json" == true ]]; then
     escaped_details="${build_details//\\/\\\\}"
@@ -143,10 +141,9 @@ if ! swift build --package-path "$framework_dir" -c release \
   fi
   exit 1
 fi
-if [[ "$json" != true && "$json_lines" != true && "$next_flag" != true ]]; then
-  /bin/cat "$build_log"
+if [[ "$json" != true && "$json_lines" != true && "$next_flag" != true && -s "$build_log" ]]; then
+  /bin/cat "$build_log" >&2
 fi
-bin_dir="$(swift build --package-path "$framework_dir" -c release --show-bin-path)"
 
 manifest="$project_dir/enmanner/enmanner.json"
 modern_icon="$(

@@ -2,6 +2,33 @@ import XCTest
 @testable import EnmannerCore
 
 final class ManifestTests: XCTestCase {
+    func testFixedApplicationEndpointCountsAsStablePort() throws {
+        let data = Data(#"""
+        {
+          "version": 3,
+          "name": "Fixed Port",
+          "identifier": "local.enmanner.fixed-port",
+          "components": {
+            "web": {
+              "kind": "service",
+              "command": ["/usr/bin/true"],
+              "endpoints": {
+                "http": { "protocol": "http", "port": { "fixed": 3000 } }
+              },
+              "readiness": { "type": "http", "endpoint": "http", "path": "/" }
+            }
+          },
+          "application": { "component": "web", "endpoint": "http" },
+          "window": { "width": 800, "height": 600, "resizable": true }
+        }
+        """#.utf8)
+        let manifest = try JSONDecoder().decode(EnmannerManifest.self, from: data)
+        let graph = try RuntimeGraph.make(from: manifest)
+
+        XCTAssertTrue(graph.applicationHasStablePort)
+        XCTAssertNil(graph.applicationPreferredPort)
+    }
+
     func testDecodesVersionThreeInlineApplication() throws {
         let manifest = try JSONDecoder().decode(
             EnmannerManifest.self,

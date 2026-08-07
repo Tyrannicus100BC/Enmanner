@@ -42,7 +42,7 @@ trap cleanup EXIT
 validate_args=(--json)
 [[ "$development" == true ]] && validate_args+=(--development)
 "$script_dir/validate" "${validate_args[@]}" >/dev/null
-bin_dir="$(swift build --package-path "$framework_dir" -c release --show-bin-path)"
+bin_dir="$("$script_dir/prepare-framework")"
 validator="$bin_dir/enmanner-validator"
 app_name="$("$validator" --project "$project_dir" --print name)"
 manifest_bundle_identifier="$("$validator" --project "$project_dir" --print identifier)"

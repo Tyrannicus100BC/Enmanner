@@ -83,6 +83,13 @@ public struct RuntimeGraph: Equatable, Sendable {
             .port.preferred
     }
 
+    public var applicationHasStablePort: Bool {
+        guard let port = components[applicationComponent]?
+            .endpoints[applicationEndpoint]?
+            .port else { return false }
+        return port.fixed != nil || port.preferred != nil
+    }
+
     public var environments: [[String: String]] {
         components.values.map(\.environment)
     }

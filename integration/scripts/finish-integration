@@ -56,8 +56,7 @@ if [[ "$json" != true ]]; then
   "$script_dir/test-app"
   "$script_dir/doctor"
   if [[ "$open_app" == true ]]; then
-    framework_dir="$integration_dir/framework"
-    bin_dir="$(swift build --package-path "$framework_dir" -c release --show-bin-path)"
+    bin_dir="$("$script_dir/prepare-framework")"
     app_name="$("$bin_dir/enmanner-validator" --project "$project_dir" --print name)"
     /usr/bin/open "$project_dir/$app_name.app"
   fi

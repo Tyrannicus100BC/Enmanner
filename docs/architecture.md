@@ -325,6 +325,15 @@ can be technically complete while repository recording remains a user-owned
 action; overall completion requires both unless unversioned workspace
 durability was explicitly recorded.
 
+Routine upgrades can fetch the receipt-recorded upstream into an automatically
+cleaned temporary checkout. Their preview compares both semantic versions and
+Git revisions, classifies distribution changes, reads local machine-readable
+release notes, and determines whether native sources require rebuilding.
+`--verify` reuses one content-addressed Swift build for static validation,
+runtime validation, packaging, and native testing. First-time integration
+analysis is revisited only when migration or behavioral notes identify an
+affected boundary.
+
 ## Why there is no reverse proxy
 
 Vite accepts an injected strict port and handles HMR correctly against the same

@@ -14,7 +14,9 @@ The supported project-facing surface is:
 - `scripts/doctor` — validation plus installation, manifest-draft, icon,
   generated-app ownership, disk capacity, workspace ownership, and managed-file
   diagnostics; `doctor --next` prints a tailored Markdown handoff;
-- `scripts/upgrade` — checksum-verified framework updates;
+- `scripts/upgrade` — revision-aware, checksum-verified latest-upstream updates
+  with optional end-to-end verification; see `instructions/upgrade.md`;
+- `RELEASE_NOTES.json` — local machine-readable release and migration notes;
 - `scripts/clean` — remove local Swift build products;
 - `scripts/create-icon` — create a layered modern icon package and, with full
   Xcode, its generated legacy fallback from project artwork;

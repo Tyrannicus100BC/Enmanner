@@ -169,6 +169,10 @@ private struct DoctorReport: Codable {
         let manifestTracked: Bool
         let frameworkTracked: Bool
         let durablePathsTracked: Bool
+        let modifiedFrameworkPaths: [String]
+        let addedFrameworkPaths: [String]
+        let missingFrameworkPaths: [String]
+        let uncommittedDurablePaths: [String]
         let unversionedAcknowledged: Bool
         let recommendation: String?
     }
@@ -371,7 +375,7 @@ struct EnmannerValidatorCommand {
             )
             return
         }
-        var warnings = diagnosticPlan.graph.applicationPreferredPort == nil
+        var warnings = !diagnosticPlan.graph.applicationHasStablePort
             ? ["application endpoint has no preferred port; origin-scoped state may move between launches"]
             : []
         if doctorReport?.staleDraftManifest == true {
@@ -675,18 +679,61 @@ struct EnmannerValidatorCommand {
         let receiptPaths = (installation?["files"] as? [[String: Any]] ?? [])
             .compactMap { $0["path"] as? String }
             .map { ".enmanner/\($0)" } + [".enmanner/INSTALLATION.json"]
+        func gitStatus(_ path: String) -> String {
+            if gitTracks(path) {
+                return processOutput(
+                    executable: "/usr/bin/git",
+                    arguments: [
+                        "-C", projectURL.path, "diff", "--name-only",
+                        "--", path
+                    ]
+                ).trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            return processOutput(
+                executable: "/usr/bin/git",
+                arguments: [
+                    "-C", projectURL.path, "ls-files", "--others",
+                    "--exclude-standard", "--", path
+                ]
+            ).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        let existingReceiptPaths = receiptPaths.filter {
+            fileManager.fileExists(
+                atPath: projectURL.appendingPathComponent($0).path
+            )
+        }
+        let missingFrameworkPaths = receiptPaths.filter {
+            !fileManager.fileExists(
+                atPath: projectURL.appendingPathComponent($0).path
+            )
+        }.sorted()
+        let addedFrameworkPaths = existingReceiptPaths.filter {
+            !gitTracks($0)
+        }.sorted()
+        let modifiedFrameworkPaths = existingReceiptPaths.filter {
+            gitTracks($0) && !gitStatus($0).isEmpty
+        }.sorted()
         let frameworkTracked =
             projectGitRoot != nil &&
             installationRecordPresent &&
-            receiptPaths.allSatisfy(gitTracks)
+            addedFrameworkPaths.isEmpty &&
+            missingFrameworkPaths.isEmpty &&
+            modifiedFrameworkPaths.isEmpty
         let iconTracked = selectedIconPath.map(gitTracks) ?? false
+        let durableCandidates = receiptPaths + [
+            "enmanner/enmanner.json", "AGENTS.md", ".gitignore"
+        ] + (selectedIconPath.map { [$0] } ?? [])
+        let uncommittedDurablePaths = Array(Set(durableCandidates.filter {
+            !gitStatus($0).isEmpty
+        })).sorted()
         let durablePathsTracked =
             projectGitRoot != nil &&
             manifestTracked &&
             frameworkTracked &&
             gitTracks("AGENTS.md") &&
             gitTracks(".gitignore") &&
-            (manifest.icon == nil || iconTracked)
+            (manifest.icon == nil || iconTracked) &&
+            uncommittedDurablePaths.isEmpty
         let unversionedAcknowledged =
             installation?["unversionedAcknowledged"] as? Bool == true
         let repositoryReady =
@@ -708,10 +755,20 @@ struct EnmannerValidatorCommand {
                 workspaceStatus = "manifestUntracked"
                 workspaceRecommendation =
                     "Track enmanner/enmanner.json and the durable Enmanner integration files in the repository that owns this project."
-            } else if !frameworkTracked {
-                workspaceStatus = "frameworkUntracked"
+            } else if !missingFrameworkPaths.isEmpty {
+                workspaceStatus = "frameworkFilesMissing"
+                workspaceRecommendation = "Restore the missing framework files: " +
+                    missingFrameworkPaths.joined(separator: ", ")
+            } else if !addedFrameworkPaths.isEmpty || !modifiedFrameworkPaths.isEmpty {
+                workspaceStatus = "frameworkChangesAwaitingCommit"
                 workspaceRecommendation =
-                    "Track the receipt-listed .enmanner framework distribution."
+                    "Upgrade locally complete; record these framework changes: " +
+                    (addedFrameworkPaths + modifiedFrameworkPaths)
+                    .joined(separator: ", ")
+            } else if !frameworkTracked {
+                workspaceStatus = "frameworkNotRecorded"
+                workspaceRecommendation =
+                    "Record the receipt-listed .enmanner framework distribution."
             } else {
                 workspaceStatus = "integrationFilesUntracked"
                 workspaceRecommendation =
@@ -801,6 +858,10 @@ struct EnmannerValidatorCommand {
                 manifestTracked: manifestTracked,
                 frameworkTracked: frameworkTracked,
                 durablePathsTracked: durablePathsTracked,
+                modifiedFrameworkPaths: modifiedFrameworkPaths,
+                addedFrameworkPaths: addedFrameworkPaths,
+                missingFrameworkPaths: missingFrameworkPaths,
+                uncommittedDurablePaths: uncommittedDurablePaths,
                 unversionedAcknowledged: unversionedAcknowledged,
                 recommendation: workspaceRecommendation
             ),
@@ -1025,6 +1086,12 @@ struct EnmannerValidatorCommand {
         )
         if let recommendation = report.workspace.recommendation {
             print("  \(recommendation)")
+        }
+        if !report.workspace.uncommittedDurablePaths.isEmpty {
+            print("  Durable files awaiting commit:")
+            for path in report.workspace.uncommittedDurablePaths {
+                print("    \(path)")
+            }
         }
         if report.staleDraftManifest {
             print("! enmanner/enmanner.json.example remains beside the live manifest")

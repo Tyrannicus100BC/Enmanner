@@ -194,15 +194,20 @@ automatically. Use `--plan --replace-incomplete` to inspect an explicit,
 recoverable replacement for other incomplete states; apply relocates the old
 framework to a visible project-root backup before installing cleanly.
 
-Installed framework provenance lives in `.enmanner/INSTALLATION.json`. Check or
-apply an update from an Enmanner checkout with:
+Installed framework provenance lives in `.enmanner/INSTALLATION.json`. Preview
+or apply and fully verify the recorded upstream with:
 
 ```bash
-./.enmanner/scripts/upgrade --check --from /path/to/Enmanner
-./.enmanner/scripts/upgrade --apply --from /path/to/Enmanner
+./.enmanner/scripts/upgrade --check --latest
+./.enmanner/scripts/upgrade --latest --verify
 ```
 
-The upgrade refuses all changes if a framework-owned file was locally modified.
+An explicit `--from /path/to/Enmanner` remains available for local and offline
+development. The upgrade refuses all changes if a framework-owned file was
+locally modified. It reports semantic versions and Git revisions, file changes,
+schema and migration status, release notes, rebuild requirements, verification
+evidence, and durable files awaiting commit. See `docs/upgrading.md` for the
+focused routine-upgrade path.
 The provenance also records exact file checksums, the upstream commit and dirty
 state, the declared distribution URL, the observed checkout URL, provenance
 confidence, whether the manifest was inferred, and which fields came from that

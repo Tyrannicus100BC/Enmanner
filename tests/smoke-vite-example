@@ -112,6 +112,20 @@ done
     .shutdown.applicationEndpointUnavailable and
     .shutdown.ownedPortsReleased
   ' >/dev/null
+"$example_dir/.enmanner/scripts/upgrade" \
+  --apply --from "$repository_dir" --verify --json |
+  jq -e '
+    .applied and
+    .verified and
+    (.fromVersion == "0.6.1") and
+    (.toVersion == "0.6.1") and
+    (.verification.runtime.valid == true) and
+    (.verification.build.skipped == true) and
+    (.verification.nativeRebuilt == false) and
+    (.verification.appPath | endswith("Enmanner Vite Example.app")) and
+    (.verification.nativeTest.cyclesPassed == 2) and
+    (.verification.doctor.valid == true)
+  ' >/dev/null
 "$example_dir/.enmanner/scripts/doctor" --json |
   jq -e '
     .doctor.localIntegrationComplete and
