@@ -242,7 +242,11 @@ development-native, presentation, final-native, and repository-ready
 milestones. Local technical completion remains distinct from repository
 recording, which Enmanner never performs automatically. Use
 `./.enmanner/scripts/doctor --next` for a tailored Markdown summary of remaining
-actions and relevant focused guidance.
+actions and relevant focused guidance. For an existing integration with both
+local-state evidence—such as a database path or declared backup—and stable
+endpoints, Doctor also recommends reviewing an advisory launch guard when none
+is declared; it never edits the manifest or pretends that discovery proves
+writer ownership.
 Use `./.enmanner/scripts/build-app --json` when the final artifact path, icon
 packaging, signing, replacement, and size evidence must be machine-readable.
 
@@ -339,6 +343,7 @@ Run:
 ```bash
 swift test --package-path integration/framework
 ./tests/install-workflows
+./tests/upgrade-latest-workflow
 ./tests/package-manager-arguments
 ./tests/smoke-vite-example
 ./tests/smoke-toolchain-adapters

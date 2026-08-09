@@ -130,6 +130,80 @@ final class ReadinessAndProcessTests: XCTestCase {
         XCTAssertNotEqual(Darwin.kill(-processIdentifier, 0), 0)
     }
 
+    func testBackupOperationRunsProjectCommandWithDeclaredContext() async throws {
+        let directory = try temporaryDirectory()
+        let workingDirectory = directory.appendingPathComponent("backup work")
+        try FileManager.default.createDirectory(
+            at: workingDirectory,
+            withIntermediateDirectories: true
+        )
+        let executable = workingDirectory.appendingPathComponent("verify-backup")
+        try Data(
+            "#!/bin/sh\nprintf '%s|%s\\n' \"$PWD\" \"$BACKUP_TEST\"\n".utf8
+        ).write(to: executable)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: executable.path
+        )
+        let manifest = EnmannerManifest(
+            version: 3,
+            name: "Backup Test",
+            identifier: "local.enmanner.backup-test",
+            application: .init(
+                command: ["/usr/bin/true"],
+                readiness: .init(path: "/")
+            )
+        )
+        let logs = LogBuffer()
+        let operation = BackupOperation(logBuffer: logs)
+
+        try await operation.run(
+            backup: .init(
+                command: ["./verify-backup"],
+                workingDirectory: "backup work",
+                environment: ["BACKUP_TEST": "declared-environment"]
+            ),
+            plan: try RuntimePlan.make(manifest: manifest),
+            projectURL: directory
+        )
+
+        XCTAssertFalse(operation.isRunning)
+        let output = logs.snapshot(component: "backup")
+        XCTAssertTrue(output.contains(workingDirectory.path))
+        XCTAssertTrue(output.contains("declared-environment"))
+    }
+
+    func testBackupOperationReturnsStructuredFailure() async throws {
+        let directory = try temporaryDirectory()
+        let manifest = EnmannerManifest(
+            version: 3,
+            name: "Backup Failure",
+            identifier: "local.enmanner.backup-failure",
+            application: .init(
+                command: ["/usr/bin/true"],
+                readiness: .init(path: "/")
+            )
+        )
+        let operation = BackupOperation(logBuffer: LogBuffer())
+
+        do {
+            try await operation.run(
+                backup: .init(command: ["/usr/bin/false"]),
+                plan: try RuntimePlan.make(manifest: manifest),
+                projectURL: directory
+            )
+            XCTFail("Expected the backup to fail.")
+        } catch let error as EnmannerError {
+            let failure = try XCTUnwrap(error.runtimeFailure)
+            XCTAssertEqual(failure.code, .backupFailed)
+            XCTAssertEqual(failure.phase, .backup)
+            XCTAssertEqual(failure.component, "backup")
+            XCTAssertEqual(failure.exitStatus, 1)
+            XCTAssertEqual(failure.command, ["/usr/bin/false"])
+            XCTAssertEqual(failure.workingDirectory, directory.path)
+        }
+    }
+
     func testRuntimeSupervisorStartsGraphStopsServicesAndRunsTasksOnce() async throws {
         let directory = try temporaryDirectory()
         let taskOutput = directory.appendingPathComponent("task-complete")

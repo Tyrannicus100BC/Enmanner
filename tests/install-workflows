@@ -252,25 +252,18 @@ printf '%s\n' "$plan" | jq -e '
 ' >/dev/null
 
 graph_target="$adapter_root/Vite Express Graph"
-mkdir -p "$graph_target"
-printf '%s\n' \
-  '{"private":true,"scripts":{"dev:web":"vite","dev:api":"node --watch server.js"},"dependencies":{"express":"^5.0.0"},"devDependencies":{"vite":"^8.0.0"}}' \
-  > "$graph_target/package.json"
-: > "$graph_target/package-lock.json"
-printf '%s\n' \
-  'const apiPort = process.env.API_PORT;' \
-  'export default { server: { proxy: { "/api": `http://127.0.0.1:${apiPort}` } } };' \
-  > "$graph_target/vite.config.js"
-printf '%s\n' \
-  "const PORT = process.env.PORT || 3000;" \
-  "const HOST = process.env.HOST || '127.0.0.1';" \
-  'app.listen(PORT, HOST);' > "$graph_target/server.js"
+/usr/bin/ditto --noqtn \
+  "$repository_dir/tests/fixtures/vite-express-candidate" \
+  "$graph_target"
 "$repository_dir/integration/scripts/install" --plan --json "$graph_target" |
   jq -e '
     (.manifestStatus == "configurationRequired") and
     (.inference.componentGraphDraft == true) and
     (.inference.runtimeVerificationRequired == true) and
-    (.inference.reason | contains("two-service component-graph draft"))
+    (.inference.reason | contains("two-service component-graph draft")) and
+    .inference.componentGraphAdapter.eligible and
+    (.inference.componentGraphAdapter.missingChecks | length == 0) and
+    (.inference.componentGraphAdapter.referenceFixture == "tests/fixtures/vite-express-candidate")
   ' >/dev/null
 "$repository_dir/integration/scripts/install" --no-build --json \
   "$graph_target" >/dev/null
@@ -280,6 +273,23 @@ jq -e '
   (.components.web.environment.API_PORT == "${components.api.endpoints.http.port}") and
   (.components.api.environment.PORT == "${self.endpoints.http.port}")
 ' "$graph_target/enmanner/enmanner.json.example" >/dev/null
+
+graph_near_miss="$adapter_root/Vite Express Near Miss"
+/usr/bin/ditto --noqtn \
+  "$repository_dir/tests/fixtures/vite-express-candidate" \
+  "$graph_near_miss"
+/bin/mv "$graph_near_miss/server.js" "$graph_near_miss/backend.js"
+/usr/bin/plutil -replace 'scripts.dev:api' -string 'node --watch backend.js' \
+  "$graph_near_miss/package.json"
+"$repository_dir/integration/scripts/install" --plan --json \
+  "$graph_near_miss" | jq -e '
+    (.inference.componentGraphAdapter.relevant == true) and
+    (.inference.componentGraphAdapter.eligible == false) and
+    ([.inference.componentGraphAdapter.missingChecks[]] |
+      index("recognizedAPIEntry")) and
+    (.inference.componentGraphAdapter.referenceFixture ==
+      "tests/fixtures/vite-express-candidate")
+  ' >/dev/null
 
 version_manager_target="$adapter_root/Version Managed Vite"
 fake_nvm_root="$test_root/fake-nvm"
@@ -884,6 +894,24 @@ fi
 /usr/bin/plutil -insert backup -json \
   '{"command":["/usr/bin/true"]}' \
   "$vite_target/enmanner/enmanner.json"
+mkdir -p "$vite_target/data"
+: > "$vite_target/data/app.sqlite"
+"$vite_target/.enmanner/scripts/doctor" --json |
+  jq -e '
+    ([.doctor.recommendations[].id] | index("considerLaunchGuard")) and
+    ([.doctor.recommendations[].evidence[]] | index("data/app.sqlite")) and
+    ([.doctor.recommendations[].evidence[]] |
+      any(startswith("stable endpoint ")))
+  ' >/dev/null
+"$vite_target/.enmanner/scripts/doctor" --next \
+  > "$test_root/launch-guard-next.md"
+grep -Fq '## Advisory safety' "$test_root/launch-guard-next.md"
+grep -Fq 'no launch guard' "$test_root/launch-guard-next.md"
+/usr/bin/plutil -insert launchGuard -json \
+  '{"applicationEndpoint":true}' \
+  "$vite_target/enmanner/enmanner.json"
+"$vite_target/.enmanner/scripts/doctor" --json |
+  jq -e '(.doctor.recommendations | length == 0)' >/dev/null
 
 "$vite_target/.enmanner/scripts/upgrade" \
   --check --from "$repository_dir" --json |

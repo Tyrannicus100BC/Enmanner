@@ -120,6 +120,13 @@ private struct ValidationReport: Codable {
 }
 
 private struct DoctorReport: Codable {
+    struct Recommendation: Codable {
+        let id: String
+        let message: String
+        let evidence: [String]
+        let suggestedChange: String
+    }
+
     struct InstallationHistory: Codable {
         let initialManifestStatus: String?
     }
@@ -209,6 +216,7 @@ private struct DoctorReport: Codable {
     let disk: Disk
     let workspace: Workspace
     let completionEvidence: CompletionEvidence
+    let recommendations: [Recommendation]
 }
 
 private struct ErrorReport: Encodable {
@@ -467,6 +475,41 @@ struct EnmannerValidatorCommand {
         projectURL: URL
     ) -> DoctorReport {
         let fileManager = FileManager.default
+        let graph = try? RuntimeGraph.make(from: manifest)
+        var stableEndpoints: [String] = []
+        if let graph {
+            for (componentName, component) in graph.components {
+                for (endpointName, endpoint) in component.endpoints
+                    where endpoint.port.fixed != nil ||
+                        endpoint.port.preferred != nil {
+                    stableEndpoints.append("\(componentName).\(endpointName)")
+                }
+            }
+        }
+        stableEndpoints.sort()
+        var statefulEvidence = statefulProjectPaths(
+            projectURL: projectURL,
+            fileManager: fileManager
+        )
+        if manifest.backup != nil {
+            statefulEvidence.append("project-declared backup command")
+        }
+        let recommendations: [DoctorReport.Recommendation]
+        if manifest.launchGuard == nil &&
+            !stableEndpoints.isEmpty && !statefulEvidence.isEmpty {
+            recommendations = [.init(
+                id: "considerLaunchGuard",
+                message:
+                    "This project has local state and stable endpoints but no launch guard.",
+                evidence: statefulEvidence + stableEndpoints.map {
+                    "stable endpoint \($0)"
+                },
+                suggestedChange:
+                    "Review .enmanner/instructions/persistence.md and declare only the stable endpoints or data paths that reliably identify a competing project runtime."
+            )]
+        } else {
+            recommendations = []
+        }
         let installationURL = projectURL
             .appendingPathComponent(".enmanner/INSTALLATION.json")
         let installation = jsonObject(at: installationURL)
@@ -865,7 +908,8 @@ struct EnmannerValidatorCommand {
                 unversionedAcknowledged: unversionedAcknowledged,
                 recommendation: workspaceRecommendation
             ),
-            completionEvidence: completionEvidence
+            completionEvidence: completionEvidence,
+            recommendations: recommendations
         )
     }
 
@@ -923,7 +967,21 @@ struct EnmannerValidatorCommand {
             print("1. Record the durable `enmanner/`, `.enmanner/`, `AGENTS.md`, and `.gitignore` integration files in the owning repository; Enmanner will not stage them.")
         }
         if report.complete {
-            print("No integration work remains.")
+            if report.recommendations.isEmpty {
+                print("No integration work remains.")
+            } else {
+                print("No required integration work remains; review the advisory safety recommendation below.")
+            }
+        }
+        if !report.recommendations.isEmpty {
+            print("")
+            print("## Advisory safety")
+            print("")
+            for recommendation in report.recommendations {
+                print("- \(recommendation.message)")
+                print("  Evidence: \(recommendation.evidence.joined(separator: ", ")).")
+                print("  Suggested change: \(recommendation.suggestedChange)")
+            }
         }
         print("")
         print("## Relevant guidance")
@@ -946,6 +1004,54 @@ struct EnmannerValidatorCommand {
             return nil
         }
         return object as? [String: Any]
+    }
+
+    private static func statefulProjectPaths(
+        projectURL: URL,
+        fileManager: FileManager
+    ) -> [String] {
+        let resolvedProjectURL = projectURL.standardizedFileURL
+            .resolvingSymlinksInPath()
+        var projectPathAliases = [resolvedProjectURL.path, projectURL.path]
+        projectPathAliases.append(contentsOf: projectPathAliases
+            .filter { !$0.hasPrefix("/private/") }
+            .map { "/private" + $0 })
+        guard let enumerator = fileManager.enumerator(
+            at: resolvedProjectURL,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles, .skipsPackageDescendants]
+        ) else {
+            return []
+        }
+        var paths: [String] = []
+        for case let url as URL in enumerator {
+            guard let projectPath = projectPathAliases.first(where: {
+                url.path.hasPrefix($0 + "/")
+            }) else {
+                continue
+            }
+            let relative = String(url.path.dropFirst(projectPath.count + 1))
+            let components = relative.split(separator: "/")
+            if components.count > 3 {
+                if (try? url.resourceValues(forKeys: [.isDirectoryKey]))?
+                    .isDirectory == true {
+                    enumerator.skipDescendants()
+                }
+                continue
+            }
+            if ["node_modules", ".build"].contains(String(components.last ?? "")) {
+                enumerator.skipDescendants()
+                continue
+            }
+            guard ["sqlite", "sqlite3", "db"].contains(
+                url.pathExtension.lowercased()
+            ) else {
+                continue
+            }
+            paths.append(relative)
+            if paths.count == 5 { break }
+        }
+        return paths.sorted()
     }
 
     private static func allocatedSize(at url: URL) -> UInt64 {
@@ -1095,6 +1201,10 @@ struct EnmannerValidatorCommand {
         }
         if report.staleDraftManifest {
             print("! enmanner/enmanner.json.example remains beside the live manifest")
+        }
+        for recommendation in report.recommendations {
+            print("! advisory: \(recommendation.message)")
+            print("  \(recommendation.suggestedChange)")
         }
         let needsMirroring = report.agentInstructions
             .filter { $0.value == "needsMirroring" }

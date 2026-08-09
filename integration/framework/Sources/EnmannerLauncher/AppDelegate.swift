@@ -6,7 +6,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private let logBuffer = LogBuffer()
     private let settings = AppSettings()
     private lazy var supervisor = RuntimeSupervisor(logBuffer: logBuffer)
-    private var backupSupervisor: ProcessSupervisor?
+    private lazy var backupOperation = BackupOperation(logBuffer: logBuffer)
     private var backupRunning = false
     private var backupStatusMenuItem: NSMenuItem?
     private var windowController: MainWindowController?
@@ -104,7 +104,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     func applicationWillTerminate(_ notification: Notification) {
         shuttingDown = true
         readinessTask?.cancel()
-        backupSupervisor?.stop()
+        backupOperation.stop()
         supervisor.stop()
     }
 
@@ -628,50 +628,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         Task { [weak self] in
             guard let self else { return }
             do {
-                let component = EnmannerManifest.Component(
-                    kind: .task,
-                    command: backup.command,
-                    workingDirectory: backup.workingDirectory,
-                    environment: backup.environment
-                )
-                let configuration = try ProcessConfigurationBuilder.make(
-                    componentName: plan.graph.applicationComponent,
-                    component: component,
+                try await backupOperation.run(
+                    backup: backup,
                     plan: plan,
                     projectURL: projectURL
                 )
-                let process = ProcessSupervisor(
-                    logBuffer: logBuffer,
-                    componentName: "backup"
-                )
-                backupSupervisor = process
-                let exit = try await withCheckedThrowingContinuation {
-                    (continuation: CheckedContinuation<ProcessSupervisor.Exit, Error>) in
-                    process.onExit = { exit in
-                        continuation.resume(returning: exit)
-                    }
-                    do {
-                        try process.start(configuration)
-                    } catch {
-                        continuation.resume(throwing: error)
-                    }
-                }
-                backupSupervisor = nil
-                guard exit.status == 0 else {
-                    throw EnmannerError.runtimeFailure(.init(
-                        code: .backupFailed,
-                        phase: .backup,
-                        component: "backup",
-                        message: "The project backup failed with status \(exit.status).",
-                        exitStatus: exit.status,
-                        command: [configuration.executableURL.path] + configuration.arguments,
-                        workingDirectory: configuration.workingDirectoryURL.path,
-                        recentLogs: logBuffer.recentEntries(
-                            component: "backup",
-                            componentOnly: true
-                        )
-                    ))
-                }
                 settings.lastSuccessfulBackup = Date()
                 updateBackupMenuStatus()
                 logBuffer.append("Project backup completed successfully.", component: "backup")
@@ -681,7 +642,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 alert.addButton(withTitle: "OK")
                 alert.runModal()
             } catch {
-                backupSupervisor = nil
                 if !shuttingDown {
                     presentBackupFailure(error)
                 }

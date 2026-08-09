@@ -1,0 +1,67 @@
+#!/bin/bash
+set -euo pipefail
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+repository_dir="$(cd "$script_dir/.." && pwd)"
+test_root="$(mktemp -d "${TMPDIR:-/tmp}/enmanner-latest-upgrade.XXXXXX")"
+cleanup() { rm -rf "$test_root"; }
+trap cleanup EXIT
+
+upstream="$test_root/Enmanner Upstream"
+upstream_url="file://$upstream"
+project="$test_root/Project With Spaces"
+mkdir -p "$upstream" "$project"
+/usr/bin/ditto --noqtn "$repository_dir/integration" "$upstream/integration"
+printf '%s\n' '0.6.1-latest-a' > "$upstream/integration/VERSION"
+/usr/bin/git -C "$upstream" init -q
+/usr/bin/git -C "$upstream" config user.name "Enmanner Tests"
+/usr/bin/git -C "$upstream" config user.email "tests@enmanner.local"
+/usr/bin/git -C "$upstream" add integration
+/usr/bin/git -C "$upstream" commit -qm "Initial test distribution"
+from_commit="$(/usr/bin/git -C "$upstream" rev-parse HEAD)"
+
+/bin/cp "$repository_dir/examples/vite-example/package.json" \
+  "$repository_dir/examples/vite-example/package-lock.json" "$project/"
+"$upstream/integration/scripts/install" --no-build --json \
+  --upstream-url "$upstream_url" "$project" >/dev/null
+
+printf '\nLatest-upgrade workflow marker.\n' \
+  >> "$upstream/integration/instructions/core.md"
+printf '%s\n' '0.6.1-latest-b' > "$upstream/integration/VERSION"
+/usr/bin/git -C "$upstream" add integration
+/usr/bin/git -C "$upstream" commit -qm "Updated test distribution"
+to_commit="$(/usr/bin/git -C "$upstream" rev-parse HEAD)"
+
+check_result="$("$project/.enmanner/scripts/upgrade" \
+  --check --latest --json)"
+printf '%s\n' "$check_result" | jq -e \
+  --arg from "$from_commit" --arg to "$to_commit" '
+    (.schemaVersion == 2) and
+    (.mode == "check") and
+    (.source == "latest") and
+    (.fromCommit == $from) and
+    (.toCommit == $to) and
+    (.fromVersion == "0.6.1-latest-a") and
+    (.toVersion == "0.6.1-latest-b") and
+    (.changes.modifiedPaths | index("VERSION")) and
+    (.changes.modifiedPaths | index("instructions/core.md")) and
+    .applicable and
+    (.applied == false)
+  ' >/dev/null
+
+apply_result="$("$project/.enmanner/scripts/upgrade" --latest --json)"
+printf '%s\n' "$apply_result" | jq -e \
+  --arg from "$from_commit" --arg to "$to_commit" '
+    (.source == "latest") and
+    (.fromCommit == $from) and
+    (.toCommit == $to) and
+    .applicable and .applied and (.verified == false)
+  ' >/dev/null
+test "$(tr -d '[:space:]' < "$project/.enmanner/VERSION")" = \
+  "0.6.1-latest-b"
+test "$(/usr/bin/plutil -extract upstreamCommit raw \
+  "$project/.enmanner/INSTALLATION.json")" = "$to_commit"
+/usr/bin/grep -Fq 'Latest-upgrade workflow marker.' \
+  "$project/.enmanner/instructions/core.md"
+
+echo "✓ latest-upgrade check and apply passed against a recorded local upstream"

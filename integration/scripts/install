@@ -353,6 +353,18 @@ runtime_resolution_signals=()
 candidate_component_graph=false
 candidate_web_script=""
 candidate_api_script=""
+has_vite_dependency=false
+has_express_dependency=false
+component_graph_candidate_relevant=false
+component_graph_adapter_eligible=false
+component_graph_package_manager=false
+component_graph_web_script=false
+component_graph_api_script=false
+component_graph_api_entry=false
+component_graph_dynamic_port=false
+component_graph_loopback_host=false
+component_graph_foreground_listen=false
+component_graph_proxy=false
 
 add_detected_stack() {
   local stack="$1"
@@ -415,6 +427,7 @@ if [[ -f "$target_dir/package.json" ]]; then
     "$target_dir/package.json" >/dev/null 2>&1 ||
     /usr/bin/plutil -extract devDependencies.express raw \
       "$target_dir/package.json" >/dev/null 2>&1; then
+    has_express_dependency=true
     add_detected_stack "Express"
     for express_candidate in server.js server.mjs server.cjs index.js app.js; do
       if [[ -f "$target_dir/$express_candidate" ]]; then
@@ -526,7 +539,6 @@ if [[ -f "$target_dir/package.json" ]]; then
     fi
   fi
 
-  has_vite_dependency=false
   has_next_dependency=false
   has_vinext_dependency=false
   for dependency_section in dependencies devDependencies; do
@@ -661,13 +673,38 @@ if [[ -f "$target_dir/package.json" ]]; then
     /usr/bin/grep -Eq 'API_PORT|process[.]env[.]API_PORT' "$vite_configuration"; then
     vite_proxy_evidence=true
   fi
-  if [[ "$has_vite_dependency" == true && -n "$express_source" &&
-    "$candidate_web_script_value" =~ ^vite([[:space:]]+(dev|serve))?[[:space:]]*$ &&
-    -n "$api_entry" && "$api_entry" == "$express_source" &&
-    -n "$vite_configuration" &&
-    -n "$express_port_evidence" && -n "$express_host_evidence" &&
-    -n "$express_listen_evidence" &&
-    "$vite_proxy_evidence" == true ]]; then
+  if [[ "$has_vite_dependency" == true &&
+    ( "$has_express_dependency" == true ||
+      -n "$candidate_web_script_value" ||
+      -n "$candidate_api_script_value" ) ]]; then
+    component_graph_candidate_relevant=true
+  fi
+  if [[ "$package_manager_conflict" != true && -n "$package_manager" ]]; then
+    component_graph_package_manager=true
+  fi
+  if [[ "$candidate_web_script_value" =~ ^vite([[:space:]]+(dev|serve))?[[:space:]]*$ ]]; then
+    component_graph_web_script=true
+  fi
+  [[ -n "$api_entry" ]] && component_graph_api_script=true
+  if [[ -n "$express_source" && -n "$api_entry" &&
+    "$api_entry" == "$express_source" ]]; then
+    component_graph_api_entry=true
+  fi
+  [[ -n "$express_port_evidence" ]] && component_graph_dynamic_port=true
+  [[ -n "$express_host_evidence" ]] && component_graph_loopback_host=true
+  [[ -n "$express_listen_evidence" ]] && component_graph_foreground_listen=true
+  [[ "$vite_proxy_evidence" == true ]] && component_graph_proxy=true
+  if [[ "$has_vite_dependency" == true &&
+    "$has_express_dependency" == true &&
+    "$component_graph_package_manager" == true &&
+    "$component_graph_web_script" == true &&
+    "$component_graph_api_script" == true &&
+    "$component_graph_api_entry" == true &&
+    "$component_graph_dynamic_port" == true &&
+    "$component_graph_loopback_host" == true &&
+    "$component_graph_foreground_listen" == true &&
+    "$component_graph_proxy" == true ]]; then
+    component_graph_adapter_eligible=true
     candidate_component_graph=true
     candidate_web_script="dev:web"
     candidate_api_script="dev:api"
@@ -962,7 +999,7 @@ emit_result() {
         "$(json_escape "$requested_name")"
     fi
     printf '],'
-    printf '"inference":{"packageManager":"%s","packageManagerSignal":"%s","framework":"%s","workingDirectory":"%s","command":%s,"componentGraphDraft":%s,"runtimeVerificationRequired":%s,"preferredPort":%d,"preferredPortDerivation":{"algorithm":"cksum-v1","identifier":"%s","rangeStart":42000,"rangeSize":6000},"reason":"%s","signalsExamined":["root package.json packageManager field","root npm, pnpm, Yarn, and Bun lockfiles","root package.json scripts dev/start/serve","root Vite, Next.js, or Vinext dependency","conservative Express source patterns","Vite proxy configuration","version-manager files","nested package.json files","Docker Compose files","Makefile","go.mod","Cargo.toml","pyproject.toml or requirements.txt"],"staticEvidence":[' \
+    printf '"inference":{"packageManager":"%s","packageManagerSignal":"%s","framework":"%s","workingDirectory":"%s","command":%s,"componentGraphDraft":%s,"runtimeVerificationRequired":%s,"preferredPort":%d,"preferredPortDerivation":{"algorithm":"cksum-v1","identifier":"%s","rangeStart":42000,"rangeSize":6000},"reason":"%s",' \
       "$(json_escape "$package_manager")" \
       "$(json_escape "$package_manager_signal")" \
       "$(json_escape "$detected_framework")" \
@@ -971,6 +1008,45 @@ emit_result() {
       "$preferred_port" \
       "$(json_escape "$bundle_identifier")" \
       "$(json_escape "$inference_reason")"
+    printf '"componentGraphAdapter":{"relevant":%s,"eligible":%s,"referenceFixture":"tests/fixtures/vite-express-candidate","checks":{"packageManagerUnambiguous":%s,"viteDependency":%s,"expressDependency":%s,"directWebScript":%s,"directAPIScript":%s,"recognizedAPIEntry":%s,"dynamicPortFlow":%s,"loopbackHostFlow":%s,"foregroundListenFlow":%s,"viteProxyUsesAPIPort":%s},"missingChecks":[' \
+      "$component_graph_candidate_relevant" \
+      "$component_graph_adapter_eligible" \
+      "$component_graph_package_manager" \
+      "$has_vite_dependency" \
+      "$has_express_dependency" \
+      "$component_graph_web_script" \
+      "$component_graph_api_script" \
+      "$component_graph_api_entry" \
+      "$component_graph_dynamic_port" \
+      "$component_graph_loopback_host" \
+      "$component_graph_foreground_listen" \
+      "$component_graph_proxy"
+    adapter_missing_separator=""
+    if [[ "$component_graph_candidate_relevant" == true ]]; then
+      for adapter_check in \
+        packageManagerUnambiguous viteDependency expressDependency \
+        directWebScript directAPIScript recognizedAPIEntry dynamicPortFlow \
+        loopbackHostFlow foregroundListenFlow viteProxyUsesAPIPort; do
+        case "$adapter_check" in
+          packageManagerUnambiguous) adapter_value="$component_graph_package_manager" ;;
+          viteDependency) adapter_value="$has_vite_dependency" ;;
+          expressDependency) adapter_value="$has_express_dependency" ;;
+          directWebScript) adapter_value="$component_graph_web_script" ;;
+          directAPIScript) adapter_value="$component_graph_api_script" ;;
+          recognizedAPIEntry) adapter_value="$component_graph_api_entry" ;;
+          dynamicPortFlow) adapter_value="$component_graph_dynamic_port" ;;
+          loopbackHostFlow) adapter_value="$component_graph_loopback_host" ;;
+          foregroundListenFlow) adapter_value="$component_graph_foreground_listen" ;;
+          viteProxyUsesAPIPort) adapter_value="$component_graph_proxy" ;;
+        esac
+        if [[ "$adapter_value" != true ]]; then
+          printf '%s"%s"' "$adapter_missing_separator" "$adapter_check"
+          adapter_missing_separator=","
+        fi
+      done
+    fi
+    printf ']},'
+    printf '"signalsExamined":["root package.json packageManager field","root npm, pnpm, Yarn, and Bun lockfiles","root package.json scripts dev/start/serve","root Vite, Next.js, or Vinext dependency","conservative Express source patterns","Vite proxy configuration","version-manager files","nested package.json files","Docker Compose files","Makefile","go.mod","Cargo.toml","pyproject.toml or requirements.txt"],"staticEvidence":['
     evidence_separator=""
     if [[ -n "$express_port_evidence" ]]; then
       printf '%s{"check":"dynamicPort","status":"detected","source":"%s","evidence":"%s"}' \

@@ -183,10 +183,19 @@ all components remain supervised. A service filter exposes a manual restart
 that uses the same dependency-aware recovery path as an unexpected exit.
 
 An optional project-declared backup command appears in the File menu. It runs
-directly in a separately owned process group, streams labelled output into the
-same bounded log system, and records only its last successful timestamp in
-native preferences. Enmanner does not infer backup contents or implement
+through the core backup operation in a separately owned process group, streams
+labelled output into the same bounded log system, and records only its last
+successful timestamp in native preferences. The same operation is exercised by
+tests for declared environment, working directory, output, success, and
+structured failure. Enmanner does not infer backup contents or implement
 restore, retention, encryption, or storage policy.
+
+Doctor performs a bounded, shallow scan for common local database files and
+treats a declared backup as additional state evidence. When those signals
+coexist with stable manifest endpoints and no launch guard, its JSON report and
+`--next` brief recommend a project-specific review. This is advisory discovery
+only: Doctor neither edits the manifest nor assumes an open file is necessarily
+a competing writer.
 
 The Settings window stores whether failure details include recent server output
 in `UserDefaults`. An optional manifest declaration adds project settings for

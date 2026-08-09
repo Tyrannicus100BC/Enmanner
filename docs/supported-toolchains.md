@@ -82,6 +82,13 @@ an inactive two-service graph draft with the dependency and endpoint references
 filled in. Runtime verification is still required before that draft becomes the
 live manifest.
 
+The executable reference shape lives at
+`tests/fixtures/vite-express-candidate`. Every plan includes
+`inference.componentGraphAdapter`; near misses list each unsatisfied condition
+in `missingChecks` and point to that fixture, so an agent can distinguish an
+unsupported entry filename, script, network contract, proxy, or package-manager
+signal without reverse-engineering the installer.
+
 Installer planning also reports `.nvmrc`, `.node-version`, mise, and asdf
 signals. When the selected runtime tool can resolve a concrete Node executable,
 its directory is emitted in `runtimeResolution.executableSearchPaths` and added

@@ -29,8 +29,14 @@
   it in Git.
 - When the project has a trustworthy backup command, declare the single
   manifest `backup` contract so **File → Back Up Now** can run it under normal
-  supervision. Keep format, destination, retention, and restore logic in the
-  project.
+supervision. Keep format, destination, retention, and restore logic in the
+project.
+
+`doctor --next` may recommend reviewing a launch guard when it finds shallow
+SQLite/database paths together with stable endpoints. Treat the listed paths
+as evidence to inspect, not fields to copy mechanically: declare only resources
+that reliably identify a competing runtime, and omit the guard when the
+project's concurrency model makes it unnecessary.
 
 Enmanner can present explicitly declared local settings stored in a Git-ignored
 dotenv file. The launcher materializes a configured template only when the
