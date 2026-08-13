@@ -282,8 +282,8 @@ not infer or display every environment variable.
 ## What requires an app rebuild?
 
 Ordinary web source, styles, server code, and local application data do not.
-Rebuild after changing the display name, bundle identifier, icon, native window
-configuration, or files in `.enmanner/framework`.
+Rebuild after changing the display name, bundle identifier, icon, or files in
+`.enmanner/framework`.
 
 ## Failure and recovery behavior
 

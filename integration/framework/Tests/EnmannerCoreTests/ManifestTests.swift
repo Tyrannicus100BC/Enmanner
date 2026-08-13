@@ -45,16 +45,10 @@ final class ManifestTests: XCTestCase {
                       "PORT": "${self.endpoints.http.port}"
                     },
                     "preferredPort": 43120,
-                    "browserHostname": "minimal.localhost",
                     "readiness": {
                       "path": "/",
                       "timeoutSeconds": 5
                     }
-                  },
-                  "window": {
-                    "width": 800,
-                    "height": 600,
-                    "resizable": true
                   }
                 }
                 """.utf8
@@ -69,9 +63,8 @@ final class ManifestTests: XCTestCase {
         XCTAssertEqual(graph.applicationCommand, ["/usr/bin/true"])
         XCTAssertEqual(graph.applicationPreferredPort, 43120)
         XCTAssertEqual(graph.applicationComponent, "__application")
-        XCTAssertEqual(graph.applicationBrowserHostname, "minimal.localhost")
         let plan = try RuntimePlan.make(manifest: manifest)
-        XCTAssertEqual(plan.applicationURL.host, "minimal.localhost")
+        XCTAssertEqual(plan.applicationURL.host, "127.0.0.1")
         XCTAssertEqual(
             plan.endpoints[
                 .init(component: "__application", endpoint: "http")
@@ -80,46 +73,26 @@ final class ManifestTests: XCTestCase {
         )
     }
 
-    func testValidatesBrowserHostnameAsLocalhostSubdomain() throws {
-        let directory = try temporaryDirectory()
-        let valid = EnmannerManifest(
+    func testApplicationURLUsesConfiguredEndpointHost() throws {
+        let manifest = EnmannerManifest(
             version: 3,
-            name: "Dream Studio",
-            identifier: "local.enmanner.dream-studio",
-            application: .init(
-                command: ["/usr/bin/true"],
-                browserHostname: "DreamStudio.localhost",
-                readiness: .init(path: "/")
-            )
-        )
-        XCTAssertEqual(
-            ManifestValidator.validate(valid, projectURL: directory),
-            []
+            name: "Localhost Application",
+            identifier: "local.enmanner.localhost-application",
+            application: .init(component: "web", endpoint: "http"),
+            components: [
+                "web": .init(
+                    command: ["/usr/bin/true"],
+                    endpoints: [
+                        "http": .init(protocol: .http, host: "localhost")
+                    ],
+                    readiness: .init(endpoint: "http")
+                )
+            ]
         )
 
-        for hostname in [
-            "localhost",
-            "dream.studio.localhost",
-            "-dream.localhost",
-            "dream.local",
-            "example.com"
-        ] {
-            let invalid = EnmannerManifest(
-                version: 3,
-                name: "Dream Studio",
-                identifier: "local.enmanner.dream-studio",
-                application: .init(
-                    command: ["/usr/bin/true"],
-                    browserHostname: hostname,
-                    readiness: .init(path: "/")
-                )
-            )
-            XCTAssertTrue(
-                ManifestValidator.validate(invalid, projectURL: directory)
-                    .contains { $0.contains("browserHostname") },
-                "Expected \(hostname) to be rejected."
-            )
-        }
+        let plan = try RuntimePlan.make(manifest: manifest)
+
+        XCTAssertEqual(plan.applicationURL.host, "localhost")
     }
 
     func testValidationRejectsMalformedExecutableSearchPaths() throws {

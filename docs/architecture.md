@@ -83,9 +83,7 @@ while retaining several years of Mac coverage.
    and wait for its required HTTP, TCP, command, or process readiness probe.
 9. Remain windowless while keeping normal Dock presence.
 10. Once the configured application component is ready, ask the default browser
-   to open its named HTTP endpoint, optionally substituting an app-specific
-   `.localhost` browser hostname without changing the listener, readiness, or
-   inter-component endpoint host.
+   to open its named HTTP endpoint using that endpoint's loopback host.
 
 Port-selection sockets are closed before launch. This leaves a small allocation
 race for each allocated endpoint, but `--strictPort` makes the Vite example fail
@@ -164,13 +162,6 @@ another app foregrounds Enmanner so its menus, including Quit, are available.
 Clicking the Dock icon again while Enmanner is already active explicitly
 reopens the default browser. When the server is not ready, that second click
 reveals the native status window instead.
-
-The optional application browser hostname is deliberately separate from the
-endpoint host. It creates a more recognizable browser URL while services still
-bind and communicate through explicit loopback endpoints. Since the hostname
-changes the browser origin, integration guidance requires a source review and
-an explicit agent judgment about existing origin-scoped state before enabling
-it.
 
 ## Native menus and settings
 
@@ -282,8 +273,7 @@ prompts after the project is opened from a protected location. Including every
 supported location keeps the bundle portable when the whole project moves.
 
 Ordinary web edits do not alter the bundle. Display name, identifier, icon,
-window configuration, launcher source, or native metadata changes do require a
-rebuild.
+launcher source, or native metadata changes do require a rebuild.
 
 Final build output also provides a compact handoff: managed components,
 observed prerequisites, the local source path, the boundary between Enmanner

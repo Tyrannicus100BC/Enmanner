@@ -41,6 +41,5 @@
 
 ## MAY
 
-- Add project-specific native window dimensions.
 - Extend the app with project-local tools that do not change the compatibility
   contract.

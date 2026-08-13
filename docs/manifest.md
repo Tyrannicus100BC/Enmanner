@@ -40,11 +40,6 @@ without exposing graph configuration:
       "path": "/",
       "timeoutSeconds": 30
     }
-  },
-  "window": {
-    "width": 1200,
-    "height": 800,
-    "resizable": true
   }
 }
 ```
@@ -221,13 +216,7 @@ than a separate product question.
   "application": {
     "component": "frontend",
     "endpoint": "http",
-    "path": "/",
-    "browserHostname": "studio.localhost"
-  },
-  "window": {
-    "width": 1440,
-    "height": 900,
-    "resizable": true
+    "path": "/"
   }
 }
 ```
@@ -319,14 +308,6 @@ including IPv6 formatting, and supports only these exact references:
 - `${components.api.endpoints.http.port}`
 - `${components.api.endpoints.http.url}`
 - `${project.directory}`
-
-`application.browserHostname` optionally changes only the host in the URL
-opened for the application. It must be one DNS label followed by `.localhost`,
-for example `studio.localhost`. The component continues to bind, advertise,
-and receive readiness checks through its endpoint host, normally `127.0.0.1`.
-Because the browser hostname creates a different origin, use it only after the
-origin-state review in the single-application guide. The same decision applies
-to component-graph applications.
 
 There is no expression language or shell expansion. Unknown references fail.
 
@@ -494,9 +475,7 @@ values and never enter the manifest, app bundle, logs, or diagnostics.
 The referenced application endpoint must use HTTP or HTTPS. Enmanner appends
 the configured application path, waits for the component's startup readiness,
 then opens it in the default browser. The launcher remains windowless while
-healthy and keeps the runtime owned by the Dock application. Dimensions and
-resizability affect only Enmanner's native status window, not the browser
-window, and require an app rebuild.
+healthy and keeps the runtime owned by the Dock application.
 
 ## Icon
 

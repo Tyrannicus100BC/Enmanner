@@ -7,7 +7,6 @@ public struct RuntimeGraph: Equatable, Sendable {
     public let applicationComponent: String
     public let applicationEndpoint: String
     public let applicationPath: String
-    public let applicationBrowserHostname: String?
     public let startupOrder: [String]
 
     public static func make(from manifest: EnmannerManifest) throws -> RuntimeGraph {
@@ -68,7 +67,6 @@ public struct RuntimeGraph: Equatable, Sendable {
             applicationComponent: applicationComponent,
             applicationEndpoint: applicationEndpoint,
             applicationPath: applicationPath,
-            applicationBrowserHostname: manifest.application.browserHostname,
             startupOrder: order
         )
     }
@@ -147,11 +145,11 @@ public struct ResolvedEndpoint: Equatable, Sendable {
         }
     }
 
-    public func url(path: String, hostname: String? = nil) -> URL? {
+    public func url(path: String) -> URL? {
         guard protocolKind == .http || protocolKind == .https else { return nil }
         var components = URLComponents()
         components.scheme = protocolKind.rawValue
-        components.host = hostname ?? host
+        components.host = host
         components.port = Int(port)
         components.path = path.hasPrefix("/") ? path : "/" + path
         return components.url
@@ -236,8 +234,7 @@ public struct RuntimePlan: Equatable, Sendable {
         )
         guard let applicationEndpoint = endpoints[applicationKey],
               let applicationURL = applicationEndpoint.url(
-                path: graph.applicationPath,
-                hostname: graph.applicationBrowserHostname
+                path: graph.applicationPath
               ) else {
             throw EnmannerError.invalidManifest([
                 "application must reference an HTTP or HTTPS endpoint."

@@ -1426,11 +1426,6 @@ if [[ ! -e "$manifest_path" && "$manifest_status" == "inferred" ]]; then
     echo '      "path": "/",'
     echo '      "timeoutSeconds": 30'
     echo '    }'
-    echo '  },'
-    echo '  "window": {'
-    echo '    "width": 1200,'
-    echo '    "height": 800,'
-    echo '    "resizable": true'
     echo '  }'
     echo '}'
   } > "$manifest_path"
@@ -1477,7 +1472,7 @@ if [[ ! -e "$manifest_path" &&
       echo '      },'
       echo '      "readiness": {"endpoint": "http", "path": "/", "timeoutSeconds": 30}'
       echo '    }'
-      echo '  },'
+      echo '  }'
     else
       echo '  "application": {'
     printf '    "command": %s,\n' "$draft_command"
@@ -1501,13 +1496,8 @@ if [[ ! -e "$manifest_path" &&
     echo '      "path": "/",'
     echo '      "timeoutSeconds": 30'
     echo '    }'
-      echo '  },'
+      echo '  }'
     fi
-    echo '  "window": {'
-    echo '    "width": 1200,'
-    echo '    "height": 800,'
-    echo '    "resizable": true'
-    echo '  }'
     echo '}'
   } > "$draft_manifest_path"
 fi
