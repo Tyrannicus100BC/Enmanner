@@ -7,7 +7,32 @@ source_example_dir="${ENMANNER_SMOKE_EXAMPLE_DIR:-$repository_dir/examples/vite-
 smoke_workspace="$(mktemp -d "${TMPDIR:-/tmp}/enmanner-vite-smoke.XXXXXX")"
 example_dir="$smoke_workspace/Vite Example With Spaces"
 runtime_events="$(mktemp "${TMPDIR:-/tmp}/enmanner-runtime-events.XXXXXX")"
-trap 'rm -f "$runtime_events"; rm -rf "$smoke_workspace"' EXIT
+managed_launcher_pid=""
+managed_bundle_identifier="local.enmanner.vite-example.development"
+managed_log=""
+managed_private_status=""
+managed_status_error=""
+cleanup() {
+  if [[ -n "$managed_launcher_pid" ]] &&
+    kill -0 "$managed_launcher_pid" 2>/dev/null; then
+    /usr/bin/osascript - "$managed_bundle_identifier" <<'APPLESCRIPT' >/dev/null 2>&1 || true
+on run arguments
+  tell application id (item 1 of arguments) to quit
+end run
+APPLESCRIPT
+    for _ in {1..100}; do
+      kill -0 "$managed_launcher_pid" 2>/dev/null || break
+      sleep 0.05
+    done
+    kill -KILL "$managed_launcher_pid" 2>/dev/null || true
+  fi
+  rm -f "$runtime_events"
+  [[ -z "$managed_log" ]] || rm -f "$managed_log"
+  [[ -z "$managed_private_status" ]] || rm -f "$managed_private_status"
+  [[ -z "$managed_status_error" ]] || rm -f "$managed_status_error"
+  rm -rf "$smoke_workspace"
+}
+trap cleanup EXIT
 
 # Exercise the current framework source, not the example's intentionally
 # receipt-pinned installed copy. The isolated project also keeps generated app
@@ -45,6 +70,211 @@ jq -s -e '
     (.bundleIdentifier | endswith(".development")) and
     (.icon.packaging == "developmentIcns")
   ' >/dev/null
+
+development_launcher="$example_dir/Enmanner Vite Example Development.app/Contents/MacOS/EnmannerLauncher"
+managed_log="$(mktemp "${TMPDIR:-/tmp}/enmanner-managed-runtime.XXXXXX")"
+managed_private_status="$(mktemp "${TMPDIR:-/tmp}/enmanner-managed-status.XXXXXX")"
+managed_status_error="$(mktemp "${TMPDIR:-/tmp}/enmanner-managed-error.XXXXXX")"
+rm -f "$managed_private_status"
+/usr/bin/env -i \
+  HOME="${HOME:-}" \
+  USER="${USER:-}" \
+  LOGNAME="${LOGNAME:-${USER:-}}" \
+  TMPDIR="${TMPDIR:-/tmp}" \
+  LANG="${LANG:-en_US.UTF-8}" \
+  PATH="/usr/bin:/bin:/usr/sbin:/sbin" \
+  ENMANNER_TEST_STATUS_FILE="$managed_private_status" \
+  ENMANNER_TEST_ENABLE_RUNTIME_CONTROL=1 \
+  ENMANNER_TEST_SUPPRESS_BROWSER=1 \
+  "$development_launcher" \
+  >"$managed_log" 2>&1 &
+managed_launcher_pid="$!"
+managed_status=""
+for _ in {1..300}; do
+  if managed_status="$(
+    "$example_dir/.enmanner/scripts/runtime-status" --json 2>"$managed_status_error"
+  )" && [[ "$(
+    printf '%s' "$managed_status" |
+      /usr/bin/plutil -extract state raw -o - - 2>/dev/null
+  )" == "ready" ]]; then
+    break
+  fi
+  if ! kill -0 "$managed_launcher_pid" 2>/dev/null; then
+    echo "Error: managed runtime exited before status became ready." >&2
+    tail -n 30 "$managed_log" >&2
+    exit 1
+  fi
+  sleep 0.1
+done
+if [[ -z "$managed_status" ]] || [[ "$(
+  printf '%s' "$managed_status" |
+    /usr/bin/plutil -extract state raw -o - - 2>/dev/null || true
+)" != "ready" ]]; then
+  echo "Error: managed runtime did not publish ready status." >&2
+  cat "$managed_status_error" >&2
+  tail -n 30 "$managed_log" >&2
+  exit 1
+fi
+initial_generation="$(
+  printf '%s' "$managed_status" |
+    /usr/bin/plutil -extract runtimeGeneration raw -o - -
+)"
+initial_url="$(
+  printf '%s' "$managed_status" |
+    /usr/bin/plutil -extract applicationURL raw -o - -
+)"
+if [[ "$initial_generation" != "1" || -z "$initial_url" ]]; then
+  echo "Error: managed runtime status did not identify its first ready generation." >&2
+  exit 1
+fi
+
+wrong_project="$smoke_workspace/Wrong Project"
+mkdir -p "$wrong_project/.enmanner/scripts" "$wrong_project/enmanner"
+cp "$example_dir/.enmanner/scripts/runtime-status" \
+  "$wrong_project/.enmanner/scripts/runtime-status"
+cp "$example_dir/enmanner/enmanner.json" \
+  "$wrong_project/enmanner/enmanner.json"
+if "$wrong_project/.enmanner/scripts/runtime-status" --json >/dev/null 2>&1; then
+  echo "Error: runtime status accepted a different project with the same identifier." >&2
+  exit 1
+fi
+
+/usr/bin/sed -i '' \
+  's/^VITE_GREETING=.*/VITE_GREETING=Externally reloaded by Enmanner./' \
+  "$example_dir/.env"
+updated_status=""
+for _ in {1..600}; do
+  updated_status="$(
+    "$example_dir/.enmanner/scripts/runtime-status" --json 2>/dev/null || true
+  )"
+  updated_generation="$(
+    printf '%s' "$updated_status" |
+      /usr/bin/plutil -extract runtimeGeneration raw -o - - 2>/dev/null || true
+  )"
+  updated_state="$(
+    printf '%s' "$updated_status" |
+      /usr/bin/plutil -extract state raw -o - - 2>/dev/null || true
+  )"
+  if [[ "$updated_state" == "ready" && "$updated_generation" == "2" ]]; then
+    break
+  fi
+  sleep 0.1
+done
+updated_url="$(
+  printf '%s' "$updated_status" |
+    /usr/bin/plutil -extract applicationURL raw -o - -
+)"
+configuration_stale="$(
+  printf '%s' "$updated_status" |
+    /usr/bin/plutil -extract configuration.changedSinceLaunch raw -o - -
+)"
+if [[ "$updated_url" != "$initial_url" || "$configuration_stale" != "false" ]]; then
+  echo "Error: external configuration restart changed endpoints or remained stale." >&2
+  exit 1
+fi
+if ! /usr/bin/curl --silent --show-error --fail \
+  "${updated_url%/}/src/main.js" |
+  grep -Fq "Externally reloaded by Enmanner."; then
+  echo "Error: managed endpoint did not expose externally edited configuration." >&2
+  exit 1
+fi
+
+manual_status="$(
+  "$example_dir/.enmanner/scripts/runtime-restart" --wait --json
+)"
+manual_generation="$(
+  printf '%s' "$manual_status" |
+    /usr/bin/plutil -extract runtimeGeneration raw -o - -
+)"
+manual_url="$(
+  printf '%s' "$manual_status" |
+    /usr/bin/plutil -extract applicationURL raw -o - -
+)"
+if [[ "$manual_generation" != "3" || "$manual_url" != "$initial_url" ]]; then
+  echo "Error: supported runtime restart did not preserve the managed endpoint." >&2
+  exit 1
+fi
+
+valid_configuration="$smoke_workspace/valid.env"
+cp "$example_dir/.env" "$valid_configuration"
+printf '\nVITE_GREETING=duplicate\n' >> "$example_dir/.env"
+invalid_status=""
+for _ in {1..300}; do
+  invalid_status="$(
+    "$example_dir/.enmanner/scripts/runtime-status" --json 2>/dev/null || true
+  )"
+  invalid_state="$(
+    printf '%s' "$invalid_status" |
+      /usr/bin/plutil -extract state raw -o - - 2>/dev/null || true
+  )"
+  [[ "$invalid_state" == "waitingForConfiguration" ]] && break
+  sleep 0.1
+done
+invalid_stale="$(
+  printf '%s' "$invalid_status" |
+    /usr/bin/plutil -extract configuration.changedSinceLaunch raw -o - -
+)"
+if [[ "$invalid_state" != "waitingForConfiguration" ||
+  "$invalid_stale" != "true" ]]; then
+  echo "Error: invalid external configuration did not stop the stale runtime." >&2
+  exit 1
+fi
+if /usr/bin/curl --silent --max-time 0.5 "$initial_url" >/dev/null 2>&1; then
+  echo "Error: managed endpoint remained available with invalid configuration." >&2
+  exit 1
+fi
+
+cp "$valid_configuration" "$example_dir/.env"
+recovered_status=""
+for _ in {1..600}; do
+  recovered_status="$(
+    "$example_dir/.enmanner/scripts/runtime-status" --json 2>/dev/null || true
+  )"
+  recovered_generation="$(
+    printf '%s' "$recovered_status" |
+      /usr/bin/plutil -extract runtimeGeneration raw -o - - 2>/dev/null || true
+  )"
+  recovered_state="$(
+    printf '%s' "$recovered_status" |
+      /usr/bin/plutil -extract state raw -o - - 2>/dev/null || true
+  )"
+  if [[ "$recovered_state" == "ready" &&
+    "$recovered_generation" == "4" ]]; then
+    break
+  fi
+  sleep 0.1
+done
+recovered_url="$(
+  printf '%s' "$recovered_status" |
+    /usr/bin/plutil -extract applicationURL raw -o - -
+)"
+if [[ "$recovered_state" != "ready" || "$recovered_url" != "$initial_url" ]]; then
+  echo "Error: corrected external configuration did not recover the runtime." >&2
+  exit 1
+fi
+
+/usr/bin/osascript - "$managed_bundle_identifier" <<'APPLESCRIPT' >/dev/null
+on run arguments
+  tell application id (item 1 of arguments) to quit
+end run
+APPLESCRIPT
+for _ in {1..100}; do
+  kill -0 "$managed_launcher_pid" 2>/dev/null || break
+  sleep 0.1
+done
+if kill -0 "$managed_launcher_pid" 2>/dev/null; then
+  echo "Error: managed runtime did not quit cleanly after reload testing." >&2
+  exit 1
+fi
+wait "$managed_launcher_pid" || true
+managed_launcher_pid=""
+rm -f "$managed_log"
+managed_log=""
+rm -f "$managed_private_status"
+managed_private_status=""
+rm -f "$managed_status_error"
+managed_status_error=""
+
 "$example_dir/.enmanner/scripts/test-app" --development --json |
   jq -e '
     .valid and

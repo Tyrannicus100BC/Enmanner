@@ -244,6 +244,7 @@ printf '%s\n' "$plan" | jq -e '
   (.inference.preferredPortDerivation.identifier == "local.enmanner.vite-project") and
   (.nameCandidates | length >= 1) and
   ([.requiredInstructions[].path] | index(".enmanner/instructions/integration.md")) and
+  ([.requiredInstructions[].path] | index(".enmanner/instructions/reload.md")) and
   ([.nextActionCommands[].id] | index("buildDevelopmentApp")) and
   ([.nextActionCommands[].id] | index("testDevelopmentApp")) and
   (.fileOperations | type == "array") and

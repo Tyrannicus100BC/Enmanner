@@ -63,6 +63,12 @@ sequence.
    `./.enmanner/scripts/finish-integration --runtime --json` executes the final
    lifecycle, build, native-test, and doctor gates in order.
 
+Before runtime validation, the integration must explicitly assign update
+ownership for frontend source, backend source, and runtime configuration. It
+must also query the supported runtime-status interface before starting a
+parallel development server and verify generated-app behavior through the
+managed endpoint.
+
 Enmanner reports completion as evidence milestones:
 
 - `configured`

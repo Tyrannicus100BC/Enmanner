@@ -199,6 +199,13 @@ Launcher diagnostics and Save & Restart share a fixed footer. Saving updates
 the project-owned dotenv file atomically and restarts the supervised process; no
 values enter the generated app bundle or native preferences.
 
+The launcher also watches the declared dotenv file by content so external
+atomic replacements and in-place edits receive the same whole-runtime
+restart with stable endpoint allocations. Changes are debounced and compared by
+content. If externally edited configuration is missing, malformed, or leaves a
+required field blank, Enmanner stops the old runtime and opens Project Settings
+rather than continuing with stale values. No general source watcher is added.
+
 Before the first server launch, an explicitly configured missing dotenv file is
 materialized from its template, or as an empty owner-only file when no template
 exists. Installation does not create machine-local state. If declared required
@@ -225,6 +232,16 @@ Logs are memory-only and capped at 500 entries for the combined view and for
 each component. Enmanner does not create a hidden log archive or leak project
 output into Application Support. Filtering hides noise without disabling
 capture, preserving failure diagnostics.
+
+While a normal generated app is running, it publishes a small, owner-only
+temporary control directory keyed by the manifest identifier. Project-local
+`runtime-status` and `runtime-restart` scripts validate the canonical project
+path before reporting or changing anything. Status includes the managed URL,
+launcher and component process identifiers, selected endpoints, runtime and
+component process generations, and whether declared configuration changed
+since the last ready generation. Restart requests may target the full runtime
+or one service and use the existing dependency-aware recovery path. The
+directory is removed on launcher exit and is not a durable registry.
 
 Build and runtime-validation scripts inspect free space on the project
 filesystem before doing expensive work. `doctor` reports available bytes and

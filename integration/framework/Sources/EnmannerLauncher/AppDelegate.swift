@@ -12,6 +12,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var windowController: MainWindowController?
     private var settingsWindowController: SettingsWindowController?
     private var logWindowController: LogWindowController?
+    private var configurationFileWatcher: ConfigurationFileWatcher?
+    private var runtimeControlCenter: RuntimeControlCenter?
     private var manifest: EnmannerManifest?
     private var projectURL: URL?
     private var applicationURL: URL?
@@ -26,12 +28,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var lastAgentDiagnostic = ""
     private var browserReopenNeedsForegroundOnly = true
     private var activationSequence = 0
+    private var runtimeState = "starting"
+    private var runtimeGeneration = 0
+    private var componentGenerations: [String: Int] = [:]
+    private var configurationChangedSinceLaunch = false
     private let testStatusFile = ProcessInfo.processInfo.environment[
         "ENMANNER_TEST_STATUS_FILE"
     ]
     private let suppressBrowserForTesting =
         ProcessInfo.processInfo.environment[
             "ENMANNER_TEST_SUPPRESS_BROWSER"
+        ] == "1"
+    private let enableRuntimeControlForTesting =
+        ProcessInfo.processInfo.environment[
+            "ENMANNER_TEST_ENABLE_RUNTIME_CONTROL"
         ] == "1"
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -69,9 +79,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private func beginLaunch() {
         do {
             try prepare()
+            try configureRuntimeControl()
             if try prepareProjectConfigurationForLaunch() {
+                runtimeState = "waitingForConfiguration"
+                runtimeControlCenter?.publishStatus()
+                startConfigurationFileWatcher()
                 return
             }
+            startConfigurationFileWatcher()
             startServer()
         } catch {
             presentPreparationFailure(error)
@@ -103,9 +118,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     func applicationWillTerminate(_ notification: Notification) {
         shuttingDown = true
+        runtimeState = "stopping"
+        runtimeControlCenter?.publishStatus()
+        configurationFileWatcher?.stop()
         readinessTask?.cancel()
         backupOperation.stop()
         supervisor.stop()
+        runtimeControlCenter?.stop()
     }
 
     private func prepare() throws {
@@ -132,6 +151,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             }
         }
         logBuffer.append("Resolved project at \(projectURL.path).")
+    }
+
+    private func configureRuntimeControl() throws {
+        guard testStatusFile == nil || enableRuntimeControlForTesting,
+            let manifest
+        else { return }
+        let control = try RuntimeControlCenter(
+            identifier: manifest.identifier,
+            statusProvider: { [weak self] in
+                self?.runtimeStatus() ?? [:]
+            },
+            restartHandler: { [weak self] component in
+                guard let self else {
+                    return "The Enmanner launcher is unavailable."
+                }
+                return self.handleRuntimeRestartRequest(component: component)
+            }
+        )
+        runtimeControlCenter = control
+        control.start()
+    }
+
+    private func startConfigurationFileWatcher() {
+        guard let projectURL, let configuration = manifest?.userConfiguration,
+            let fileURL = try? ProjectPaths.resolve(
+                configuration.file,
+                inside: projectURL
+            )
+        else { return }
+        let watcher = ConfigurationFileWatcher(fileURL: fileURL) { [weak self] in
+            self?.configurationFileChangedExternally()
+        }
+        configurationFileWatcher = watcher
+        watcher.start()
     }
 
     private func prepareProjectConfigurationForLaunch() throws -> Bool {
@@ -197,6 +250,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     private func startServer(reallocateEndpoints: Bool = false) {
         guard let manifest, let projectURL else { return }
+        runtimeState = "starting"
+        runtimeControlCenter?.publishStatus()
         let conflicts = LaunchConflictDetector.detect(
             manifest: manifest,
             projectURL: projectURL
@@ -221,8 +276,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 applicationURL = launch.applicationURL
                 reachedReadyState = true
                 isRecovering = false
+                runtimeState = "ready"
+                recordReadyComponents(Set(self.serviceComponentNames()))
+                configurationChangedSinceLaunch = false
+                configurationFileWatcher?.acceptCurrentContents()
                 logBuffer.append("Application is ready.")
                 writeTestStatus(launch: launch)
+                runtimeControlCenter?.publishStatus()
                 windowController?.showBrowserRunning(
                     at: launch.applicationURL
                 )
@@ -255,8 +315,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             "processIdentifier": Int(ProcessInfo.processInfo.processIdentifier)
         ]
         guard let data = try? JSONSerialization.data(
-            withJSONObject: status,
-            options: [.sortedKeys]
+                withJSONObject: status,
+                options: [.sortedKeys]
         ) else { return }
         do {
             try data.write(
@@ -275,6 +335,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         readinessTask?.cancel()
 
         guard reachedReadyState else {
+            runtimeState = "failed"
             showFailure(
                 error: EnmannerError.runtimeFailure(.init(
                     code: .componentExited,
@@ -294,6 +355,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         guard let attempt = recoveryCircuitBreaker.recordFailure() else {
             pendingRecoveryComponents.removeAll()
             supervisor.stop()
+            runtimeState = "failed"
             showFailure(
                 error: EnmannerError.runtimeFailure(.init(
                     code: .componentExited,
@@ -319,6 +381,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
 
         isRecovering = true
+        runtimeState = "reconnecting"
+        runtimeControlCenter?.publishStatus()
         let affected = supervisor.recoveryComponents(
             for: pendingRecoveryComponents
         )
@@ -356,7 +420,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 applicationURL = launch.applicationURL
                 reachedReadyState = true
                 isRecovering = false
+                runtimeState = "ready"
+                recordReadyComponents(recovery.affectedComponents)
                 logBuffer.append("Application recovery is ready.")
+                runtimeControlCenter?.publishStatus()
 
                 guard let applicationComponent = applicationComponentName(),
                       recovery.affectedComponents.contains(
@@ -388,6 +455,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     private func restartAfterConfigurationChange() {
+        configurationFileWatcher?.acceptCurrentContents()
+        configurationChangedSinceLaunch = true
         if let manifest, let projectURL {
             try? configureSecretRedaction(
                 manifest: manifest,
@@ -405,6 +474,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         logMessage: String
     ) {
         logBuffer.append(logMessage)
+        runtimeState = "reconnecting"
+        runtimeControlCenter?.publishStatus()
         readinessTask?.cancel()
         supervisor.stop()
         reachedReadyState = false
@@ -417,10 +488,178 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         startServer(reallocateEndpoints: reallocatingPort)
     }
 
+    private func configurationFileChangedExternally() {
+        guard let manifest, let projectURL,
+            let configuration = manifest.userConfiguration
+        else { return }
+        configurationChangedSinceLaunch = true
+        runtimeControlCenter?.publishStatus()
+
+        let fileURL: URL
+        do {
+            fileURL = try ProjectPaths.resolve(
+                configuration.file,
+                inside: projectURL
+            )
+        } catch {
+            stopForInvalidExternalConfiguration(error.localizedDescription)
+            return
+        }
+        guard FileManager.default.fileExists(atPath: fileURL.path) else {
+            stopForInvalidExternalConfiguration(
+                "\(configuration.file) was removed. Save Project Settings to recreate it."
+            )
+            return
+        }
+
+        do {
+            let store = DotEnvConfigurationStore(
+                projectURL: projectURL,
+                configuration: configuration
+            )
+            let missing = try store.missingRequiredFields()
+            guard missing.isEmpty else {
+                let labels = missing.map(\.label).joined(separator: ", ")
+                stopForInvalidExternalConfiguration(
+                    "Required project settings are blank: \(labels)."
+                )
+                return
+            }
+            try configureSecretRedaction(
+                manifest: manifest,
+                projectURL: projectURL
+            )
+        } catch {
+            stopForInvalidExternalConfiguration(error.localizedDescription)
+            return
+        }
+
+        restartServer(
+            reallocatingPort: false,
+            logMessage:
+                "External change detected in \(configuration.file); restarting runtime."
+        )
+    }
+
+    private func stopForInvalidExternalConfiguration(_ message: String) {
+        readinessTask?.cancel()
+        supervisor.stop()
+        reachedReadyState = false
+        isRecovering = false
+        runtimeState = "waitingForConfiguration"
+        logBuffer.append("Project configuration changed but cannot be applied: \(message)")
+        runtimeControlCenter?.publishStatus()
+        showSettings(
+            nil,
+            projectMessage:
+                "The externally edited configuration cannot be applied. \(message)"
+        )
+    }
+
+    private func serviceComponentNames() -> [String] {
+        guard let manifest,
+            let graph = try? RuntimeGraph.make(from: manifest)
+        else {
+            return []
+        }
+        return graph.components.compactMap { name, component in
+            component.kind == .service ? name : nil
+        }
+    }
+
+    private func recordReadyComponents(_ components: Set<String>) {
+        runtimeGeneration += 1
+        let services = Set(serviceComponentNames())
+        for component in components where services.contains(component) {
+            componentGenerations[component, default: 0] += 1
+        }
+    }
+
+    private func handleRuntimeRestartRequest(component: String?) -> String? {
+        guard runtimeState == "ready" || runtimeState == "failed" else {
+            return "The runtime is \(runtimeState); wait for it to settle before restarting."
+        }
+        if let component {
+            guard runtimeState == "ready" else {
+                return "A component restart requires a ready runtime."
+            }
+            guard serviceComponentNames().contains(component) else {
+                return "Unknown managed service component: \(component)."
+            }
+            restartComponent(component)
+        } else {
+            restartServer(
+                reallocatingPort: false,
+                logMessage: "Runtime restart requested through Enmanner tooling."
+            )
+        }
+        return nil
+    }
+
+    private func runtimeStatus() -> [String: Any] {
+        let canonicalProject =
+            projectURL?
+            .resolvingSymlinksInPath()
+            .standardizedFileURL.path ?? ""
+        let selectedPorts = Dictionary(
+            uniqueKeysWithValues: (currentLaunch?.selectedPorts ?? [:]).map {
+                key, value in
+                ("\(key.component).\(key.endpoint)", Int(value))
+            }
+        )
+        let processIdentifiers = supervisor.processIdentifiers
+        let components = Dictionary(
+            uniqueKeysWithValues: serviceComponentNames().map { component in
+                let state: String
+                let processIdentifier: Any
+                if runtimeState == "ready" {
+                    state = processIdentifiers[component] == nil ? "stopped" : "ready"
+                } else {
+                    state = runtimeState
+                }
+                if let identifier = processIdentifiers[component] {
+                    processIdentifier = Int(identifier)
+                } else {
+                    processIdentifier = NSNull()
+                }
+                return (
+                    component,
+                    [
+                        "state": state,
+                        "processIdentifier": processIdentifier,
+                        "processGeneration": componentGenerations[component, default: 0],
+                    ] as [String: Any]
+                )
+            }
+        )
+        var configuration: [String: Any] = [
+            "changedSinceLaunch": configurationChangedSinceLaunch
+        ]
+        if let file = manifest?.userConfiguration?.file {
+            configuration["file"] = file
+        }
+        let applicationURLValue: Any = applicationURL?.absoluteString ?? ""
+
+        return [
+            "schemaVersion": 1,
+            "project": canonicalProject,
+            "identifier": manifest?.identifier ?? "",
+            "state": runtimeState,
+            "launcherProcessIdentifier": Int(ProcessInfo.processInfo.processIdentifier),
+            "runtimeGeneration": runtimeGeneration,
+            "applicationURL": applicationURLValue,
+            "selectedPorts": selectedPorts,
+            "components": components,
+            "configuration": configuration,
+        ]
+    }
+
     private func showFailure(error: Error, exitStatus: Int32? = nil) {
         logBuffer.append(error.localizedDescription)
         reachedReadyState = false
         isRecovering = false
+        runtimeState = "failed"
+        runtimeControlCenter?.publishStatus()
         NSApplication.shared.activate(ignoringOtherApps: true)
         let controller = ensureWindowController()
         let runtimeFailure = (error as? EnmannerError)?.runtimeFailure
@@ -724,6 +963,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
         let affected = supervisor.recoveryComponents(for: [component])
         isRecovering = true
+        runtimeState = "reconnecting"
+        runtimeControlCenter?.publishStatus()
         if let applicationComponent = applicationComponentName(),
            affected.contains(applicationComponent) {
             windowController?.showReconnecting()
@@ -743,7 +984,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 currentLaunch = recovery.launch
                 applicationURL = recovery.launch.applicationURL
                 isRecovering = false
+                runtimeState = "ready"
+                recordReadyComponents(recovery.affectedComponents)
                 logBuffer.append("Manual component restart completed.")
+                runtimeControlCenter?.publishStatus()
                 if let applicationComponent = applicationComponentName(),
                    recovery.affectedComponents.contains(applicationComponent) {
                     windowController?.showBrowserRunning(
@@ -953,9 +1197,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             return
         }
         backupStatusMenuItem.title = "Last Backup: " + date.formatted(
-            date: .abbreviated,
-            time: .shortened
-        )
+                date: .abbreviated,
+                time: .shortened
+            )
     }
 
     private func addMenu(_ menu: NSMenu, titled title: String, to mainMenu: NSMenu) {

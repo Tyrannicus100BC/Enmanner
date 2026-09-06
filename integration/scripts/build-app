@@ -459,6 +459,8 @@ echo "  This launcher runs the local source checkout at: $project_dir"
 echo "  Managed runtime components: ${managed_components:-none}"
 echo "  Required external prerequisites: ${prerequisites:-none declared}"
 echo "  Source reload behavior comes from each component command; Enmanner adds no watcher."
+echo "  Declared project settings restart on Save or stable external file edits."
+echo "  Discover or restart this managed instance with ./.enmanner/scripts/runtime-status and runtime-restart."
 echo "  Runtime output appears under Window → Runtime Logs; Quit stops managed components."
 echo "  Move the whole project folder together on this Mac; rebuild on another Mac."
 build_succeeded=true

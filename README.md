@@ -111,6 +111,19 @@ opening the app:
 ./.enmanner/scripts/validate --runtime
 ```
 
+When the generated app is open, its authoritative managed endpoint and process
+generation are available to coding agents without searching for processes or
+guessing ports:
+
+```bash
+./.enmanner/scripts/runtime-status --json
+./.enmanner/scripts/runtime-restart --wait --json
+```
+
+Declared Project Settings restart the managed runtime whether they are saved in
+the native window or edited directly in the configured dotenv file. Source
+reload behavior still comes from each component command.
+
 The runtime check starts the configured server on an Enmanner-selected loopback
 port, waits for the full graph, observes all managed services for five seconds,
 then stops it. It can mutate project runtime state; inspect databases,

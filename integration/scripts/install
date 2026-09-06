@@ -1161,6 +1161,7 @@ emit_result() {
     printf '"requiredInstructions":['
     printf '{"path":".enmanner/instructions/integration.md","reason":"normative integration sequence"},'
     printf '{"path":".enmanner/instructions/development-server.md","reason":"startup, networking, readiness, and shutdown are always required"},'
+    printf '{"path":".enmanner/instructions/reload.md","reason":"frontend, backend, and configuration update ownership must be explicit"},'
     if [[ -f "$target_dir/.env" || -f "$target_dir/.env.example" ||
       -n "$(find "$target_dir" -maxdepth 2 -iname 'docker-compose*.y*ml' -print -quit 2>/dev/null)" ]]; then
       printf '{"path":".enmanner/instructions/security.md","reason":"dotenv or container configuration was detected"},'

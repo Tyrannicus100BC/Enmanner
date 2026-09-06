@@ -467,6 +467,11 @@ infers fields from it.
 
 Field types are `string`, `secret`, `boolean`, `file`, and `directory`. Saving
 preserves comments, ordering, and undeclared entries, then restarts the runtime.
+External stable edits to the declared file also restart the complete managed
+runtime while preserving allocated endpoints. Invalid external edits stop the
+old runtime and open Project Settings. This ownership applies only to the
+declared user-configuration file; source watching remains the responsibility of
+each component command.
 Secret controls affect native presentation only; values remain ordinary dotenv
 values and never enter the manifest, app bundle, logs, or diagnostics.
 

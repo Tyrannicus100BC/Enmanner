@@ -12,8 +12,8 @@
   after real applications establish safe patterns.
 - Add dependency-only preflight and isolated runtime-validation modes for
   stateful services.
-- Add machine-readable launcher status and bounded diagnostic log interfaces
-  without creating a large hidden workspace.
+- Add a bounded diagnostic log interface to the machine-readable launcher
+  status and restart controls without creating a large hidden workspace.
 - Evaluate optional Keychain-backed secret injection only for projects that
   explicitly choose a storage contract other than dotenv.
 - Extend icon-source diagnostics beyond the new automated appearance renderer.
