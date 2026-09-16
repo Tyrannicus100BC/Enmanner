@@ -160,7 +160,10 @@ through `NSWorkspace` in the default browser and continues to own the server.
 Automatic recovery never opens another browser window. A Dock click from
 another app foregrounds Enmanner so its menus, including Quit, are available.
 Clicking the Dock icon again while Enmanner is already active explicitly
-reopens the default browser. When the server is not ready, that second click
+reopens the default browser, including a fast second click during activation.
+Only the first reopen associated with activation is foreground-only; handling
+it immediately consumes that action even if activation notification arrives
+afterward. When the server is not ready, that second click
 reveals the native status window instead.
 
 ## Native menus and settings

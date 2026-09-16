@@ -27,6 +27,12 @@ if FileManager.default.fileExists(atPath: testsDirectory.path) {
             dependencies: ["EnmannerCore"]
         )
     )
+    targets.append(
+        .testTarget(
+            name: "EnmannerLauncherTests",
+            dependencies: ["EnmannerLauncher"]
+        )
+    )
 }
 
 let package = Package(

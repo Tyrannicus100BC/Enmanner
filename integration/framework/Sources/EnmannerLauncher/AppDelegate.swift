@@ -29,8 +29,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var hasOpenedBrowserAutomatically = false
     private var shuttingDown = false
     private var lastAgentDiagnostic = ""
-    private var browserReopenNeedsForegroundOnly = true
-    private var activationSequence = 0
+    private var browserReopenPolicy = BrowserReopenPolicy()
     private var runtimeState = "starting"
     private var runtimeGeneration = 0
     private var componentGenerations: [String: Int] = [:]
@@ -62,21 +61,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     func applicationWillBecomeActive(_ notification: Notification) {
-        browserReopenNeedsForegroundOnly = true
-        activationSequence += 1
-        let sequence = activationSequence
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-            guard let self,
-                  self.activationSequence == sequence,
-                  NSApplication.shared.isActive else {
-                return
-            }
-            self.browserReopenNeedsForegroundOnly = false
-        }
+        browserReopenPolicy.willBecomeActive(at: ProcessInfo.processInfo.systemUptime)
     }
 
     func applicationDidResignActive(_ notification: Notification) {
-        browserReopenNeedsForegroundOnly = true
+        browserReopenPolicy.didResignActive()
     }
 
     private func beginLaunch() {
@@ -104,13 +93,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         _ sender: NSApplication,
         hasVisibleWindows flag: Bool
     ) -> Bool {
-        guard !flag else { return true }
         // A Dock click that activates the app should only foreground it, leaving
-        // the menu bar available for Quit. A later click while it is already
-        // active reopens the browser. AppKit does not include the prior
-        // activation state in the reopen event, so retain the adjacent
-        // activation transition briefly to distinguish the two cases.
-        guard !browserReopenNeedsForegroundOnly else { return false }
+        // the menu bar available for Quit. Consume that first reopen even when
+        // a native window is visible so a fast second click is never swallowed.
+        let foregroundOnly = browserReopenPolicy.consumeReopen(
+            at: ProcessInfo.processInfo.systemUptime
+        )
+        guard !flag else { return true }
+        guard !foregroundOnly else { return false }
         if reachedReadyState, let applicationURL {
             NSWorkspace.shared.open(applicationURL)
         } else {
