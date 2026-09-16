@@ -12,6 +12,7 @@ public struct EnmannerManifest: Codable, Equatable, Sendable {
     public let userConfiguration: UserConfiguration?
     public let launchGuard: LaunchGuard?
     public let backup: Backup?
+    public let liveUpdates: LiveUpdates?
 
     public init(
         version: Int,
@@ -24,7 +25,8 @@ public struct EnmannerManifest: Codable, Equatable, Sendable {
         icon: Icon? = nil,
         userConfiguration: UserConfiguration? = nil,
         launchGuard: LaunchGuard? = nil,
-        backup: Backup? = nil
+        backup: Backup? = nil,
+        liveUpdates: LiveUpdates? = nil
     ) {
         self.version = version
         self.name = name
@@ -37,6 +39,7 @@ public struct EnmannerManifest: Codable, Equatable, Sendable {
         self.userConfiguration = userConfiguration
         self.launchGuard = launchGuard
         self.backup = backup
+        self.liveUpdates = liveUpdates
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -51,6 +54,7 @@ public struct EnmannerManifest: Codable, Equatable, Sendable {
         case userConfiguration
         case launchGuard
         case backup
+        case liveUpdates
     }
 
     public init(from decoder: Decoder) throws {
@@ -81,6 +85,15 @@ public struct EnmannerManifest: Codable, Equatable, Sendable {
             forKey: .launchGuard
         )
         backup = try container.decodeIfPresent(Backup.self, forKey: .backup)
+        liveUpdates = try container.decodeIfPresent(LiveUpdates.self, forKey: .liveUpdates)
+    }
+
+    public struct LiveUpdates: Codable, Equatable, Sendable {
+        public let adapter: String
+
+        public init(adapter: String = "vite") {
+            self.adapter = adapter
+        }
     }
 
     public struct Icon: Codable, Equatable, Sendable {
@@ -722,6 +735,9 @@ public enum ManifestValidator {
         var issues: [String] = []
         let fileManager = FileManager.default
 
+        if let liveUpdates = manifest.liveUpdates, liveUpdates.adapter != "vite" {
+            issues.append("liveUpdates.adapter must be vite.")
+        }
         if manifest.version != 3 {
             issues.append("version must be 3.")
         }

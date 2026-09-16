@@ -118,7 +118,7 @@ only when its component is in the affected set. Endpoint allocations remain
 stable. Recovery uses bounded exponential backoff and a rolling circuit
 breaker: more than five unexpected exits within 60 seconds stops automatic
 recovery. A successful readiness probe does not erase recent failures.
-Framework HMR remains untouched while its service stays up.
+Framework HMR remains untouched unless the project opts into the live-update adapter described below.
 
 The bundle also declares that Launch Services should prohibit multiple
 instances. Normal repeated opens therefore activate the existing app instead of
@@ -211,6 +211,34 @@ materialized from its template, or as an empty owner-only file when no template
 exists. Installation does not create machine-local state. If declared required
 values remain blank, the launcher opens Project Settings and waits rather than
 starting a server known to be misconfigured.
+
+## Pausing frontend updates
+
+Projects may declare `liveUpdates: { "adapter": "vite" }` and install the bundled
+Vite plugin in their project-owned Vite configuration. The View menu then exposes
+**Pause Live Updates**, enabled once the adapter has acknowledged the session.
+While paused, the checked item becomes **Resume Live Updates and Reload**.
+Resuming reloads connected pages once, discarding intermediate update messages.
+The pause is session-scoped; a new launcher session starts with updates enabled.
+
+The launcher creates a private temporary directory and passes its state file as
+`ENMANNER_LIVE_UPDATES_FILE` to managed services. Atomic state writes and a
+monotonic resume revision coordinate the adapter and browser. The adapter reports
+its presence through a short-lived file heartbeat; there is no HTTP mutation API.
+The session survives managed service restarts and is removed after shutdown.
+
+The Vite adapter suppresses standard update, full-reload, and error broadcasts
+while paused. A browser bridge, injected before the Vite client, polls a read-only,
+uncached state endpoint and intercepts only Vite HMR WebSocket messages and close
+events. This prevents Vite's reconnect reload while paused and reloads once on
+resume. Application WebSockets and custom HMR events remain untouched. Ordinary
+Vite runs without the session environment do not inject or activate this bridge.
+
+This holds the current frontend, not a snapshot of the runtime. Backend watchers,
+dotenv changes, manual navigation, lazy imports, and project-specific custom reload
+logic can still affect the app. Server-rendered integrations that bypass Vite's
+HTML transform, CSP restrictions on injected scripts, and other frameworks need
+separate integration and verification. See `docs/manifest.md` for setup.
 
 ## Failure UI and logs
 

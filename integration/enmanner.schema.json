@@ -32,6 +32,14 @@
         "minLength": 1
       }
     },
+    "liveUpdates": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["adapter"],
+      "properties": {
+        "adapter": { "const": "vite" }
+      }
+    },
     "icon": {
       "oneOf": [
         {

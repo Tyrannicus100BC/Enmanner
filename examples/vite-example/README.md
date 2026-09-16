@@ -37,3 +37,8 @@ To check startup and graceful shutdown without opening the UI:
 Use “View Logs” in a startup or failure state to inspect captured server output,
 “Copy for Coding Agent” to share a structured diagnostic, and “Reveal Project” to return to
 the source.
+
+The current framework also supports **View → Pause Live Updates**. After upgrading
+and rebuilding the example app, pause updates, edit the frontend several times,
+then choose **Resume Live Updates and Reload** to apply the latest source once.
+Backend/configuration changes and manual navigation are outside this pause.

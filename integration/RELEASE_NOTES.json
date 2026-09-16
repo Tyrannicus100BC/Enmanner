@@ -9,7 +9,8 @@
         "Expands the manifest and runtime for launch-conflict detection, backup commands, coding-agent diagnostics, durability reporting, and toolchain preflight without requiring a project manifest migration.",
         "Keeps JSON stdout machine-clean and reuses one verified Swift build per framework revision.",
         "Distinguishes uncommitted upgrade changes, newly added files, and missing framework files in Doctor.",
-        "Treats fixed application ports as stable browser origins."
+        "Treats fixed application ports as stable browser origins.",
+        "Adds opt-in Vite frontend pause/resume through View → Pause Live Updates; requires the bundled Vite adapter, a liveUpdates manifest declaration, and a launcher rebuild."
       ]
     }
   ]

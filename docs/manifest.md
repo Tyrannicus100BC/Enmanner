@@ -488,3 +488,42 @@ healthy and keeps the runtime owned by the Dock application.
 Composer `.icon` package when `actool` is available. A legacy `.icns` remains an
 explicit compatibility fallback as described by the icon integration
 instructions.
+
+## Optional live-update pause (Vite)
+
+To enable **View → Pause Live Updates** in the generated app, add this top-level
+manifest declaration:
+
+```json
+"liveUpdates": { "adapter": "vite" }
+```
+
+Add the distributed plugin to your existing project-owned Vite configuration
+(adjust the relative import for the location of that file):
+
+```js
+import { enmannerLiveUpdates } from './.enmanner/adapters/vite-live-updates.mjs';
+
+export default {
+  plugins: [enmannerLiveUpdates()],
+};
+```
+
+Preserve existing plugins and configuration. Upgrade the installed framework and
+rebuild the native app to gain the menu. The item is disabled until the adapter
+connects. Pause holds automatic frontend updates, full reloads, and error overlays;
+**Resume Live Updates and Reload** refreshes connected pages once with the latest
+source. Resuming can discard unsaved browser state, just like a manual refresh.
+Each fresh launcher session starts with live updates enabled.
+
+The adapter is intended for Vite-served HTML and is verified against Vite 7.
+Ordinary `vite` sessions without Enmanner retain their normal behavior. No additional
+npm dependency or project state file is required. Keep the adapter's injected script
+and read-only state endpoint available if the project has a CSP or service worker.
+Do not declare this capability for SSR pipelines that bypass Vite's HTML transform
+without first integrating and testing the browser bridge. Other frameworks are not
+yet supported.
+
+This does not freeze backend services, dotenv configuration restarts, dynamic
+imports, manual navigation, or custom project reload logic. Use an isolated build
+when you need the entire application to remain at a fixed version.

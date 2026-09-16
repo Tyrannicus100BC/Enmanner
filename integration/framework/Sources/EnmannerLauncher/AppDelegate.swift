@@ -5,7 +5,10 @@ import EnmannerCore
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private let logBuffer = LogBuffer()
     private let settings = AppSettings()
-    private lazy var supervisor = RuntimeSupervisor(logBuffer: logBuffer)
+    private var liveUpdates: LiveUpdateSession?
+    private lazy var supervisor = RuntimeSupervisor(
+        logBuffer: logBuffer, environmentOverrides: liveUpdates?.environment ?? [:]
+    )
     private lazy var backupOperation = BackupOperation(logBuffer: logBuffer)
     private var backupRunning = false
     private var backupStatusMenuItem: NSMenuItem?
@@ -125,6 +128,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         backupOperation.stop()
         supervisor.stop()
         runtimeControlCenter?.stop()
+        liveUpdates?.stop()
     }
 
     private func prepare() throws {
@@ -140,6 +144,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
         self.projectURL = projectURL
         self.manifest = manifest
+        if manifest.liveUpdates != nil {
+            liveUpdates = try LiveUpdateSession()
+        }
         try configureSecretRedaction(
             manifest: manifest,
             projectURL: projectURL
@@ -1014,6 +1021,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         switch menuItem.action {
+        case #selector(toggleLiveUpdates(_:)):
+            let paused = liveUpdates?.paused == true
+            menuItem.title = paused ? "Resume Live Updates and Reload" : "Pause Live Updates"
+            menuItem.state = paused ? .on : .off
+            return paused || liveUpdates?.isConnected == true
+
         case #selector(openApplicationInBrowser(_:)):
             return applicationURL != nil
         case #selector(revealProject(_:)):
@@ -1022,6 +1035,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             return manifest?.backup != nil && supervisor.plan != nil && !backupRunning
         default:
             return true
+        }
+    }
+
+    @objc private func toggleLiveUpdates(_ sender: Any?) {
+        guard let liveUpdates else { return }
+        do {
+            try liveUpdates.setPaused(!liveUpdates.paused)
+            logBuffer.append(liveUpdates.paused
+                ? "Live frontend updates paused. Backend and configuration changes remain active."
+                : "Live frontend updates resumed; connected pages will reload once.")
+        } catch {
+            let alert = NSAlert(error: error)
+            alert.runModal()
         }
     }
 
@@ -1143,6 +1169,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         addMenu(editMenu, titled: "Edit", to: mainMenu)
 
         let viewMenu = NSMenu(title: "View")
+        if manifest?.liveUpdates != nil {
+            viewMenu.addItem(item(
+                "Pause Live Updates", action: #selector(toggleLiveUpdates(_:)), target: self
+            ))
+            viewMenu.addItem(.separator())
+        }
         viewMenu.addItem(
             item(
                 "Enter Full Screen",

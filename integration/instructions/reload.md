@@ -14,7 +14,7 @@
   reported managed application URL when an instance is running. A parallel
   server is isolated testing and is not evidence about the generated app.
 
-Enmanner deliberately does not replace Vite or another framework's HMR channel.
+By default Enmanner does not replace Vite or another framework's HMR channel.
 While a server is healthy, the framework owns fine-grained updates. If a
 previously-ready server exits, Enmanner shows a reconnecting state, restarts the
 configured command with bounded backoff, waits for readiness, and loads the app
@@ -44,3 +44,21 @@ identifies the canonical project, managed URL, and new process generation.
 - Preserve durable user data while development processes restart.
 - Avoid watcher configurations that include generated `.app`, `.enmanner/.build`,
   database, upload, or cache directories.
+
+## Optional Vite pause control
+
+For projects whose HTML is served through Vite, the integration MAY enable the
+native **View → Pause Live Updates** control. Add top-level
+`"liveUpdates": { "adapter": "vite" }` to `enmanner/enmanner.json`, and import
+`enmannerLiveUpdates` from `.enmanner/adapters/vite-live-updates.mjs` into the
+project-owned Vite configuration, adding `enmannerLiveUpdates()` to its plugins.
+Preserve existing plugins. Rebuild the launcher after upgrading its sources.
+
+Verify source edits, HTML/CSS changes, error overlays, and a Vite restart while
+paused through the managed URL, then resume and verify one reload with current
+source. The pause applies to frontend updates only; it does not isolate backend
+code, configuration, navigation, or data. The browser bridge needs Vite HTML
+transforms and permission to run under the project's CSP. Do not infer support
+for arbitrary SSR pipelines or other frameworks. The native menu stays disabled
+until the server adapter acknowledges the session; that acknowledgement alone
+does not prove the project's browser integration works.

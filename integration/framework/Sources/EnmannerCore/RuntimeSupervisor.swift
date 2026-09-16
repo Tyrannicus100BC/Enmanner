@@ -45,6 +45,7 @@ public final class RuntimeSupervisor: @unchecked Sendable {
 
     private let queue = DispatchQueue(label: "local.enmanner.runtime-supervisor")
     private let logBuffer: LogBuffer
+    private let environmentOverrides: [String: String]
     private var supervisors: [String: ProcessSupervisor] = [:]
     private var currentPlan: RuntimePlan?
     private var retainedPorts: [RuntimePlan.EndpointKey: UInt16] = [:]
@@ -57,8 +58,9 @@ public final class RuntimeSupervisor: @unchecked Sendable {
     public var onExit: (@Sendable (ComponentExit) -> Void)?
     public var onEvent: (@Sendable (RuntimeEvent) -> Void)?
 
-    public init(logBuffer: LogBuffer) {
+    public init(logBuffer: LogBuffer, environmentOverrides: [String: String] = [:]) {
         self.logBuffer = logBuffer
+        self.environmentOverrides = environmentOverrides
     }
 
     public var isRunning: Bool {
@@ -615,7 +617,8 @@ public final class RuntimeSupervisor: @unchecked Sendable {
                 componentName: name,
                 component: component,
                 plan: plan,
-                projectURL: projectURL
+                projectURL: projectURL,
+                baseEnvironment: ProcessInfo.processInfo.environment.merging(environmentOverrides) { _, value in value }
             )
         } catch {
             throw runtimeFailure(
