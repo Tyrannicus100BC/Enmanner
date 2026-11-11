@@ -7,18 +7,17 @@
 - Before runtime validation, record the update owner for frontend source,
   backend source, and runtime configuration. For each class, identify
   framework HMR, a command-provided process watcher, Enmanner configuration
-  restart, or a supported manual restart. Do not infer backend watching from an
-  embedded frontend development server.
+  restart, or a supported manual restart. Check backend watching separately
+  from the frontend development server.
 - Before starting a separate development server, run
   `./.enmanner/scripts/runtime-status --json`. Verify changes through the
   reported managed application URL when an instance is running. A parallel
   server is isolated testing and is not evidence about the generated app.
 
-By default Enmanner does not replace Vite or another framework's HMR channel.
-While a server is healthy, the framework owns fine-grained updates. If a
-previously-ready server exits, Enmanner shows a reconnecting state, restarts the
-configured command with bounded backoff, waits for readiness, and loads the app
-again.
+The frontend framework owns fine-grained updates. If a previously-ready server
+exits, Enmanner restores the managed endpoint after restarting the configured
+command with bounded backoff and waiting for readiness. The open browser page
+can reconnect through the framework or reload at the same URL.
 
 When `userConfiguration.file` is declared, Enmanner watches that one file.
 External stable edits receive the same restart behavior as **Save & Restart**.
@@ -45,20 +44,20 @@ identifies the canonical project, managed URL, and new process generation.
 - Avoid watcher configurations that include generated `.app`, `.enmanner/.build`,
   database, upload, or cache directories.
 
-## Optional Vite pause control
+## Vite pause control
 
-For projects whose HTML is served through Vite, the integration MAY enable the
-native **View → Pause Live Updates** control. Add top-level
-`"liveUpdates": { "adapter": "vite" }` to `enmanner/enmanner.json`, and import
-`enmannerLiveUpdates` from `.enmanner/adapters/vite-live-updates.mjs` into the
-project-owned Vite configuration, adding `enmannerLiveUpdates()` to its plugins.
-Preserve existing plugins. Rebuild the launcher after upgrading its sources.
+For projects whose HTML is served through Vite, include the bundled
+`enmannerLiveUpdates()` plugin by default. Import it from
+`.enmanner/adapters/vite-live-updates.mjs` in the project-owned Vite configuration
+and add it alongside the existing plugins. **View → Pause Live Updates** appears
+when the plugin connects. A project can opt out with the top-level manifest
+setting `"liveUpdates": { "enabled": false }`. Rebuild the launcher after
+upgrading its sources.
 
 Verify source edits, HTML/CSS changes, error overlays, and a Vite restart while
 paused through the managed URL, then resume and verify one reload with current
 source. The pause applies to frontend updates only; it does not isolate backend
 code, configuration, navigation, or data. The browser bridge needs Vite HTML
 transforms and permission to run under the project's CSP. Do not infer support
-for arbitrary SSR pipelines or other frameworks. The native menu stays disabled
-until the server adapter acknowledges the session; that acknowledgement alone
-does not prove the project's browser integration works.
+for arbitrary SSR pipelines or other frameworks. Verify browser behavior
+through the managed URL even when the adapter connects.

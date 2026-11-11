@@ -97,8 +97,8 @@ listener or other incompatible owner still forces allocation of a fallback.
 ## Process lifecycle
 
 The launcher retains a supervisor for every managed service and marks
-intentional shutdown separately from unexpected exit. Closing the last window
-leaves either mode running without a window. On Quit (including Command-Q) or
+intentional shutdown separately from unexpected exit. Closing the last native
+window leaves the launcher and its services running. On Quit (including Command-Q) or
 retry it stops services in reverse dependency order. Each supervisor sends
 `SIGTERM` to its process group, waits up to two seconds, then sends `SIGKILL` to
 that group. This covers common package-manager descendants without starting
@@ -109,6 +109,9 @@ Tasks receive the same independent process-group ownership. An ordinary task
 must exit successfully and is not accepted if descendants remain. A task with a
 `completion` probe may expose temporary endpoints; once the probe passes,
 Enmanner stops the whole group and records the task as successful.
+Try Again and full runtime restart recheck prerequisites and rerun startup
+tasks in dependency order before waiting for service readiness. Component
+recovery reuses successful task results from the current startup.
 
 An exit before first readiness produces a component-attributed failure. After
 the app has been ready, Enmanner restarts the failed component and its
@@ -118,7 +121,8 @@ only when its component is in the affected set. Endpoint allocations remain
 stable. Recovery uses bounded exponential backoff and a rolling circuit
 breaker: more than five unexpected exits within 60 seconds stops automatic
 recovery. A successful readiness probe does not erase recent failures.
-Framework HMR remains untouched unless the project opts into the live-update adapter described below.
+Framework HMR remains in charge of frontend updates. The Vite adapter below
+adds a pause control for projects that load it.
 
 The bundle also declares that Launch Services should prohibit multiple
 instances. Normal repeated opens therefore activate the existing app instead of
@@ -217,9 +221,9 @@ starting a server known to be misconfigured.
 
 ## Pausing frontend updates
 
-Projects may declare `liveUpdates: { "adapter": "vite" }` and install the bundled
-Vite plugin in their project-owned Vite configuration. The View menu then exposes
-**Pause Live Updates**, enabled once the adapter has acknowledged the session.
+The launcher prepares a live-update session by default. **View → Pause Live
+Updates** appears once the bundled Vite plugin acknowledges the session.
+Projects can disable the control with `"liveUpdates": { "enabled": false }`.
 While paused, the checked item becomes **Resume Live Updates and Reload**.
 Resuming reloads connected pages once, discarding intermediate update messages.
 The pause is session-scoped; a new launcher session starts with updates enabled.
@@ -247,8 +251,9 @@ separate integration and verification. See `docs/manifest.md` for setup.
 
 The native state panel distinguishes starting, reconnecting, running in the browser,
 and failed. It appears after an explicit Dock reopen or when a failure needs
-attention. Failure
-includes the failed component, resolved argument array, working directory,
+attention. The resizable status window uses the same initial size across projects
+and remembers the user's resize. Failure details include the failed component,
+resolved argument array, working directory,
 exit status when known, and recent output. Users can show the bounded inline
 log view, copy a paste-ready coding-agent diagnostic, retry, or reveal the
 project without opening Terminal. The diagnostic includes the project path,

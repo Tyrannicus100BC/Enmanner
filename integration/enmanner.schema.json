@@ -35,9 +35,9 @@
     "liveUpdates": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["adapter"],
       "properties": {
-        "adapter": { "const": "vite" }
+        "adapter": { "const": "vite", "default": "vite" },
+        "enabled": { "type": "boolean", "default": true }
       }
     },
     "icon": {
@@ -90,9 +90,6 @@
     },
     "backup": {
       "$ref": "#/$defs/backup"
-    },
-    "window": {
-      "$ref": "#/$defs/window"
     }
   },
   "$defs": {
@@ -547,26 +544,6 @@
         },
         "environment": {
           "$ref": "#/$defs/environment"
-        }
-      }
-    },
-    "window": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["width", "height", "resizable"],
-      "properties": {
-        "width": {
-          "type": "number",
-          "minimum": 320,
-          "maximum": 4096
-        },
-        "height": {
-          "type": "number",
-          "minimum": 240,
-          "maximum": 2160
-        },
-        "resizable": {
-          "type": "boolean"
         }
       }
     }

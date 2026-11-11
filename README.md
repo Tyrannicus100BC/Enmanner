@@ -124,6 +124,10 @@ Declared Project Settings restart the managed runtime whether they are saved in
 the native window or edited directly in the configured dotenv file. Source
 reload behavior still comes from each component command.
 
+With the current launcher and bundled Vite plugin, choose **View → Pause Live
+Updates** to hold frontend updates while you work. Resuming reloads the page
+once with the latest edits. See the [Vite setup](docs/manifest.md#pausing-live-updates-in-vite).
+
 The runtime check starts the configured server on an Enmanner-selected loopback
 port, waits for the full graph, observes all managed services for five seconds,
 then stops it. It can mutate project runtime state; inspect databases,

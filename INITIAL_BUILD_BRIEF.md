@@ -1,5 +1,8 @@
 Build Enmanner: an AI-first macOS launcher for local web applications
 
+This is the original build brief. See [Architecture](docs/architecture.md) and
+the [manifest reference](docs/manifest.md) for current behavior and options.
+
 You are building the first working version of an open-source project provisionally named Enmanner.
 
 Enmanner is a lightweight, source-first macOS framework that turns a locally developed web application into something that behaves like a normal Mac application.

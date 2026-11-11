@@ -7,7 +7,6 @@ public struct EnmannerManifest: Codable, Equatable, Sendable {
     public let executableSearchPaths: [String]
     public let application: Application
     public let components: [String: Component]
-    public let window: Window
     public let icon: Icon?
     public let userConfiguration: UserConfiguration?
     public let launchGuard: LaunchGuard?
@@ -21,7 +20,6 @@ public struct EnmannerManifest: Codable, Equatable, Sendable {
         executableSearchPaths: [String] = [],
         application: Application,
         components: [String: Component] = [:],
-        window: Window = Window(),
         icon: Icon? = nil,
         userConfiguration: UserConfiguration? = nil,
         launchGuard: LaunchGuard? = nil,
@@ -34,7 +32,6 @@ public struct EnmannerManifest: Codable, Equatable, Sendable {
         self.executableSearchPaths = executableSearchPaths
         self.application = application
         self.components = components
-        self.window = window
         self.icon = icon
         self.userConfiguration = userConfiguration
         self.launchGuard = launchGuard
@@ -49,7 +46,6 @@ public struct EnmannerManifest: Codable, Equatable, Sendable {
         case executableSearchPaths
         case application
         case components
-        case window
         case icon
         case userConfiguration
         case launchGuard
@@ -71,10 +67,6 @@ public struct EnmannerManifest: Codable, Equatable, Sendable {
             [String: Component].self,
             forKey: .components
         ) ?? [:]
-        window = try container.decodeIfPresent(
-            Window.self,
-            forKey: .window
-        ) ?? Window()
         icon = try container.decodeIfPresent(Icon.self, forKey: .icon)
         userConfiguration = try container.decodeIfPresent(
             UserConfiguration.self,
@@ -90,9 +82,22 @@ public struct EnmannerManifest: Codable, Equatable, Sendable {
 
     public struct LiveUpdates: Codable, Equatable, Sendable {
         public let adapter: String
+        public let enabled: Bool
 
-        public init(adapter: String = "vite") {
+        public init(adapter: String = "vite", enabled: Bool = true) {
             self.adapter = adapter
+            self.enabled = enabled
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case adapter
+            case enabled
+        }
+
+        public init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            adapter = try container.decodeIfPresent(String.self, forKey: .adapter) ?? "vite"
+            enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
         }
     }
 
@@ -484,22 +489,6 @@ public struct EnmannerManifest: Codable, Equatable, Sendable {
         }
     }
 
-    public struct Window: Codable, Equatable, Sendable {
-        public let width: Double
-        public let height: Double
-        public let resizable: Bool
-
-        public init(
-            width: Double = 1200,
-            height: Double = 800,
-            resizable: Bool = true
-        ) {
-            self.width = width
-            self.height = height
-            self.resizable = resizable
-        }
-    }
-
     public struct UserConfiguration: Codable, Equatable, Sendable {
         public struct Field: Codable, Equatable, Sendable {
             public enum FieldType: String, Codable, Sendable {
@@ -755,11 +744,6 @@ public enum ManifestValidator {
         ) == nil {
             issues.append("identifier must look like a reverse-DNS identifier.")
         }
-        if !(320...4096).contains(Int(manifest.window.width)) ||
-            !(240...2160).contains(Int(manifest.window.height)) {
-            issues.append("window dimensions are outside the supported range.")
-        }
-
         validateRuntime(
             manifest,
             projectURL: projectURL,

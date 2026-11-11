@@ -2,10 +2,11 @@ import AppKit
 import EnmannerCore
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, NSMenuDelegate {
     private let logBuffer = LogBuffer()
     private let settings = AppSettings()
     private var liveUpdates: LiveUpdateSession?
+    private var liveUpdatesMenuItem: NSMenuItem?
     private lazy var supervisor = RuntimeSupervisor(
         logBuffer: logBuffer, environmentOverrides: liveUpdates?.environment ?? [:]
     )
@@ -34,17 +35,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var runtimeGeneration = 0
     private var componentGenerations: [String: Int] = [:]
     private var configurationChangedSinceLaunch = false
-    private let testStatusFile = ProcessInfo.processInfo.environment[
-        "ENMANNER_TEST_STATUS_FILE"
-    ]
-    private let suppressBrowserForTesting =
-        ProcessInfo.processInfo.environment[
-            "ENMANNER_TEST_SUPPRESS_BROWSER"
-        ] == "1"
-    private let enableRuntimeControlForTesting =
-        ProcessInfo.processInfo.environment[
-            "ENMANNER_TEST_ENABLE_RUNTIME_CONTROL"
-        ] == "1"
+    private let bundleURL: URL
+    private let testStatusFile: String?
+    private let suppressBrowserForTesting: Bool
+    private let enableRuntimeControlForTesting: Bool
+
+    init(
+        bundleURL: URL = Bundle.main.bundleURL,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) {
+        self.bundleURL = bundleURL
+        testStatusFile = environment["ENMANNER_TEST_STATUS_FILE"]
+        suppressBrowserForTesting = environment["ENMANNER_TEST_SUPPRESS_BROWSER"] == "1"
+        enableRuntimeControlForTesting = environment["ENMANNER_TEST_ENABLE_RUNTIME_CONTROL"] == "1"
+        super.init()
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApplication.shared.setActivationPolicy(.regular)
@@ -122,7 +127,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     private func prepare() throws {
-        let bundleURL = Bundle.main.bundleURL
         let projectURL = ProjectPaths.projectURL(forAppBundleURL: bundleURL)
         let manifest = try ManifestLoader.load(
             from: ProjectPaths.manifestURL(forAppBundleURL: bundleURL)
@@ -134,8 +138,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
         self.projectURL = projectURL
         self.manifest = manifest
-        if manifest.liveUpdates != nil {
-            liveUpdates = try LiveUpdateSession()
+        if manifest.liveUpdates?.enabled != false {
+            do {
+                liveUpdates = try LiveUpdateSession()
+            } catch {
+                logBuffer.append("Could not prepare the live update pause control: \(error.localizedDescription)")
+            }
         }
         try configureSecretRedaction(
             manifest: manifest,
@@ -686,7 +694,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private func presentPreparationFailure(_ error: Error) {
         NSApplication.shared.activate(ignoringOtherApps: true)
         let fallbackProjectURL = ProjectPaths.projectURL(
-            forAppBundleURL: Bundle.main.bundleURL
+            forAppBundleURL: bundleURL
         )
         lastAgentDiagnostic = AgentDiagnostic.make(
             projectURL: fallbackProjectURL,
@@ -707,7 +715,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         let controller = MainWindowController(
             manifest: fallbackManifest
         )
-        controller.onRevealProject = { [bundleURL = Bundle.main.bundleURL] in
+        controller.onRevealProject = { [bundleURL] in
             let project = ProjectPaths.projectURL(forAppBundleURL: bundleURL)
             NSWorkspace.shared.activateFileViewerSelecting([project])
         }
@@ -1011,12 +1019,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         switch menuItem.action {
-        case #selector(toggleLiveUpdates(_:)):
-            let paused = liveUpdates?.paused == true
-            menuItem.title = paused ? "Resume Live Updates and Reload" : "Pause Live Updates"
-            menuItem.state = paused ? .on : .off
-            return paused || liveUpdates?.isConnected == true
-
         case #selector(openApplicationInBrowser(_:)):
             return applicationURL != nil
         case #selector(revealProject(_:)):
@@ -1028,8 +1030,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
     }
 
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        guard let liveUpdates, let liveUpdatesMenuItem else { return }
+        liveUpdatesMenuItem.isHidden = !liveUpdates.paused && !liveUpdates.isConnected
+        liveUpdatesMenuItem.title = liveUpdates.paused
+            ? "Resume Live Updates and Reload"
+            : "Pause Live Updates"
+        liveUpdatesMenuItem.state = liveUpdates.paused ? .on : .off
+    }
+
     @objc private func toggleLiveUpdates(_ sender: Any?) {
-        guard let liveUpdates else { return }
+        guard let liveUpdates, liveUpdates.paused || liveUpdates.isConnected else { return }
         do {
             try liveUpdates.setPaused(!liveUpdates.paused)
             logBuffer.append(liveUpdates.paused
@@ -1159,11 +1170,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         addMenu(editMenu, titled: "Edit", to: mainMenu)
 
         let viewMenu = NSMenu(title: "View")
-        if manifest?.liveUpdates != nil {
-            viewMenu.addItem(item(
+        if liveUpdates != nil {
+            let pauseItem = item(
                 "Pause Live Updates", action: #selector(toggleLiveUpdates(_:)), target: self
-            ))
-            viewMenu.addItem(.separator())
+            )
+            pauseItem.isHidden = true
+            liveUpdatesMenuItem = pauseItem
+            viewMenu.addItem(pauseItem)
+            viewMenu.delegate = self
         }
         viewMenu.addItem(
             item(

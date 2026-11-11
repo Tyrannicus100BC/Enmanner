@@ -38,7 +38,8 @@ Use “View Logs” in a startup or failure state to inspect captured server out
 “Copy for Coding Agent” to share a structured diagnostic, and “Reveal Project” to return to
 the source.
 
-The current framework also supports **View → Pause Live Updates**. After upgrading
-and rebuilding the example app, pause updates, edit the frontend several times,
-then choose **Resume Live Updates and Reload** to apply the latest source once.
-Backend/configuration changes and manual navigation are outside this pause.
+After upgrading the example's pinned framework and rebuilding, **View → Pause
+Live Updates** appears when the Vite plugin connects. Pause updates, edit the
+frontend several times, then choose **Resume Live Updates and Reload** to apply
+the latest source once. Backend and configuration changes and manual navigation
+continue during the pause.

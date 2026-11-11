@@ -11,10 +11,5 @@
       "path": "/",
       "timeoutSeconds": 10
     }
-  },
-  "window": {
-    "width": 800,
-    "height": 600,
-    "resizable": true
   }
 }

@@ -13,8 +13,8 @@
   policies and continuous degraded-state monitoring remain future work.
 - Prerequisite checks and service readiness are startup gates, not continuous
   health monitors.
-- A successful startup task is retained for the launcher session. Task results
-  are not yet invalidated by dependency generations.
+- Component recovery reuses successful startup tasks from the current startup.
+  Task results are not yet invalidated by dependency generations.
 - Process-group termination cannot guarantee cleanup of children that
   deliberately detach into another session.
 - Free-port selection has a short close-before-launch race.

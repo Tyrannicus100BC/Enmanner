@@ -1,5 +1,8 @@
 # Enmanner MVP implementation plan
 
+This is the original MVP plan. See [Architecture](docs/architecture.md) and
+the [manifest reference](docs/manifest.md) for current behavior and options.
+
 This plan favors one complete, testable path: a Vite project with a project-local
 Enmanner integration that builds a small native launcher beside its source.
 

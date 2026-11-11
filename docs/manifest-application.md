@@ -57,3 +57,6 @@ The inline form lowers to Enmanner's normal component graph; there is no
 separate lifecycle implementation. After editing, run
 `./.enmanner/scripts/validate --json`, review state ownership, and then run
 `./.enmanner/scripts/validate --runtime --json`.
+
+For a Vite frontend, see [pausing live updates](manifest.md#pausing-live-updates-in-vite)
+for plugin setup and the manifest opt-out.

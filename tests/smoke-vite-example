@@ -128,6 +128,12 @@ if [[ "$initial_generation" != "1" || -z "$initial_url" ]]; then
   exit 1
 fi
 
+# The example manifest omits liveUpdates. The managed Vite plugin should still
+# receive a session and expose the initial, unpaused state.
+/usr/bin/curl --silent --show-error --fail \
+  "${initial_url%/}/__enmanner_live_updates" |
+  jq -e '.paused == false and .revision == 0' >/dev/null
+
 wrong_project="$smoke_workspace/Wrong Project"
 mkdir -p "$wrong_project/.enmanner/scripts" "$wrong_project/enmanner"
 cp "$example_dir/.enmanner/scripts/runtime-status" \

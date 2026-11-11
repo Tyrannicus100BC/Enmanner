@@ -18,8 +18,7 @@ final class ManifestTests: XCTestCase {
               "readiness": { "type": "http", "endpoint": "http", "path": "/" }
             }
           },
-          "application": { "component": "web", "endpoint": "http" },
-          "window": { "width": 800, "height": 600, "resizable": true }
+          "application": { "component": "web", "endpoint": "http" }
         }
         """#.utf8)
         let manifest = try JSONDecoder().decode(EnmannerManifest.self, from: data)
@@ -138,11 +137,6 @@ final class ManifestTests: XCTestCase {
                   "backup": {
                     "command": ["/usr/bin/true"],
                     "workingDirectory": "."
-                  },
-                  "window": {
-                    "width": 800,
-                    "height": 600,
-                    "resizable": true
                   }
                 }
                 """.utf8
@@ -237,11 +231,6 @@ final class ManifestTests: XCTestCase {
                   "application": {
                     "component": "frontend",
                     "endpoint": "web"
-                  },
-                  "window": {
-                    "width": 1200,
-                    "height": 800,
-                    "resizable": true
                   }
                 }
                 """.utf8
@@ -401,12 +390,7 @@ final class ManifestTests: XCTestCase {
                   "readiness": {"endpoint": "http"}
                 }
               },
-              "application": {"component": "web", "endpoint": "http"},
-              "window": {
-                "width": 1200,
-                "height": 800,
-                "resizable": true
-              }
+              "application": {"component": "web", "endpoint": "http"}
             }
             """.utf8
         )
@@ -448,12 +432,7 @@ final class ManifestTests: XCTestCase {
                   }
                 }
               },
-              "application": {"component": "web", "endpoint": "http"},
-              "window": {
-                "width": 800,
-                "height": 600,
-                "resizable": true
-              }
+              "application": {"component": "web", "endpoint": "http"}
             }
             """.utf8
         )
@@ -504,10 +483,21 @@ final class ManifestTests: XCTestCase {
         }
     }
 
-    func testWindowDefaults() {
-        XCTAssertEqual(EnmannerManifest.Window().width, 1200)
-        XCTAssertEqual(EnmannerManifest.Window().height, 800)
-        XCTAssertTrue(EnmannerManifest.Window().resizable)
+    func testLegacyWindowConfigurationIsIgnored() throws {
+        let data = Data(#"""
+        {
+          "version": 3,
+          "name": "Legacy",
+          "identifier": "local.enmanner.legacy",
+          "application": { "command": ["/usr/bin/true"], "readiness": { "path": "/" } },
+          "window": { "mode": "embedded", "width": 800, "height": 600, "resizable": false }
+        }
+        """#.utf8)
+        let manifest = try JSONDecoder().decode(EnmannerManifest.self, from: data)
+        let encoded = try JSONEncoder().encode(manifest)
+        let fields = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+
+        XCTAssertNil(fields["window"])
     }
 
     func testValidationRejectsWrongManifestVersion() {
@@ -594,11 +584,6 @@ final class ManifestTests: XCTestCase {
                   "application": {
                     "command": ["/usr/bin/true"],
                     "readiness": {"path": "/"}
-                  },
-                  "window": {
-                    "width": 800,
-                    "height": 600,
-                    "resizable": true
                   },
                   "icon": {
                     "modern": "enmanner/icon/AppIcon.icon",

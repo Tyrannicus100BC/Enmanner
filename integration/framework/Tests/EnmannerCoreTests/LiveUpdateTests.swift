@@ -27,9 +27,16 @@ final class LiveUpdateTests: XCTestCase {
     }
 
     func testLiveUpdatesCapabilityValidationAndRoundTrip() throws {
-        let base = #"{"version":3,"name":"Test","identifier":"local.test.app","application":{"command":["/usr/bin/true"]},"liveUpdates":{"adapter":"ADAPTER"}}"#
-        for adapter in ["vite", "unknown"] {
-            let manifest = try JSONDecoder().decode(EnmannerManifest.self, from: Data(base.replacingOccurrences(of: "ADAPTER", with: adapter).utf8))
+        let base = #"{"version":3,"name":"Test","identifier":"local.test.app","application":{"command":["/usr/bin/true"]},CONFIGURATION}"#
+        let configurations = [
+            (#""liveUpdates":{"adapter":"vite"}"#, "vite", true),
+            (#""liveUpdates":{"adapter":"unknown"}"#, "unknown", true),
+            (#""liveUpdates":{"enabled":false}"#, "vite", false)
+        ]
+        for (configuration, adapter, enabled) in configurations {
+            let data = Data(base.replacingOccurrences(of: "CONFIGURATION", with: configuration).utf8)
+            let manifest = try JSONDecoder().decode(EnmannerManifest.self, from: data)
+            XCTAssertEqual(manifest.liveUpdates, .init(adapter: adapter, enabled: enabled))
             let issues = ManifestValidator.validate(manifest, projectURL: URL(fileURLWithPath: "/tmp"))
             XCTAssertEqual(issues.contains("liveUpdates.adapter must be vite."), adapter != "vite")
             XCTAssertEqual(try JSONDecoder().decode(EnmannerManifest.self, from: JSONEncoder().encode(manifest)), manifest)

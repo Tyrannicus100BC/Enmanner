@@ -1,6 +1,6 @@
 import { readFileSync, writeFileSync, renameSync } from 'node:fs';
 
-// This bridge is intentionally opt-in. Without a launcher session, Vite behaves normally.
+// Without a launcher session, Vite behaves normally.
 export function enmannerLiveUpdates() {
   const stateFile = process.env.ENMANNER_LIVE_UPDATES_FILE;
   let state = { paused: false, revision: 0 };

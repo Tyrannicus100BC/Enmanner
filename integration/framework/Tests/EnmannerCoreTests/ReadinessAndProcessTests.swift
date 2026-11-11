@@ -204,7 +204,7 @@ final class ReadinessAndProcessTests: XCTestCase {
         }
     }
 
-    func testRuntimeSupervisorStartsGraphStopsServicesAndRunsTasksOnce() async throws {
+    func testRuntimeSupervisorStartsGraphStopsServicesAndRerunsTasks() async throws {
         let directory = try temporaryDirectory()
         let taskOutput = directory.appendingPathComponent("task-complete")
         let manifest = EnmannerManifest(
@@ -265,6 +265,7 @@ final class ReadinessAndProcessTests: XCTestCase {
             []
         )
         let supervisor = RuntimeSupervisor(logBuffer: LogBuffer())
+        defer { supervisor.stop(gracePeriod: 0.2) }
 
         let launch = try await supervisor.start(
             manifest: manifest,
@@ -290,10 +291,9 @@ final class ReadinessAndProcessTests: XCTestCase {
             manifest: manifest,
             projectURL: directory
         )
-        XCTAssertFalse(
+        XCTAssertTrue(
             FileManager.default.fileExists(atPath: taskOutput.path)
         )
-        supervisor.stop(gracePeriod: 0.2)
     }
 
     func testCompletionProbeStopsLongRunningTaskAndEmitsOutput() async throws {
@@ -507,6 +507,7 @@ final class ReadinessAndProcessTests: XCTestCase {
 
     func testRecoveryRestartsOnlyFailedServiceAndDependents() async throws {
         let directory = try temporaryDirectory()
+        let taskOutput = directory.appendingPathComponent("task-complete")
         let processReadiness = EnmannerManifest.Probe(
             type: .process,
             endpoint: nil,
@@ -528,9 +529,14 @@ final class ReadinessAndProcessTests: XCTestCase {
                     dependsOn: ["backend"],
                     readiness: processReadiness
                 ),
+                "prepare-consumer": .init(
+                    kind: .task,
+                    command: ["/usr/bin/touch", taskOutput.path],
+                    dependsOn: ["worker"]
+                ),
                 "consumer": .init(
                     command: ["/bin/sleep", "30"],
-                    dependsOn: ["worker"],
+                    dependsOn: ["prepare-consumer"],
                     readiness: processReadiness
                 ),
                 "metrics": .init(
@@ -553,6 +559,7 @@ final class ReadinessAndProcessTests: XCTestCase {
             []
         )
         let supervisor = RuntimeSupervisor(logBuffer: LogBuffer())
+        defer { supervisor.stop(gracePeriod: 0.2) }
         let workerExited = expectation(description: "worker exited")
         supervisor.onExit = { exit in
             if exit.component == "worker" {
@@ -565,6 +572,7 @@ final class ReadinessAndProcessTests: XCTestCase {
         )
         let before = supervisor.processIdentifiers
         let workerPID = try XCTUnwrap(before["worker"])
+        try FileManager.default.removeItem(at: taskOutput)
 
         XCTAssertEqual(Darwin.kill(workerPID, SIGKILL), 0)
         await fulfillment(of: [workerExited], timeout: 2)
@@ -577,14 +585,14 @@ final class ReadinessAndProcessTests: XCTestCase {
 
         XCTAssertEqual(
             recovery.affectedComponents,
-            Set(["worker", "consumer"])
+            Set(["worker", "prepare-consumer", "consumer"])
         )
         XCTAssertEqual(after["backend"], before["backend"])
         XCTAssertEqual(after["frontend"], before["frontend"])
         XCTAssertEqual(after["metrics"], before["metrics"])
         XCTAssertNotEqual(after["worker"], before["worker"])
         XCTAssertNotEqual(after["consumer"], before["consumer"])
-        supervisor.stop(gracePeriod: 0.2)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: taskOutput.path))
     }
 }
 

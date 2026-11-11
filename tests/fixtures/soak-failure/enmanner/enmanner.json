@@ -34,10 +34,5 @@
         "timeoutSeconds": 2
       }
     }
-  },
-  "window": {
-    "width": 900,
-    "height": 700,
-    "resizable": true
   }
 }

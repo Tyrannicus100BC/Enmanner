@@ -14,10 +14,5 @@
       "timeoutSeconds": 10,
       "bodyContains": "escaping fixture"
     }
-  },
-  "window": {
-    "width": 800,
-    "height": 600,
-    "resizable": true
   }
 }

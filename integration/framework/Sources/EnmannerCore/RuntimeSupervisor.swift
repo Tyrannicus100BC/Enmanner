@@ -99,6 +99,7 @@ public final class RuntimeSupervisor: @unchecked Sendable {
                 throw EnmannerError.processAlreadyRunning
             }
             starting = true
+            succeededTasks.removeAll()
             if reallocateEndpoints {
                 retainedPorts = [:]
             }
@@ -137,21 +138,14 @@ public final class RuntimeSupervisor: @unchecked Sendable {
                         projectURL: projectURL
                     )
                 case .task:
-                    if queue.sync(execute: { succeededTasks.contains(name) }) {
-                        logBuffer.append(
-                            "Startup task already succeeded in this launcher session.",
-                            component: name
-                        )
-                    } else {
-                        try await runTask(
-                            name: name,
-                            component: component,
-                            plan: plan,
-                            projectURL: projectURL
-                        )
-                        queue.sync {
-                            _ = succeededTasks.insert(name)
-                        }
+                    try await runTask(
+                        name: name,
+                        component: component,
+                        plan: plan,
+                        projectURL: projectURL
+                    )
+                    queue.sync {
+                        _ = succeededTasks.insert(name)
                     }
                 case .service:
                     try await startService(
@@ -303,7 +297,7 @@ public final class RuntimeSupervisor: @unchecked Sendable {
                 case .task:
                     if queue.sync(execute: { succeededTasks.contains(name) }) {
                         logBuffer.append(
-                            "Startup task remains satisfied for this launcher session.",
+                            "Startup task remains satisfied from the current startup.",
                             component: name
                         )
                     } else {

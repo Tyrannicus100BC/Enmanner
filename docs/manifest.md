@@ -248,7 +248,7 @@ for the application lifetime and requires `readiness`. HTTP and TCP readiness
 describe network services; process readiness gives workers an explicit,
 bounded minimum-uptime gate.
 
-`task` runs once per Enmanner launch after its dependencies are satisfied. It
+`task` runs on each full runtime startup after its dependencies are satisfied. It
 must exit with status zero before dependents start. Database migrations are a
 typical task. A task that must temporarily run a server may instead declare
 endpoints and a `completion` probe. Enmanner waits for that probe, terminates
@@ -257,8 +257,8 @@ preparation without a project-authored supervisor script. Probe timeouts may be
 as long as 86400 seconds. Normal automation uses `validate --runtime --json`
 for a bounded final result; during active diagnosis, `--json-lines` streams the
 task's labelled stdout and stderr as progress.
-After a task succeeds, recovery retains that result for the launcher session;
-restarting a failed service and its dependants does not rerun the task.
+Try Again and full runtime restart run all startup tasks again. Component
+recovery reuses successful task results from the current startup.
 
 `prerequisite` observes something Enmanner does not own. It has `check` rather
 than `command`; Enmanner never starts, adopts, restarts, or stops it. Docker
@@ -480,7 +480,11 @@ values and never enter the manifest, app bundle, logs, or diagnostics.
 The referenced application endpoint must use HTTP or HTTPS. Enmanner appends
 the configured application path, waits for the component's startup readiness,
 then opens it in the default browser. The launcher remains windowless while
-healthy and keeps the runtime owned by the Dock application.
+healthy and keeps the runtime owned by the Dock application. Enmanner sets the
+initial size of its own status window, which users can resize.
+
+Older manifests may contain a `window` block. Current launchers ignore it, and
+you can remove it to match the current schema.
 
 ## Icon
 
@@ -489,17 +493,11 @@ Composer `.icon` package when `actool` is available. A legacy `.icns` remains an
 explicit compatibility fallback as described by the icon integration
 instructions.
 
-## Optional live-update pause (Vite)
+## Pausing live updates in Vite
 
-To enable **View → Pause Live Updates** in the generated app, add this top-level
-manifest declaration:
-
-```json
-"liveUpdates": { "adapter": "vite" }
-```
-
-Add the distributed plugin to your existing project-owned Vite configuration
-(adjust the relative import for the location of that file):
+**View → Pause Live Updates** appears by default when the bundled Vite plugin
+connects. Add the plugin to your project-owned Vite configuration, adjusting
+the relative import for the location of that file:
 
 ```js
 import { enmannerLiveUpdates } from './.enmanner/adapters/vite-live-updates.mjs';
@@ -509,20 +507,24 @@ export default {
 };
 ```
 
-Preserve existing plugins and configuration. Upgrade the installed framework and
-rebuild the native app to gain the menu. The item is disabled until the adapter
-connects. Pause holds automatic frontend updates, full reloads, and error overlays;
-**Resume Live Updates and Reload** refreshes connected pages once with the latest
-source. Resuming can discard unsaved browser state, just like a manual refresh.
-Each fresh launcher session starts with live updates enabled.
+Preserve existing plugins and configuration. If your installed framework
+predates this feature, upgrade it and rebuild the native app. Pause holds
+automatic frontend updates, full reloads, and error overlays. **Resume Live
+Updates and Reload** refreshes connected pages once with the latest source.
+Resuming can discard unsaved browser state, just like a manual refresh. Each
+fresh launcher session starts with live updates enabled.
+
+To hide the control and disable its browser integration, set
+`"liveUpdates": { "enabled": false }` at the top level of the manifest. The
+optional `liveUpdates.adapter` defaults to `vite`. Existing declarations with
+only `"adapter": "vite"` still work.
 
 The adapter is intended for Vite-served HTML and is verified against Vite 7.
 Ordinary `vite` sessions without Enmanner retain their normal behavior. No additional
 npm dependency or project state file is required. Keep the adapter's injected script
 and read-only state endpoint available if the project has a CSP or service worker.
-Do not declare this capability for SSR pipelines that bypass Vite's HTML transform
-without first integrating and testing the browser bridge. Other frameworks are not
-yet supported.
+SSR pipelines that bypass Vite's HTML transform need separate integration and
+verification. Vite is the only supported adapter.
 
 This does not freeze backend services, dotenv configuration restarts, dynamic
 imports, manual navigation, or custom project reload logic. Use an isolated build

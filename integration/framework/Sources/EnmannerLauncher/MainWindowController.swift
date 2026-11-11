@@ -15,7 +15,8 @@ final class MainWindowController: NSWindowController {
     private let openButton = NSButton(title: "Open in Browser", target: nil, action: nil)
     private let logsScrollView = NSScrollView()
     private let logsTextView = NSTextView()
-    private var logsHeightConstraint: NSLayoutConstraint!
+    private var statusAboveLogs: NSLayoutConstraint!
+    private var statusAboveWindowBottom: NSLayoutConstraint!
     private var currentLogs = ""
     private var applicationURL: URL?
     private var diagnostic = ""
@@ -25,25 +26,16 @@ final class MainWindowController: NSWindowController {
     var onCopyDiagnostic: (() -> String)?
 
     init(manifest: EnmannerManifest) {
-        var style: NSWindow.StyleMask = [.titled, .closable, .miniaturizable]
-        if manifest.window.resizable {
-            style.insert(.resizable)
-        }
         let window = NSWindow(
-            contentRect: NSRect(
-                x: 0,
-                y: 0,
-                width: manifest.window.width,
-                height: manifest.window.height
-            ),
-            styleMask: style,
+            contentRect: NSRect(x: 0, y: 0, width: 720, height: 520),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
         )
         window.title = manifest.name
         window.minSize = NSSize(width: 520, height: 420)
         window.center()
-        window.setFrameAutosaveName("EnmannerMainWindow")
+        window.setFrameAutosaveName("EnmannerStatusWindow")
         super.init(window: window)
 
         configureViews()
@@ -125,7 +117,7 @@ final class MainWindowController: NSWindowController {
     func updateLogs(_ text: String) {
         currentLogs = text
         logsTextView.string = text
-        if !text.isEmpty {
+        if !logsScrollView.isHidden && !text.isEmpty {
             logsTextView.scrollToEndOfDocument(nil)
         }
     }
@@ -141,7 +133,7 @@ final class MainWindowController: NSWindowController {
         let views = [
             statePanel, titleLabel, messageLabel, activityIndicator,
             retryButton, logsButton, copyButton, revealButton, openButton,
-            logsScrollView, logsTextView
+            logsScrollView
         ]
         views.forEach {
             $0.translatesAutoresizingMaskIntoConstraints = false
@@ -195,21 +187,44 @@ final class MainWindowController: NSWindowController {
 
         logsTextView.isEditable = false
         logsTextView.isSelectable = true
+        logsTextView.isVerticallyResizable = true
+        logsTextView.isHorizontallyResizable = false
+        logsTextView.autoresizingMask = [.width]
+        logsTextView.maxSize = NSSize(
+            width: CGFloat.greatestFiniteMagnitude,
+            height: CGFloat.greatestFiniteMagnitude
+        )
         logsTextView.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
         logsTextView.textColor = .textColor
         logsTextView.backgroundColor = .textBackgroundColor
         logsTextView.textContainerInset = NSSize(width: 12, height: 12)
+        logsTextView.textContainer?.widthTracksTextView = true
         logsScrollView.documentView = logsTextView
         logsScrollView.hasVerticalScroller = true
         logsScrollView.borderType = .bezelBorder
 
         rootView.addSubview(statePanel)
         rootView.addSubview(logsScrollView)
-        logsHeightConstraint = logsScrollView.heightAnchor.constraint(equalToConstant: 0)
+        statusAboveLogs = statePanel.bottomAnchor.constraint(
+            lessThanOrEqualTo: logsScrollView.topAnchor, constant: -12
+        )
+        statusAboveWindowBottom = statePanel.bottomAnchor.constraint(
+            lessThanOrEqualTo: rootView.bottomAnchor, constant: -12
+        )
+        let preferredLogsHeight = logsScrollView.heightAnchor.constraint(equalToConstant: 230)
+        preferredLogsHeight.priority = .defaultLow
+        let centeredStatus = statePanel.centerYAnchor.constraint(
+            equalTo: rootView.centerYAnchor, constant: -20
+        )
+        centeredStatus.priority = .fittingSizeCompression
 
         let constraints: [NSLayoutConstraint] = [
             statePanel.centerXAnchor.constraint(equalTo: rootView.centerXAnchor),
-            statePanel.centerYAnchor.constraint(equalTo: rootView.centerYAnchor, constant: -20),
+            centeredStatus,
+            statePanel.topAnchor.constraint(
+                greaterThanOrEqualTo: rootView.topAnchor, constant: 16
+            ),
+            statusAboveWindowBottom,
             statePanel.widthAnchor.constraint(greaterThanOrEqualToConstant: 440),
             statePanel.widthAnchor.constraint(lessThanOrEqualTo: rootView.widthAnchor, constant: -48),
 
@@ -222,7 +237,8 @@ final class MainWindowController: NSWindowController {
             logsScrollView.leadingAnchor.constraint(equalTo: rootView.leadingAnchor),
             logsScrollView.trailingAnchor.constraint(equalTo: rootView.trailingAnchor),
             logsScrollView.bottomAnchor.constraint(equalTo: rootView.bottomAnchor),
-            logsHeightConstraint
+            logsScrollView.heightAnchor.constraint(greaterThanOrEqualToConstant: 96),
+            preferredLogsHeight
         ]
         NSLayoutConstraint.activate(constraints)
         logsScrollView.isHidden = true
@@ -270,10 +286,19 @@ final class MainWindowController: NSWindowController {
     }
 
     @objc private func toggleLogs() {
-        let showing = logsHeightConstraint.constant > 0
-        logsHeightConstraint.constant = showing ? 0 : 230
+        let showing = !logsScrollView.isHidden
+        if showing {
+            statusAboveLogs.isActive = false
+            statusAboveWindowBottom.isActive = true
+        } else {
+            statusAboveWindowBottom.isActive = false
+            statusAboveLogs.isActive = true
+        }
         logsScrollView.isHidden = showing
         logsButton.title = showing ? "View Logs" : "Hide Logs"
         rootView.layoutSubtreeIfNeeded()
+        if !showing && !currentLogs.isEmpty {
+            logsTextView.scrollToEndOfDocument(nil)
+        }
     }
 }

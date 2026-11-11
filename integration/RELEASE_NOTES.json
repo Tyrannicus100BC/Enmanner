@@ -10,7 +10,9 @@
         "Keeps JSON stdout machine-clean and reuses one verified Swift build per framework revision.",
         "Distinguishes uncommitted upgrade changes, newly added files, and missing framework files in Doctor.",
         "Treats fixed application ports as stable browser origins.",
-        "Adds opt-in Vite frontend pause/resume through View → Pause Live Updates; requires the bundled Vite adapter, a liveUpdates manifest declaration, and a launcher rebuild."
+        "Reruns startup tasks on Try Again and full runtime restart while preserving successful task results during component recovery.",
+        "Uses a shared resizable status window. Existing manifests can remove the old window block.",
+        "Adds Vite frontend pause/resume through View → Pause Live Updates when the bundled Vite plugin connects. No manifest entry is needed. Projects can opt out with liveUpdates.enabled set to false. Rebuild existing launchers to pick up the change."
       ]
     }
   ]
